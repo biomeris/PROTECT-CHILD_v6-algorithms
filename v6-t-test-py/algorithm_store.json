@@ -1,0 +1,53 @@
+{
+  "name": "v6-t-test-py",
+  "image": "v6-t-test-py",
+  "vantage6_version": "4.6",
+  "code_url": "https://mygitrepo.org",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "description": "Independent Samples t-test: This test compares the means of two independent groups to see if there is a significant difference between them.",
+      "type": "central",
+      "databases": [
+        {
+          "name": "Partial database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "organizations_to_include",
+          "type": "list",
+          "description": "The organizations to include in the task. These must be exactly "
+        },
+        {
+          "name": "columns",
+          "type": "list",
+          "description": "The columns to compute the t test for. The columns must be numeric. If not provided, all numeric columns are included.",
+          "default_value": null,
+          "has_default_value": true
+        }
+      ]
+    },
+    {
+      "name": "partial",
+      "description": "",
+      "type": "federated",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "columns",
+          "type": "list",
+          "description": "The columns to compute the mean and sample variance for. The columns must be numeric. If not provided, all numeric columns are included.",
+          "default_value": null,
+          "has_default_value": true
+        }
+      ]
+    }
+  ]
+}
