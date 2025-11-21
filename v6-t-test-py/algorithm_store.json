@@ -1,8 +1,8 @@
 {
-  "name": "v6-t-test-py",
-  "image": "v6-t-test-py",
-  "vantage6_version": "4.6",
-  "code_url": "https://mygitrepo.org",
+  "name": "T-test",
+  "image": "vramella/t-test",
+  "vantage6_version": "4.9",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-t-test-py",
   "documentation_url": "",
   "partitioning": "horizontal",
   "functions": [
@@ -27,6 +27,13 @@
           "description": "The columns to compute the t test for. The columns must be numeric. If not provided, all numeric columns are included.",
           "default_value": null,
           "has_default_value": true
+        },
+        {
+          "name": "group_col",
+          "type": "str",
+          "description": "Column defining the two comparison groups. If provided, the test is computed per group level across all organizations; otherwise the legacy node-versus-node comparison is used.",
+          "default_value": null,
+          "has_default_value": true
         }
       ]
     },
@@ -44,6 +51,13 @@
           "name": "columns",
           "type": "list",
           "description": "The columns to compute the mean and sample variance for. The columns must be numeric. If not provided, all numeric columns are included.",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "group_col",
+          "type": "str",
+          "description": "Column defining the two comparison groups. If provided, the test is computed per group level across all organizations; otherwise the legacy node-versus-node comparison is used.",
           "default_value": null,
           "has_default_value": true
         }
