@@ -2,7 +2,7 @@
 
 # PROTECT-CHILD - Vantage6 algorithms
 
-This (temporary) repository contains all algorithms developed for federated analysis with Vantage6 for the PROTECT-CHILD project.
+This (temporary) repository contains all algorithms developed for federated analysis with Vantage6 for the [PROTECT-CHILD](https://protect-child.eu/) project.
 
 Below are the operational instructions for developing a new algorithm.
 
