@@ -41,6 +41,17 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
+      ],
+      "ui_visualizations": [
+        {
+          "type": "table",
+          "description": "Table with t-statistics and p-values for the selected columns",
+          "name": "T-test results",
+          "schema": {
+            "location": [],
+            "columns": []
+          }
+        }
       ]
     },
     {
