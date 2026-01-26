@@ -1,0 +1,98 @@
+{
+  "image": "biomerisdocker/summary",
+  "vantage6_version": "4.9",
+  "description": "Compute common statistics such as mean, SD, min, and max",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-summary-py.git",
+  "functions": [
+    {
+      "type": "central",
+      "arguments": [
+        {
+          "type": "column_list",
+          "is_frontend_only": false,
+          "description": "The columns to include in the summary. If not given, all columns are included.",
+          "conditional_operator": null,
+          "conditional_value": null,
+          "name": "columns",
+          "default_value": null,
+          "display_name": "Columns to include",
+          "has_default_value": true
+        },
+        {
+          "type": "column_list",
+          "is_frontend_only": false,
+          "description": "Indicate which columns are to be treated numerical. If not given, this will be inferred from the data",
+          "conditional_operator": null,
+          "conditional_value": null,
+          "name": "numeric_columns",
+          "default_value": null,
+          "display_name": "Numerical columns",
+          "has_default_value": true
+        },
+        {
+          "type": "organization_list",
+          "is_frontend_only": false,
+          "description": "The organizations to include in the task. If not given, all organizations in the collaboration are included.",
+          "conditional_operator": null,
+          "conditional_value": null,
+          "name": "organizations_to_include",
+          "default_value": null,
+          "display_name": "Organizations to include",
+          "has_default_value": true
+        }
+      ],
+      "ui_visualizations": [
+        {
+          "type": "table",
+          "description": "Table with summary statistics of all numerical columns",
+          "name": "Summary of numerical columns",
+          "schema": {
+            "location": ["numeric"],
+            "columns": []
+          }
+        },
+        {
+          "type": "table",
+          "description": "Table with summary statistics of all categorical columns",
+          "name": "Summary of categorical columns",
+          "schema": {
+            "location": ["categorical"],
+            "columns": []
+          }
+        },
+        {
+          "type": "table",
+          "description": "Table with counts of unique values in the categorical columns",
+          "name": "Unique value counts",
+          "schema": {
+            "location": ["counts_unique_values"],
+            "columns": []
+          }
+        },
+        {
+          "type": "table",
+          "description": "Table with the number of complete data rows per data station",
+          "name": "Number of complete data rows",
+          "schema": {
+            "location": ["num_complete_rows_per_node"],
+            "columns": []
+          }
+        }
+      ],
+      "standalone": true,
+      "description": "Run summary algorithm and obtain statistics combined for all nodes",
+      "name": "summary",
+      "display_name": "Summary",
+      "databases": [
+        {
+          "description": "Data to compute the summary statistics for",
+          "name": "Database"
+        }
+      ]
+    }
+  ],
+  "name": "Summary statistics",
+  "developer_id": 1,
+  "partitioning": "horizontal",
+  "documentation_url": "https://algorithms.vantage6.ai/en/latest/v6-summary-py/docs/index.html"
+}

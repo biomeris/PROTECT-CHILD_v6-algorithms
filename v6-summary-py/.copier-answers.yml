@@ -1,0 +1,35 @@
+# DO NOT MODIFY THIS FILE MANUALLY.
+# This file contains the answers to the questions asked by the
+# v6-algorithm-template-creator (using the Copier package). The answers will
+# be updated if you re-run the template creator. Also, the answers in this file
+# may be used to submit your algorithm to a vantage6 algorithm store.
+_commit: 4.3.4
+_src_path: gh:vantage6/v6-algorithm-template.git
+advanced: true
+algorithm_description: Create a summary of the data (mean, range, variance, length,
+    ...)
+algorithm_name: v6-summary-py
+author: B. van Beusekom, H. Alradhi, F.C. Martin
+central_args:
+- columns
+- organizations_to_include
+central_function_client: true
+central_function_data: false
+central_function_name: summary
+copyright: IKNL, 2024
+docker_image: harbor2.vantage6.ai/algorithms/v6-summary-py
+docker_registry: harbor2.vantage6.ai
+has_central_function: true
+has_docs: true
+has_gh_pipeline: true
+has_partial_function: true
+open_source_license: mit
+partial_args:
+- columns
+partial_function_client: false
+partial_function_data: true
+partial_function_name: summary_per_data_station
+partial_function_number_databases: 1
+private_registry: true
+project_name: v6-summary-py
+use_vpn: false
