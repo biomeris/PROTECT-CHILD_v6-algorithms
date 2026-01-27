@@ -1,17 +1,15 @@
 {
-  "name": "T-test",
-  "image": "biomerisdocker/t-test",
-  "vantage6_version": "4.9",
-  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-t-test-py",
+  "name": "v6-t-test-py",
+  "image": "v6-t-test-py",
+  "vantage6_version": "4.6",
+  "code_url": "https://mygitrepo.org",
   "documentation_url": "",
   "partitioning": "horizontal",
   "functions": [
     {
       "name": "central",
-      "display_name": "T-test",
       "description": "Independent Samples t-test: This test compares the means of two independent groups to see if there is a significant difference between them.",
       "type": "central",
-      "standalone": true,
       "databases": [
         {
           "name": "Partial database 1"
@@ -20,45 +18,22 @@
       "arguments": [
         {
           "name": "organizations_to_include",
-          "type": "organization_list",
-          "description": "The organizations to include in the task.",
-          "has_default_value": false,
-          "is_frontend_only": false
+          "type": "list",
+          "description": "The organizations to include in the task. These must be exactly "
         },
         {
           "name": "columns",
-          "type": "column_list",
+          "type": "list",
           "description": "The columns to compute the t test for. The columns must be numeric. If not provided, all numeric columns are included.",
           "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
-        },
-        {
-          "name": "group_col",
-          "type": "column",
-          "description": "Column defining the two comparison groups. If provided, the test is computed per group level across all organizations; otherwise the legacy node-versus-node comparison is used.",
-          "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
-        }
-      ],
-      "ui_visualizations": [
-        {
-          "type": "table",
-          "description": "Table with t-statistics and p-values for the selected columns",
-          "name": "T-test results",
-          "schema": {
-            "location": [],
-            "columns": []
-          }
+          "has_default_value": true
         }
       ]
     },
     {
       "name": "partial",
-      "description": "Compute the mean and the sample variance of a column for a single data station.",
+      "description": "",
       "type": "federated",
-      "standalone": false,
       "databases": [
         {
           "name": "Database 1"
@@ -67,19 +42,10 @@
       "arguments": [
         {
           "name": "columns",
-          "type": "column_list",
+          "type": "list",
           "description": "The columns to compute the mean and sample variance for. The columns must be numeric. If not provided, all numeric columns are included.",
           "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
-        },
-        {
-          "name": "group_col",
-          "type": "column",
-          "description": "Column defining the two comparison groups. If provided, the test is computed per group level across all organizations; otherwise the legacy node-versus-node comparison is used.",
-          "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
+          "has_default_value": true
         }
       ]
     }
