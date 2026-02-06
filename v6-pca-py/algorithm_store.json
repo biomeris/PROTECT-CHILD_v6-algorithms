@@ -1,15 +1,18 @@
 {
-  "name": "v6-pca-py",
-  "image": "v6-pca-py",
-  "vantage6_version": "4.6",
-  "code_url": "https://mygitrepo.org",
+  "name": "Principal Component Analysis (PCA)",
+  "image": "biomerisdocker/pca",
+  "vantage6_version": "4.9",
+  "description": "A generalized PCA with privacy preserving that performs dimensionality reduction without sharing raw data",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-pca-py",
   "documentation_url": "",
   "partitioning": "horizontal",
   "functions": [
     {
       "name": "central",
-      "description": "A generalized PCA with privacy preserving that performs dimensionality reduction without sharing raw data",
+      "description": "Central part of a federated PCA algorithm.",
       "type": "central",
+      "display_name": "Principal Component Analysis (PCA)",
+      "standalone": true,
       "databases": [
         {
           "name": "Partial database 1"
@@ -20,16 +23,41 @@
       ],
       "arguments": [
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "features",
+          "type": "column_list",
+          "display_name": "Features",
+          "description": "List of column names to include in PCA. If None, numeric columns are used.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "n_components",
+          "type": "integer",
+          "display_name": "Number of components",
+          "description": "Number of principal components to return. If None, all components are returned.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "center",
+          "type": "boolean",
+          "display_name": "Global centering",
+          "description": "If True, compute covariance using global centering.",
+          "default_value": true,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
+      ],
+      "ui_visualizations": [
       ]
     },
     {
       "name": "partial",
-      "description": "",
+      "description": "Computes local sufficient statistics, such as n, sum of features and sum of outer products (X^T X)",
       "type": "federated",
+      "standalone": false,
       "databases": [
         {
           "name": "Database 1"
@@ -37,9 +65,13 @@
       ],
       "arguments": [
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "features",
+          "type": "column_list",
+          "display_name": "Features",
+          "description": "List of column names to include in PCA. If None, numeric columns are used.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     }
