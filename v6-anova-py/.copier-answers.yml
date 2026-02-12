@@ -1,0 +1,29 @@
+# DO NOT MODIFY THIS FILE MANUALLY.
+# This file contains the answers to the questions asked by the
+# v6-algorithm-template-creator (using the Copier package). The answers will
+# be updated if you re-run the template creator. Also, the answers in this file
+# may be used to submit your algorithm to a vantage6 algorithm store.
+_commit: 4.8.2
+_src_path: gh:vantage6/v6-algorithm-template.git
+advanced: false
+algorithm_description: Federated ANOVA for distributed hypothesis testing, enabling
+    variance analysis across multiple organizations without sharing raw data
+algorithm_name: v6-anova-py
+author: Andrea Ceschini
+central_args:
+- arg1
+central_function_client: true
+central_function_data: false
+central_function_name: central
+copyright: ''
+has_central_function: true
+has_docs: true
+has_partial_function: true
+open_source_license: mit
+partial_args:
+- arg1
+partial_function_client: false
+partial_function_data: true
+partial_function_name: partial
+partial_function_number_databases: 1
+project_name: v6-anova-py
