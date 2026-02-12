@@ -16,7 +16,6 @@ from vantage6.algorithm.tools.decorators import data
 from vantage6.algorithm.client import AlgorithmClient
 
 
-@data(1)
 @algorithm_client
 def central(
     client: AlgorithmClient,

@@ -18,9 +18,7 @@ from vantage6.algorithm.client import AlgorithmClient
 
 
 @data(1)
-@algorithm_client
 def partial(
-    client: AlgorithmClient,
     df1: pd.DataFrame,
     features: Optional[List[str]] = None,
 ) -> Any:
@@ -100,4 +98,3 @@ def partial(
     info("Partial PCA statistics computation finished")
     return result
 
-# Feel free to add more partial functions here.

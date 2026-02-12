@@ -13,7 +13,7 @@ author: Andrea Ceschini
 central_args:
 - arg1
 central_function_client: true
-central_function_data: true
+central_function_data: false
 central_function_name: central
 central_function_number_databases: 1
 copyright: ''
@@ -23,7 +23,7 @@ has_partial_function: true
 open_source_license: mit
 partial_args:
 - arg1
-partial_function_client: true
+partial_function_client: false
 partial_function_data: true
 partial_function_name: partial
 partial_function_number_databases: 1

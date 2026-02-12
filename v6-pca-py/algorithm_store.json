@@ -16,9 +16,6 @@
       "databases": [
         {
           "name": "Partial database 1"
-        },
-        {
-          "name": "Central database 1"
         }
       ],
       "arguments": [
