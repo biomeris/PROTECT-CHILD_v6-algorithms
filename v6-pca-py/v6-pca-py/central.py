@@ -19,7 +19,6 @@ from vantage6.algorithm.client import AlgorithmClient
 @algorithm_client
 def central(
     client: AlgorithmClient,
-    df1: pd.DataFrame,
     features: Optional[List[str]] = None,
     n_components: Optional[int] = None,
     center: bool = True,
