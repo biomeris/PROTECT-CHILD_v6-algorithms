@@ -15,7 +15,8 @@
       "standalone": true,
       "databases": [
         {
-          "name": "Partial database 1"
+          "description": "Data to compute PCA for",
+          "name": "Database"
         }
       ],
       "arguments": [
@@ -57,7 +58,8 @@
       "standalone": false,
       "databases": [
         {
-          "name": "Database 1"
+          "description": "Data to compute PCA for",
+          "name": "Database"
         }
       ],
       "arguments": [
