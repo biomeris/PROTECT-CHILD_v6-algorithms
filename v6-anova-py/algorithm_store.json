@@ -1,0 +1,42 @@
+{
+  "name": "ANOVA",
+  "image": "biomerisdocker/anova",
+  "vantage6_version": "4.9",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-anova-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "display_name": "ANOVA",
+      "description": "Federated ANOVA for distributed hypothesis testing, enabling variance analysis across multiple organizations without sharing raw data",
+      "type": "central",
+      "standalone": true,
+      "databases": [
+        {
+          "name": "Database"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "groups",
+          "type": "column_list",
+          "description": "List of column names that define the groups for ANOVA.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "features",
+          "type": "column_list",
+          "description": "List of column names to include in ANOVA. If None, numeric columns are used.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        }
+      ],
+      "ui_visualizations": [
+        
+      ]
+    }
+  ]
+}
