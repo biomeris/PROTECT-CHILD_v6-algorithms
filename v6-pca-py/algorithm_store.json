@@ -15,10 +15,8 @@
       "standalone": true,
       "databases": [
         {
-          "name": "Partial database 1"
-        },
-        {
-          "name": "Central database 1"
+          "description": "Data to compute PCA for",
+          "name": "Database"
         }
       ],
       "arguments": [
@@ -51,28 +49,6 @@
         }
       ],
       "ui_visualizations": [
-      ]
-    },
-    {
-      "name": "partial",
-      "description": "Computes local sufficient statistics, such as n, sum of features and sum of outer products (X^T X)",
-      "type": "federated",
-      "standalone": false,
-      "databases": [
-        {
-          "name": "Database 1"
-        }
-      ],
-      "arguments": [
-        {
-          "name": "features",
-          "type": "column_list",
-          "display_name": "Features",
-          "description": "List of column names to include in PCA. If None, numeric columns are used.",
-          "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
-        }
       ]
     }
   ]

@@ -16,11 +16,9 @@ from vantage6.algorithm.tools.decorators import data
 from vantage6.algorithm.client import AlgorithmClient
 
 
-@data(1)
 @algorithm_client
 def central(
     client: AlgorithmClient,
-    df1: pd.DataFrame,
     features: Optional[List[str]] = None,
     n_components: Optional[int] = None,
     center: bool = True,

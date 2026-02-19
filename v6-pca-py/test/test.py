@@ -20,8 +20,6 @@ current_path = Path(__file__).parent
 # Algorithm/package name
 # The algorithm name you chose may contain '-' which is not a valid Python
 # module name. The MockAlgorithmClient expects an importable module.
-ALGORITHM_NAME = "v6-pca-py"
-MODULE_NAME = ALGORITHM_NAME.replace("-", "-")
 
 # PCA test parameters
 # If None, the partial function will auto-select numeric columns.
@@ -45,7 +43,7 @@ client = MockAlgorithmClient(
             "input_data": {}
         }]
     ],
-    module=MODULE_NAME
+    module="v6-pca-py"
 )
 
 # list mock organizations
