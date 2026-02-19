@@ -35,43 +35,7 @@
         }
       ],
       "ui_visualizations": [
-        {
-          "type": "",
-          "description": "",
-          "name": "",
-          "schema": {
-            "location": [],
-            "columns": []
-          }
-        }
-      ]
-    },
-    {
-      "name": "partial",
-      "description": "Computes local statistics for ANOVA",
-      "type": "federated",
-      "standalone": false,
-      "databases": [
-        {
-          "name": "Database"
-        }
-      ],
-      "arguments": [
-        {
-          "name": "groups",
-          "type": "column_list",
-          "description": "List of column names that define the groups for ANOVA.",
-          "has_default_value": false,
-          "is_frontend_only": false
-        },
-        {
-          "name": "features",
-          "type": "column_list",
-          "description": "List of column names to include in ANOVA. If None, numeric columns are used.",
-          "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
-        }
+        
       ]
     }
   ]
