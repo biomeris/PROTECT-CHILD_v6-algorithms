@@ -1,0 +1,44 @@
+{
+  "name": "v6-fisher-exact-test-py",
+  "image": "v6-fisher-exact-test-py",
+  "vantage6_version": "4.6",
+  "code_url": "https://mygitrepo.org",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "description": "Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2\u00d72 contingency table",
+      "type": "central",
+      "databases": [
+        {
+          "name": "Partial database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "name": "partial",
+      "description": "",
+      "type": "federated",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "",
+          "description": ""
+        }
+      ]
+    }
+  ]
+}
