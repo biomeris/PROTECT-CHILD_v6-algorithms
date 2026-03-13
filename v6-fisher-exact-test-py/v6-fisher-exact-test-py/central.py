@@ -7,7 +7,7 @@ encryption if that is enabled).
 """
 
 from scipy.stats import fisher_exact
-from typing import Any
+from typing import Any, Literal
 
 from vantage6.algorithm.tools.util import info, warn, error
 from vantage6.algorithm.tools.decorators import algorithm_client
@@ -15,48 +15,42 @@ from vantage6.algorithm.client import AlgorithmClient
 
 
 @algorithm_client
-<<<<<<< before updating
-def central(client: AlgorithmClient, arg1) -> Any:
-    """Central part of the algorithm"""
-=======
 def central(
-    client: AlgorithmClient, organizations_to_include, group_column, outcome_column, alternative
+    client: AlgorithmClient,
+    group_column: str,
+    outcome_column: str,
+    organizations_to_include: list[int] | None = None,
+    alternative: Literal["two-sided", "less", "greater"] = "two-sided",
 ) -> Any:
+    """Central part of the algorithm"""
 
-    """ Central part of the algorithm """
->>>>>>> after updating
-    # TODO implement this function. Below is an example of a simple but typical
-    # central function.
-
-    # get all organizations (ids) within the collaboration so you can send a
-    # task to them.
-    organizations = client.organization.list()
-    org_ids = [organization.get("id") for organization in organizations]
+    # If organization_to_include is None, get all organizations
+    if organizations_to_include is None:
+        # get all organizations (ids) within the collaboration so you can send a
+        # task to them.
+        organizations = client.organization.list()
+        organizations_to_include = [
+            organization.get("id") for organization in organizations
+        ]
 
     # Define input parameters for a subtask
     info("Defining input parameters")
     input_ = {
         "method": "partial",
         "kwargs": {
-            # TODO add sensible values
-<<<<<<< before updating
-            "arg1": "some_value",
+            "group_column": group_column,
+            "outcome_column": outcome_column,
         },
-=======
-            "group_column": "some_value",
-            "outcome_column": "some_value",
-
-        }
->>>>>>> after updating
     }
 
     # create a subtask for all organizations in the collaboration.
     info("Creating subtask for all organizations in the collaboration")
     task = client.task.create(
         input_=input_,
-        organizations=org_ids,
-        name="My subtask",
-        description="This is a very important subtask",
+        organizations=organizations_to_include,
+        name="Local 2x2 contingency table",
+        description="Computes the local counts for each combination of group and binary"
+        " outcome",
     )
 
     # wait for node to return results of the subtask.
