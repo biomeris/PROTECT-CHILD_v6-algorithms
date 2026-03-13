@@ -5,6 +5,8 @@ that the central method is executed on a node, just like any other method.
 The results in a return statement are sent to the vantage6 server (after
 encryption if that is enabled).
 """
+
+from scipy.stats import fisher_exact
 from typing import Any
 
 from vantage6.algorithm.tools.util import info, warn, error
@@ -13,11 +15,8 @@ from vantage6.algorithm.client import AlgorithmClient
 
 
 @algorithm_client
-def central(
-    client: AlgorithmClient, arg1
-) -> Any:
-
-    """ Central part of the algorithm """
+def central(client: AlgorithmClient, arg1) -> Any:
+    """Central part of the algorithm"""
     # TODO implement this function. Below is an example of a simple but typical
     # central function.
 
@@ -33,8 +32,7 @@ def central(
         "kwargs": {
             # TODO add sensible values
             "arg1": "some_value",
-
-        }
+        },
     }
 
     # create a subtask for all organizations in the collaboration.
@@ -43,9 +41,8 @@ def central(
         input_=input_,
         organizations=org_ids,
         name="My subtask",
-        description="This is a very important subtask"
+        description="This is a very important subtask",
     )
-
 
     # wait for node to return results of the subtask.
     info("Waiting for results")
@@ -58,5 +55,6 @@ def central(
 
     # return the final results of the algorithm
     return results
+
 
 # TODO Feel free to add more central functions here.
