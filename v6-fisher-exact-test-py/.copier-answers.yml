@@ -5,27 +5,29 @@
 # may be used to submit your algorithm to a vantage6 algorithm store.
 _commit: 4.8.2
 _src_path: gh:vantage6/v6-algorithm-template.git
-advanced: true
+advanced: false
 algorithm_description: Fisher's exact test to evaluate the significance of associations
     between two categorical variables in a 2×2 contingency table
 algorithm_name: v6-fisher-exact-test-py
-author: Vittoria Ramella
+author: V. Ramella
 central_args:
-- arg1
+- organizations_to_include
+- group_column
+- outcome_column
+- alternative
 central_function_client: true
 central_function_data: false
 central_function_name: central
 copyright: Biomeris, 2026
 has_central_function: true
 has_docs: true
-has_gh_pipeline: false
 has_partial_function: true
 open_source_license: mit
 partial_args:
-- arg1
+- group_column
+- outcome_column
 partial_function_client: false
 partial_function_data: true
 partial_function_name: partial
 partial_function_number_databases: 1
 project_name: v6-fisher-exact-test-py
-use_vpn: false

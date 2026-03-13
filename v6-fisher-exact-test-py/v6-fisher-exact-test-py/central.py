@@ -15,8 +15,16 @@ from vantage6.algorithm.client import AlgorithmClient
 
 
 @algorithm_client
+<<<<<<< before updating
 def central(client: AlgorithmClient, arg1) -> Any:
     """Central part of the algorithm"""
+=======
+def central(
+    client: AlgorithmClient, organizations_to_include, group_column, outcome_column, alternative
+) -> Any:
+
+    """ Central part of the algorithm """
+>>>>>>> after updating
     # TODO implement this function. Below is an example of a simple but typical
     # central function.
 
@@ -31,8 +39,15 @@ def central(client: AlgorithmClient, arg1) -> Any:
         "method": "partial",
         "kwargs": {
             # TODO add sensible values
+<<<<<<< before updating
             "arg1": "some_value",
         },
+=======
+            "group_column": "some_value",
+            "outcome_column": "some_value",
+
+        }
+>>>>>>> after updating
     }
 
     # create a subtask for all organizations in the collaboration.

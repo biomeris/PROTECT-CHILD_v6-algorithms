@@ -15,7 +15,7 @@ from vantage6.algorithm.tools.decorators import data
 
 @data(1)
 def partial(
-    df1: pd.DataFrame, arg1
+    df1: pd.DataFrame, group_column, outcome_column
 ) -> Any:
 
     """ Decentral part of the algorithm """

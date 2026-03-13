@@ -47,7 +47,10 @@ central_task = client.task.create(
         "method":"central",
         "kwargs": {
             # TODO add sensible values
-            "arg1": "some_value",
+            "organizations_to_include": "some_value",
+            "group_column": "some_value",
+            "outcome_column": "some_value",
+            "alternative": "some_value",
 
         }
     },
@@ -62,7 +65,8 @@ task = client.task.create(
         "method":"partial",
         "kwargs": {
             # TODO add sensible values
-            "arg1": "some_value",
+            "group_column": "some_value",
+            "outcome_column": "some_value",
 
         }
     },

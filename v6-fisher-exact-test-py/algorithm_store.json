@@ -17,7 +17,22 @@
       ],
       "arguments": [
         {
-          "name": "arg1",
+          "name": "organizations_to_include",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "group_column",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "outcome_column",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "alternative",
           "type": "",
           "description": ""
         }
@@ -34,7 +49,12 @@
       ],
       "arguments": [
         {
-          "name": "arg1",
+          "name": "group_column",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "outcome_column",
           "type": "",
           "description": ""
         }
