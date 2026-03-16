@@ -6,6 +6,8 @@ The results in a return statement are sent to the vantage6 server (after
 encryption if that is enabled).
 """
 
+import pandas as pd
+import json
 from scipy.stats import fisher_exact
 from typing import Any, Literal
 
@@ -58,12 +60,37 @@ def central(
     results = client.wait_for_results(task_id=task.get("id"))
     info("Results obtained!")
 
-    # TODO probably you want to aggregate or combine these results here.
-    # For instance:
-    # results = [sum(result) for result in results]
+    tables = []
+
+    for r in results:
+        d = json.loads(r)
+
+        table = pd.DataFrame(d["data"], index=d["index"], columns=d["columns"])
+
+        tables.append(table)
+
+    aggregated_table = sum(tables)
+
+    groups = sorted(aggregated_table.index)
+    outcomes = sorted(aggregated_table.columns)
+
+    contingency_table = [
+        [
+            int(aggregated_table.loc[groups[0], outcomes[1]]),
+            int(aggregated_table.loc[groups[0], outcomes[0]]),
+        ],
+        [
+            int(aggregated_table.loc[groups[1], outcomes[1]]),
+            int(aggregated_table.loc[groups[1], outcomes[0]]),
+        ],
+    ]
+
+    oddsratio, p_value = fisher_exact(contingency_table, alternative=alternative)
+
+    fisher_results = {
+        "oddsratio": float(oddsratio),
+        "p_value": float(p_value),
+    }
 
     # return the final results of the algorithm
-    return results
-
-
-# TODO Feel free to add more central functions here.
+    return fisher_results

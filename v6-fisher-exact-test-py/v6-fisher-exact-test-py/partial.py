@@ -17,7 +17,7 @@ from .globals import FISHER_MINIMUM_NUMBER_OF_RECORDS
 
 
 @data(1)
-def partial(df: pd.DataFrame, group_column, outcome_column) -> pd.DataFrame:
+def partial(df: pd.DataFrame, group_column, outcome_column) -> str:
     """
     The function computes the local counts for each combination of group and binary
     outcome, forming a 2×2 contingency table. The aggregated counts are then sent to
