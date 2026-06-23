@@ -68,7 +68,7 @@ def get_unique_values(df: pd.DataFrame, group_column, outcome_column) -> Any:
 
 @federated
 @dataframe(1)
-def compute_fisher(
+def compute_local_contingency_table(
     df: pd.DataFrame, group_column, outcome_column, group_values, outcome_values
 ) -> Any:
     """

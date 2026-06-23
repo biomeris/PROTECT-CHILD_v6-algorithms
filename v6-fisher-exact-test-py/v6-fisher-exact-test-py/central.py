@@ -74,7 +74,7 @@ def central_function(
     # create a subtask for all organizations in the collaboration.
     info("Creating subtask to compute local contingency tables")
     task = client.task.create(
-        method="compute_fisher",
+        method="compute_local_contingency_table",
         arguments={
             "group_column": group_column,
             "outcome_column": outcome_column,
