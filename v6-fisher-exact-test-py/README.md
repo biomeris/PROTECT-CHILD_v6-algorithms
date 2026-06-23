@@ -18,20 +18,25 @@ Please ensure to execute the following steps. The steps are also indicated with
 TODO statements in the generated code - so you can also simply search the
 code for TODO instead of following the checklist below.
 
-- [ ] Include a URL to your code repository in setup.py.
-- [ ] Implement your algorithm functions.
-  - [ ] You are free to add more arguments to the functions. Be sure to add them
+- [ ] Fill out the fields in the `pyproject.toml` file, such as a URL to your code
+      repository. Alternatively, remove these fields.
+- [✅] Implement your algorithm functions.
+  - [✅] You are free to add more arguments to the functions. Be sure to add them
     *after* the `client` and dataframe arguments.
-  - [ ] When adding new arguments, if you run the `test/test.py` script, be sure
+  - [✅] When adding new arguments, if you run the `test/test.py` script, be sure
     to include values for these arguments in the `client.task.create()` calls
     that are available there.
-- [ ] If you are using Python packages that are not in the standard library, add
-  them to the `requirements.txt` and `setup.py` file.
+- [✅] If you are using Python packages that are not in the standard library, add
+  them to the `pyproject.toml` file. Note that `pandas` is already included by default.
 - [ ] Fill in the documentation template. This will help others to understand your
   algorithm, be able to use it safely, and to contribute to it.
 - [ ] If you want to submit your algorithm to a vantage6 algorithm store, be sure
   to fill in everything in ``algorithm_store.json`` (and be sure to update
-  it if you change function names, arguments, etc.).
+  it if you change function names, arguments, etc.). It is recommended to run
+  ``v6 algorithm generate-store-json`` to automatically generate the file - this
+  should work especially well if you have added proper docstrings to your functions.
+  Note that you do need the `vantage6` CLI to be able to use this command, which can be
+  installed by e.g. running `pip install vantage6` (or `uv pip install vantage6`).
 - [ ] Finally, remove this checklist section to keep the README clean.
 
 ### Dockerizing your algorithm

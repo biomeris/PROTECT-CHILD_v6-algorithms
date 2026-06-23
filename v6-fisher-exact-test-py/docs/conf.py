@@ -17,7 +17,7 @@
 
 project = "v6-fisher-exact-test-py"
 copyright = ""
-author = "V. Ramella"
+author = "V.Ramella"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

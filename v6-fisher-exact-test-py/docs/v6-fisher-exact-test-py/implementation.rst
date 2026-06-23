@@ -4,20 +4,20 @@ Implementation
 Overview
 --------
 
-Central (``central``)
+Central (``central_function``)
 -----------------
 The central part is responsible for the orchestration and aggregation of the algorithm.
 
 .. Describe the central function here.
 
-Partials
+Federated functions
 --------
-Partials are the computations that are executed on each node. The partials have access
-to the data that is stored on the node. The partials are executed in parallel on each
-node.
+Federated functions are the computations that are executed on each node. The federated
+functions have access to the data that is stored on the node. These functions are
+executed in parallel on each node.
 
-``partial``
+``federated_function``
 ~~~~~~~~~~~~~~~~
 
-.. Describe the partial function.
+.. Describe the function.
 

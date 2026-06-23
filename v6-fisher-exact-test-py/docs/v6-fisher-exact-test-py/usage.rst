@@ -23,41 +23,35 @@ first, especially the part about the
 
   from vantage6.client import Client
 
-  server = 'http://localhost'
-  port = 7601
-  api_path = '/api'
-  private_key = None
-  username = 'root'
-  password = 'password'
+  server_url = "http://localhost:7601/api"
+  auth_url = "http://localhost:8080"
   collaboration_id = 1
   organization_ids = [2]
 
   # Create connection with the vantage6 server
-  client = Client(server, port, api_path)
-  client.setup_encryption(private_key)
-  client.authenticate(username, password)
+  client = Client(server_url, auth_url)
+  client.authenticate()
 
   input_ = {
-    'method': 'central',
-    'args': [],
-    'kwargs': {
-        'organizations_to_include': 'my_value',
-        'group_column': 'my_value',
-        'outcome_column': 'my_value',
-        'alternative': 'my_value',
+    "method": "central_function",
+    "arguments": {
+        "organizations_to_include": "my_value",
+        "group_column": "my_value",
+        "outcome_column": "my_value",
+        "alternative": "my_value",
     },
-    'output_format': 'json'
+    "output_format": "json"
   }
 
   my_task = client.task.create(
       collaboration=collaboration_id,
       organizations=organization_ids,
-      name='v6-fisher-exact-test-py',
-      description='Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2×2 contingency table',
-      image='v6-fisher-exact-test-py',
+      name="v6-fisher-exact-test-py",
+      description="Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2×2 contingency table",
+      image="v6-fisher-exact-test-py",
       input_=input_,
       databases=[{"label": "default"}],
   )
 
-  task_id = my_task.get('id')
+  task_id = my_task.get("id")
   results = client.wait_for_results(task_id)

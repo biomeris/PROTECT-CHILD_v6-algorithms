@@ -1,5 +1,5 @@
 # basic python3 image as base
-FROM harbor2.vantage6.ai/infrastructure/algorithm-base
+FROM harbor2.vantage6.ai/infrastructure/algorithm-base:5.0
 
 # This is a placeholder that should be overloaded by invoking
 # docker build with '--build-arg PKG_NAME=...'
@@ -8,7 +8,6 @@ ARG PKG_NAME="v6-fisher-exact-test-py"
 # install federated algorithm
 COPY . /app
 RUN pip install /app
-
 
 # Set environment variable to make name of the package available within the
 # docker image.

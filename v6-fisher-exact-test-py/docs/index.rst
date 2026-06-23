@@ -11,6 +11,8 @@ Authors
 
 .. List authors.
 
+V.Ramella
+
 Source code
 -----------
 

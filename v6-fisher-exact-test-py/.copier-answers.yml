@@ -3,31 +3,32 @@
 # v6-algorithm-template-creator (using the Copier package). The answers will
 # be updated if you re-run the template creator. Also, the answers in this file
 # may be used to submit your algorithm to a vantage6 algorithm store.
-_commit: 4.8.2
+_commit: 5.0.0a3
 _src_path: gh:vantage6/v6-algorithm-template.git
 advanced: false
 algorithm_description: Fisher's exact test to evaluate the significance of associations
     between two categorical variables in a 2×2 contingency table
 algorithm_name: v6-fisher-exact-test-py
-author: V. Ramella
+author: V.Ramella
 central_args:
 - organizations_to_include
 - group_column
 - outcome_column
 - alternative
-central_function_client: true
-central_function_data: false
-central_function_name: central
+central_function_name: central_function
 copyright: Biomeris, 2026
-has_central_function: true
-has_docs: true
-has_partial_function: true
-open_source_license: mit
-partial_args:
+federated_args:
 - group_column
 - outcome_column
-partial_function_client: false
-partial_function_data: true
-partial_function_name: partial
-partial_function_number_databases: 1
+federated_function_data: true
+federated_function_name: federated_function
+federated_function_number_databases: 1
+has_central_function: true
+has_data_extraction: false
+has_data_preprocessing: false
+has_docs: true
+has_federated_function: true
+import_infra_extraction: true
+import_infra_preprocessing: true
+open_source_license: mit
 project_name: v6-fisher-exact-test-py
