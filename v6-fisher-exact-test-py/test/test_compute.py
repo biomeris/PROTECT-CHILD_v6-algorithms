@@ -53,7 +53,7 @@ outcome_column = "Outcome"
 
 # Run the central method on 1 node and get the results
 central_task = client.task.create(
-    method="central_function",
+    method="compute_fisher_exact_test",
     arguments={"group_column": group_column, "outcome_column": outcome_column},
     organizations=[org_ids[0]],
     databases=[{"type": "dataframe", "dataframe_id": network.hq.dataframes[0]["id"]}],

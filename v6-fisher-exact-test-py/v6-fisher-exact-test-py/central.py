@@ -19,7 +19,7 @@ from vantage6.algorithm.client import AlgorithmClient
 
 @central
 @algorithm_client
-def central_function(
+def compute_fisher_exact_test(
     client: AlgorithmClient,
     group_column: str,
     outcome_column: str,
