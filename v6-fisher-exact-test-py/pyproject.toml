@@ -31,4 +31,4 @@ classifiers = [
 packages = ["v6-fisher-exact-test-py"]
 
 [tool.uv]
-prereleases = "allow"
+prerelease = "allow"
