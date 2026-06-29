@@ -1,0 +1,36 @@
+# DO NOT MODIFY THIS FILE MANUALLY.
+# This file contains the answers to the questions asked by the
+# v6-algorithm-template-creator (using the Copier package). The answers will
+# be updated if you re-run the template creator. Also, the answers in this file
+# may be used to submit your algorithm to a vantage6 algorithm store.
+_commit: 5.0.0
+_src_path: gh:vantage6/v6-algorithm-template.git
+advanced: true
+algorithm_description: Extraction of IDAT
+algorithm_name: extractionIDAT
+author: Jaime
+central_args:
+- arg1
+central_function_name: central_function
+copyright: ''
+data_extraction_args:
+- arg1
+data_extraction_function_name: data_extraction_function
+data_preprocessing_args:
+- arg1
+data_preprocessing_function_name: data_preprocessing_function
+federated_args:
+- arg1
+federated_function_data: true
+federated_function_name: federated_function
+federated_function_number_databases: 1
+has_central_function: true
+has_data_extraction: true
+has_data_preprocessing: true
+has_docs: true
+has_federated_function: true
+has_gh_pipeline: false
+import_infra_extraction: true
+import_infra_preprocessing: true
+open_source_license: mit
+project_name: extractionIDAT
