@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "epiclock-v5"
+version = "1.0.0"
+description = "estimation of DNAm age"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0a43",
+  "pandas",
+  "pyaging",
+]
+authors = [
+    # TODO add authors
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+# TODO add urls
+
+[tool.hatch.build.targets.wheel]
+packages = ["epiclock_v5"]
+
+[tool.uv]
+prerelease = "allow"

@@ -1,0 +1,79 @@
+
+# v6-fisher-exact-test-py
+
+Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2×2 contingency table
+
+This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
+infrastructure for distributed analysis and learning.
+
+The base code for this algorithm has been created via the
+[v6-algorithm-template](https://github.com/vantage6/v6-algorithm-template)
+template generator.
+
+### Checklist
+
+Note that the template generator does not create a completely ready-to-use
+algorithm yet. There are still a number of things you have to do yourself.
+Please ensure to execute the following steps. The steps are also indicated with
+TODO statements in the generated code - so you can also simply search the
+code for TODO instead of following the checklist below.
+
+- [ ] Fill out the fields in the `pyproject.toml` file, such as a URL to your code
+      repository. Alternatively, remove these fields.
+- [✅] Implement your algorithm functions.
+  - [✅] You are free to add more arguments to the functions. Be sure to add them
+    *after* the `client` and dataframe arguments.
+  - [✅] When adding new arguments, if you run the `test/test.py` script, be sure
+    to include values for these arguments in the `client.task.create()` calls
+    that are available there.
+- [✅] If you are using Python packages that are not in the standard library, add
+  them to the `pyproject.toml` file. Note that `pandas` is already included by default.
+- [ ] Fill in the documentation template. This will help others to understand your
+  algorithm, be able to use it safely, and to contribute to it.
+- [ ] If you want to submit your algorithm to a vantage6 algorithm store, be sure
+  to fill in everything in ``algorithm_store.json`` (and be sure to update
+  it if you change function names, arguments, etc.). It is recommended to run
+  ``v6 algorithm generate-store-json`` to automatically generate the file - this
+  should work especially well if you have added proper docstrings to your functions.
+  Note that you do need the `vantage6` CLI to be able to use this command, which can be
+  installed by e.g. running `pip install vantage6` (or `uv pip install vantage6`).
+- [ ] Finally, remove this checklist section to keep the README clean.
+
+### Dockerizing your algorithm
+
+To finally run your algorithm on the vantage6 infrastructure, you need to
+create a Docker image of your algorithm.
+
+A Docker image can be created by executing the following command in the root of your
+algorithm directory:
+
+```bash
+docker build -t [my_docker_image_name] .
+```
+
+where you should provide a sensible value for the Docker image name. The
+`docker build` command will create a Docker image that contains your algorithm.
+You can create an additional tag for it by running
+
+```bash
+docker tag [my_docker_image_name] [another_image_name]
+```
+
+This way, you can e.g. do
+`docker tag local_average_algorithm harbor2.vantage6.ai/algorithms/average` to
+make the algorithm available on a remote Docker registry (in this case
+`harbor2.vantage6.ai`).
+
+Finally, you need to push the image to the Docker registry. This can be done
+by running
+
+```bash
+docker push [my_docker_image_name]
+```
+
+Note that you need to be logged in to the Docker registry before you can push
+the image. You can do this by running `docker login` and providing your
+credentials. Check [this page](https://docs.docker.com/get-started/04_sharing_app/)
+For more details on sharing images on Docker Hub. If you are using a different
+Docker registry, check the documentation of that registry and be sure that you
+have sufficient permissions.
