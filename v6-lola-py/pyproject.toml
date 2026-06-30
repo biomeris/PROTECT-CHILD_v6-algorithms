@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-lola-py"
+version = "1.0.0"
+description = "Automated enrichment analysis of genomic region sets for functional genomics and epigenomics interpretation."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0a43",
+  "pandas",
+  "rpy2",
+  "numpy",
+  "scipy"
+]
+authors = [
+    # TODO add authors
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+# TODO add urls
+
+[tool.hatch.build.targets.wheel]
+packages = ["v6-lola-py"]
+
+[dependency-groups]
+dev = [
+  "pytest",
+]
