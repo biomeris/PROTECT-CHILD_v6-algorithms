@@ -313,7 +313,6 @@ def _run_lola_overlap_count(
     """)
 
     # Run R function
-    info("Calling get_overlap_counts_r...")
     res = get_overlap_counts_r(
         user_sets,
         user_universe,
@@ -321,7 +320,6 @@ def _run_lola_overlap_count(
         min_overlap,
         redefine_user_set,
     )
-    info("Returned from get_overlap_counts_r")
 
     # Return results
     return {
