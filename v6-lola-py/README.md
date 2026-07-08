@@ -1,7 +1,8 @@
 
 # v6-lola-py
 
-Automated enrichment analysis of genomic region sets for functional genomics and epigenomics interpretation.
+Automated enrichment analysis of genomic region sets for functional
+    genomics and epigenomics interpretation.
 
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.

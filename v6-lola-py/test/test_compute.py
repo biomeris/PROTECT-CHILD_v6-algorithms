@@ -9,6 +9,7 @@ Run as:
 
 Requires vantage6-algorithm-tools.
 """
+
 import pandas as pd
 from pathlib import Path
 
@@ -28,15 +29,13 @@ network = MockNetwork(
         {DATABASE_LABEL: {"database": data}},
         {DATABASE_LABEL: {"database": data}},
     ],
-    module_name="v6-lola-py"
+    module_name="v6-lola-py",
 )
 
 # Once the network is created, we can get the client to interact with the MockNetwork.
 client = network.user_client
 
-DATABASES = [
-    {"type": "dataframe", "dataframe_id": network.hq.dataframes[0]["id"]}
-]
+DATABASES = [{"type": "dataframe", "dataframe_id": network.hq.dataframes[0]["id"]}]
 
 organizations = client.organization.list()
 print(organizations)
@@ -46,9 +45,13 @@ org_ids = [organization["id"] for organization in organizations]
 central_task = client.task.create(
     method="central_function",
     arguments={
-        # TODO add sensible values
-        "arg1": "some_value",
-
+        "user_set_path": [
+            "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/setA_100.bed",
+            "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/setB_100.bed",
+            "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/setC_100.bed",
+        ],
+        "user_universe_path": "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/activeDHS_universe.bed",
+        "region_db_path": "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/hg19",
     },
     organizations=[org_ids[0]],
     databases=DATABASES,
@@ -57,18 +60,22 @@ results = client.wait_for_results(central_task.get("id"))
 print(results)
 
 # Run the federated method for all organizations
-task = client.task.create(
-    method="federated_function",
-    arguments={
-        # TODO add sensible values
-        "arg1": "some_value",
+# task = client.task.create(
+#     method="federated_function",
+#     arguments={
+#         "user_set_path": [
+#             "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/setA_100.bed",
+#             "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/setB_100.bed",
+#             "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/setC_100.bed",
+#         ],
+#         "user_universe_path": "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/activeDHS_universe.bed",
+#         "region_db_path": "/Users/vramella/Library/CloudStorage/OneDrive-BIOMERIS/PROGETTI-CLIENTE/OM-PROTE/WP5/PROTECT-CHILD_v6-algorithms/v6-lola-py/test/hg19",
+#     },
+#     organizations=org_ids,
+#     databases=DATABASES,
+# )
+# print(task)
 
-    },
-    organizations=org_ids,
-    databases=DATABASES,
-)
-print(task)
-
-# Get the results from the task
-results = client.wait_for_results(task.get("id"))
-print(results)
+# # Get the results from the task
+# results = client.wait_for_results(task.get("id"))
+# print(results)

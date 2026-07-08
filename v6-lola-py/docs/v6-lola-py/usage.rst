@@ -44,7 +44,8 @@ first, especially the part about the
       collaboration=collaboration_id,
       organizations=organization_ids,
       name="v6-lola-py",
-      description="Automated enrichment analysis of genomic region sets for functional genomics and epigenomics interpretation.",
+      description="Automated enrichment analysis of genomic region sets for functional
+    genomics and epigenomics interpretation.",
       image="ghcr.io/vantage6/algorithm/v6-lola-py",
       input_=input_,
       databases=[{"label": "default"}],

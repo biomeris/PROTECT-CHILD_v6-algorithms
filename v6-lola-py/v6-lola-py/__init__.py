@@ -1,5 +1,2 @@
-from vantage6.algorithm.data_extraction import *
-from vantage6.algorithm.preprocessing import *
-
-from .central import *
-from .federated import *
+from .central import central_function
+from .federated import federated_function

@@ -6,25 +6,24 @@
 _commit: 5.0.1
 _src_path: gh:vantage6/v6-algorithm-template.git
 advanced: false
-algorithm_description: Automated enrichment analysis of genomic region sets for functional
-    genomics and epigenomics interpretation.
+algorithm_description: "Automated enrichment analysis of genomic region sets for functional\n\
+    \    genomics and epigenomics interpretation."
 algorithm_name: v6-lola-py
 author: V.Ramella
 central_args:
 - arg1
 central_function_name: central_function
-copyright: Biomeris, 2026
+copyright: Biomeris,2026
 federated_args:
 - arg1
-federated_function_data: true
+federated_function_data: false
 federated_function_name: federated_function
-federated_function_number_databases: 3
 has_central_function: true
 has_data_extraction: false
 has_data_preprocessing: false
 has_docs: true
 has_federated_function: true
-import_infra_extraction: true
-import_infra_preprocessing: true
+import_infra_extraction: false
+import_infra_preprocessing: false
 open_source_license: mit
 project_name: v6-lola-py
