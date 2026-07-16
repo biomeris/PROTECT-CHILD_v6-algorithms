@@ -1,0 +1,59 @@
+{
+  "name": "v6-elastic-net-py",
+  "description": "Federated Elastic Net for feature selection on high-dimensional methylation data (p >> n). Exact federation via sufficient statistics (Gram matrix X^T X and X^T y).",
+  "image": "adoviguera/v6-elastic-net-py",
+  "vantage6_version": "5.0",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "display_name": "Federated Elastic Net (central)",
+      "description": "Coordinator: aggregates sufficient statistics from all nodes and solves Elastic Net by coordinate descent. Returns coefficients and selected CpGs.",
+      "type": "central",
+      "databases": [
+        {"name": "methylation", "description": "Beta-value matrix: CpG columns + binary outcome"}
+      ],
+      "arguments": [
+        {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns (markers)", "has_default_value": false},
+        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column (0/1)", "has_default_value": false},
+        {"name": "alpha", "type": "float", "display_name": "Alpha", "description": "Regularization strength", "default_value": 0.01, "has_default_value": true},
+        {"name": "l1_ratio", "type": "float", "display_name": "L1 ratio", "description": "Balance L1/L2 (1=Lasso, 0=Ridge)", "default_value": 0.5, "has_default_value": true},
+        {"name": "max_iter", "type": "integer", "display_name": "Max iterations", "description": "Max coordinate-descent iterations", "default_value": 1000, "has_default_value": true},
+        {"name": "tol", "type": "float", "display_name": "Tolerance", "description": "Convergence threshold", "default_value": 1e-08, "has_default_value": true},
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard: skip nodes with fewer samples", "default_value": 5, "has_default_value": true},
+        {"name": "warn_gram_gb", "type": "float", "display_name": "Gram memory warning (GB)", "description": "Warn if the p×p Gram matrix exceeds this size", "default_value": 1.0, "has_default_value": true}
+      ]
+    },
+    {
+      "name": "partial_moments",
+      "display_name": "Elastic Net — local moments (round 1)",
+      "description": "Per-node: local sums/sums-of-squares for global standardization. Returns aggregates only.",
+      "type": "federated",
+      "databases": [
+        {"name": "methylation", "description": "Beta-value matrix: CpG columns + binary outcome"}
+      ],
+      "arguments": [
+        {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns", "has_default_value": false},
+        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column", "has_default_value": false},
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true}
+      ]
+    },
+    {
+      "name": "partial_gram",
+      "display_name": "Elastic Net — local Gram (round 2)",
+      "description": "Per-node: sufficient statistics G_k = Xs^T Xs and b_k = Xs^T yc on globally-standardized data. Returns aggregates only.",
+      "type": "federated",
+      "databases": [
+        {"name": "methylation", "description": "Beta-value matrix: CpG columns + binary outcome"}
+      ],
+      "arguments": [
+        {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns", "has_default_value": false},
+        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column", "has_default_value": false},
+        {"name": "mean", "type": "json", "display_name": "Global mean", "description": "Global per-column mean (from round 1)", "has_default_value": false},
+        {"name": "std", "type": "json", "display_name": "Global std", "description": "Global per-column std (from round 1)", "has_default_value": false},
+        {"name": "ymean", "type": "float", "display_name": "Global outcome mean", "description": "Global mean of the outcome (from round 1)", "has_default_value": false},
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v6-elastic-net-py"
+version = "1.0.0"
+description = "Federated Elastic Net for feature selection on high-dimensional methylation data (p >> n)"
+requires-python = ">=3.13"
+dependencies = [
+    "vantage6-algorithm-tools",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+]
+
+[tool.setuptools]
+packages = ["v6-elastic-net-py"]
