@@ -1,0 +1,36 @@
+{
+  "name": "v6-lola-py",
+  "image": "ghcr.io/vantage6/algorithm/v6-lola-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://mygitrepo.org",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central_function",
+      "description": "Automated enrichment analysis of genomic region sets for functional genomics and epigenomics interpretation.",
+      "step_type": "central_compute",
+      "databases": [],
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "name": "federated_function",
+      "description": "",
+      "step_type": "federated_compute",
+      "databases": [],
+      "arguments": [
+        {
+          "name": "arg1",
+          "type": "",
+          "description": ""
+        }
+      ]
+    }
+  ]
+}
