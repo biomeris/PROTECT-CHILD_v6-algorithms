@@ -1,62 +1,55 @@
 {
   "name": "v6-fisher-exact-test-py",
-  "image": "v6-fisher-exact-test-py",
-  "vantage6_version": "5.0",
-  "code_url": "https://mygitrepo.org",
+  "image": "biomerisdocker/fisher-exact-test",
+  "vantage6_version": "5.0.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-fisher-exact-test-py",
   "documentation_url": "",
   "partitioning": "horizontal",
   "functions": [
     {
-      "name": "central_function",
+      "name": "compute_fisher_exact_test",
+      "display_name": "Fisher's exact test",
       "description": "Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2\u00d72 contingency table",
       "step_type": "central_compute",
+      "standalone": true,
+      "ui_visualizations": [
+        
+      ],
       "databases": [
         {
-          "name": "Central database 1"
+          "name": "Database"
         }
       ],
       "arguments": [
         {
           "name": "organizations_to_include",
-          "type": "",
-          "description": ""
+          "type": "organization_list",
+          "description": "The organizations to include in the task. If NULL, all the organizations will be included.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
         },
         {
           "name": "group_column",
-          "type": "",
-          "description": ""
+          "type": "column",
+          "description": "The column defining the two groups whose outcome distributions are compared.",
+          "has_default_value": false,
+          "is_frontend_only": false
         },
         {
           "name": "outcome_column",
-          "type": "",
-          "description": ""
+          "type": "column",
+          "description": "The column containing the binary outcome variable used to compute event counts.",
+          "has_default_value": false,
+          "is_frontend_only": false
         },
         {
           "name": "alternative",
-          "type": "",
-          "description": ""
-        }
-      ]
-    },
-    {
-      "name": "federated_function",
-      "description": "",
-      "step_type": "federated_compute",
-      "databases": [
-        {
-          "name": "Database 1"
-        }
-      ],
-      "arguments": [
-        {
-          "name": "group_column",
-          "type": "",
-          "description": ""
-        },
-        {
-          "name": "outcome_column",
-          "type": "",
-          "description": ""
+          "type": "string",
+          "description": "Defines the alternative hypothesis for 2x2 tables.\n\n‘two-sided’: the odds ratio of the underlying population is not one\n\n‘less’: the odds ratio of the underlying population is less than one\n\n‘greater’: the odds ratio of the underlying population is greater than one",
+          "default_value": "two-sided",
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     }
