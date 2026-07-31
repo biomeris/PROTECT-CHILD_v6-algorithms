@@ -12,37 +12,37 @@ def confusion_counts(y_true, y_pred):
         fn (int): False negatives.
     """
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    return tp, tn, fp, fn
+    return int(tp), int(tn), int(fp), int(fn)
 
 
 def sensitivity(tp, fn):
     """Compute sensitivity (recall or true positive rate)."""
-    return tp / (tp + fn)
+    return float(tp / (tp + fn))
 
 
 def specificity(tn, fp):
     """Compute specificity (true negative rate)."""
-    return tn / (tn + fp)
+    return float(tn / (tn + fp))
 
 
 def precision(tp, fp):
     """Compute precision."""
-    return tp / (tp + fp)
+    return float(tp / (tp + fp))
 
 
 def positive_predictive_value(tp, fp):
     """Compute the positive predictive value (PPV)."""
-    return tp / (tp + fp)
+    return float(tp / (tp + fp))
 
 
 def negative_predictive_value(tn, fn):
     """Compute the negative predictive value (NPV)."""
-    return tn / (tn + fn)
+    return float(tn / (tn + fn))
 
 
 def accuracy(tp, tn, fp, fn):
     """Compute the overall classification accuracy."""
-    return (tp + tn) / (tp + tn + fp + fn)
+    return float((tp + tn) / (tp + tn + fp + fn))
 
 
 def f1_score(tp, fp, fn):
@@ -52,7 +52,7 @@ def f1_score(tp, fp, fn):
     """
     p = precision(tp, fp)
     r = sensitivity(tp, fn)
-    return 2 * p * r / (p + r)
+    return float(2 * p * r / (p + r))
 
 
 def auc_roc(y_true, y_score):
