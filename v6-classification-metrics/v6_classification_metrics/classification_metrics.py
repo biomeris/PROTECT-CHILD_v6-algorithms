@@ -1,7 +1,7 @@
 from sklearn.metrics import confusion_matrix, roc_auc_score
 
 
-def confusion_counts(y_true, y_pred):
+def confusion_counts(y_true, y_pred, labels=(0, 1)):
     """
     Compute the confusion matrix and return its four components.
 
@@ -11,38 +11,40 @@ def confusion_counts(y_true, y_pred):
         fp (int): False positives.
         fn (int): False negatives.
     """
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+    tn, fp, fn, tp = confusion_matrix(
+        y_true=y_true, y_pred=y_pred, labels=labels
+    ).ravel()
     return int(tp), int(tn), int(fp), int(fn)
 
 
 def sensitivity(tp, fn):
     """Compute sensitivity (recall or true positive rate)."""
-    return float(tp / (tp + fn))
+    return float(tp / (tp + fn)) if (tp + fn) != 0 else 0.0
 
 
 def specificity(tn, fp):
     """Compute specificity (true negative rate)."""
-    return float(tn / (tn + fp))
+    return float(tn / (tn + fp)) if (tn + fp) != 0 else 0.0
 
 
 def precision(tp, fp):
     """Compute precision."""
-    return float(tp / (tp + fp))
+    return float(tp / (tp + fp)) if (tp + fp) != 0 else 0.0
 
 
 def positive_predictive_value(tp, fp):
     """Compute the positive predictive value (PPV)."""
-    return float(tp / (tp + fp))
+    return float(tp / (tp + fp)) if (tp + fp) != 0 else 0.0
 
 
 def negative_predictive_value(tn, fn):
     """Compute the negative predictive value (NPV)."""
-    return float(tn / (tn + fn))
+    return float(tn / (tn + fn)) if (tn + fn) != 0 else 0.0
 
 
 def accuracy(tp, tn, fp, fn):
     """Compute the overall classification accuracy."""
-    return float((tp + tn) / (tp + tn + fp + fn))
+    return float((tp + tn) / (tp + tn + fp + fn)) if (tp + tn + fp + fn) != 0 else 0.0
 
 
 def f1_score(tp, fp, fn):
@@ -52,7 +54,7 @@ def f1_score(tp, fp, fn):
     """
     p = precision(tp, fp)
     r = sensitivity(tp, fn)
-    return float(2 * p * r / (p + r))
+    return float(2 * p * r / (p + r)) if (p + r) != 0 else 0.0
 
 
 def auc_roc(y_true, y_score):
@@ -65,10 +67,13 @@ def auc_roc(y_true, y_score):
         y_score: Predicted probabilities or decision scores
                  for the positive class.
     """
-    return roc_auc_score(y_true, y_score)
+    try:
+        return roc_auc_score(y_true, y_score)
+    except ValueError:
+        return 0.0
 
 
-def binary_classification_metrics(y_true, y_pred, y_score=None):
+def binary_classification_metrics(y_true, y_pred, y_score=None, labels=(0, 1)):
     """
     Compute a collection of standard evaluation metrics for
     binary classification models.
@@ -84,7 +89,7 @@ def binary_classification_metrics(y_true, y_pred, y_score=None):
     """
 
     # Extract the confusion matrix counts
-    tp, tn, fp, fn = confusion_counts(y_true, y_pred)
+    tp, tn, fp, fn = confusion_counts(y_true, y_pred, labels)
 
     # Compute metrics derived from the confusion matrix
     metrics = {
