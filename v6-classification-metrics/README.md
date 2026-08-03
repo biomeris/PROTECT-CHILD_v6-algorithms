@@ -1,4 +1,4 @@
-# v6-classification-metrics-py
+# v6-classification-metrics
 
 Shared code to calculate classification statistics used by multiple classification algorithms.
 
