@@ -256,6 +256,44 @@ auc = auc_roc(y_true, y_probabilities)
 
 ---
 
+### `roc_curve_data(y_true, y_score)`
+
+Computes the ROC Curve coordinates.
+
+#### Parameters
+
+- `y_true`: Ground-truth binary labels.
+- `y_score`: Predicted probabilities or decision scores for the positive class.
+
+#### Returns
+
+```python
+(fpr, tpr, thresholds)
+```
+
+Where:
+
+- `fpr`: False Positive Rate values
+- `tpr`: True Positive Rate values
+- `thresholds`: Threshold values used to compute the curve
+
+If the ROC Curve cannot be computed, the function returns:
+
+```python
+([], [], [])
+```
+
+#### Example
+
+```python
+fpr, tpr, thresholds = roc_curve_data(
+    y_true,
+    y_score
+)
+```
+
+---
+
 ### `binary_classification_metrics(y_true, y_pred, y_score=None, labels=(0, 1))`
 
 Computes a complete set of evaluation metrics for a binary classification model.
@@ -281,6 +319,11 @@ A dictionary containing:
     "negative_predictive_value": ...,
     "f1_score": ...,
     "roc_auc": ...  # only if y_score is provided
+    "roc_curve": {
+        "fpr": [...],
+        "tpr": [...],
+        "thresholds": [...]
+    }
 }
 ```
 

@@ -1,4 +1,4 @@
-from sklearn.metrics import confusion_matrix, roc_auc_score
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 
 
 def confusion_counts(y_true, y_pred, labels=(0, 1)):
@@ -57,6 +57,28 @@ def f1_score(tp, fp, fn):
     return float(2 * p * r / (p + r)) if (p + r) != 0 else 0.0
 
 
+def roc_curve_data(y_true, y_score):
+    """
+    Compute ROC curve coordinates.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        y_score: Predicted probabilities or decision scores
+                 for the positive class.
+
+    Returns:
+        tuple:
+            fpr (array): False Positive Rates.
+            tpr (array): True Positive Rates.
+            thresholds (array): Decision thresholds.
+    """
+    try:
+        fpr, tpr, thresholds = roc_curve(y_true, y_score)
+        return fpr, tpr, thresholds
+    except ValueError:
+        return [], [], []
+
+
 def auc_roc(y_true, y_score):
     """
     Compute the Area Under the Receiver Operating
@@ -105,5 +127,13 @@ def binary_classification_metrics(y_true, y_pred, y_score=None, labels=(0, 1)):
     # Compute ROC-AUC only if predicted probabilities are provided
     if y_score is not None:
         metrics["roc_auc"] = auc_roc(y_true, y_score)
+
+        fpr, tpr, thresholds = roc_curve_data(y_true, y_score)
+
+        metrics["roc_curve"] = {
+            "fpr": fpr.tolist(),
+            "tpr": tpr.tolist(),
+            "thresholds": thresholds.tolist(),
+        }
 
     return metrics

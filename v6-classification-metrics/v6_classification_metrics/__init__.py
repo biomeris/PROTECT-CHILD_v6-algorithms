@@ -7,6 +7,7 @@ from .classification_metrics import (
     negative_predictive_value,
     accuracy,
     f1_score,
+    roc_curve_data,
     auc_roc,
     binary_classification_metrics,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "negative_predictive_value",
     "accuracy",
     "f1_score",
+    "roc_curve_data",
     "auc_roc",
     "binary_classification_metrics",
 ]
