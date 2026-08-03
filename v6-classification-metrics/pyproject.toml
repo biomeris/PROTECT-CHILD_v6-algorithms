@@ -1,0 +1,17 @@
+[project]
+name = "v6-classification-metrics"
+version = "0.1.0"
+description = "Shared classification statistics for v6 packages."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "scikit-learn==1.9.0",
+    "pytest",
+]
+
+[tool.setuptools]
+packages = ["v6_classification_metrics"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
