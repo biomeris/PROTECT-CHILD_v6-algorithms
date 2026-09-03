@@ -1,0 +1,33 @@
+{
+  "name": "v6-bonferroni-py",
+  "image": "v6-bonferroni-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-bonferroni-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "compute_bonferroni_correction",
+      "description": "Bonferroni correction for multiple hypothesis testing, applied centrally to a family of p-values produced by another federated test",
+      "step_type": "central_compute",
+      "databases": [],
+      "arguments": [
+        {
+          "name": "p_values",
+          "type": "json",
+          "description": "Dict of label -> p-value (or a bare list of p-values) to correct."
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "description": "Family-wise significance level to test against. Defaults to 0.05."
+        },
+        {
+          "name": "num_tests",
+          "type": "integer",
+          "description": "Number of tests (m) to correct for. Defaults to len(p_values)."
+        }
+      ]
+    }
+  ]
+}
