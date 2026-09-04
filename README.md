@@ -9,24 +9,26 @@ Below are the operational instructions for developing a new algorithm.
 ## Useful links
 
 - [Vantage6 Documentation](https://docs.vantage6.ai/en/main/index.html)
-- [Software setup](https://workshop.vantage6.ai/index.html#software-setup)
+- [Start a local vantage6 network](https://docs.vantage6.ai/en/main/introduction/quickstart.html#start-a-local-vantage6-network)
 
 ## Python environment setup
 
-First, create a new Python environment and install the required packages:
+### Python 
+Python 3.13 is required to use v5 of Vantage6.
 
+### uv
+If `uv` is not installed, follow the installation instructions available at the following link: [Installing uv](https://docs.astral.sh/uv/getting-started/installation/)
+
+### Install Vantage6 using `uv`
+Create a virtual Python environment:
 ```bash
-# Create a new conda environment
-conda create -n dev-env python=3.10
+uv venv --python 3.13
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
 
-# Activate the new environment
-conda activate dev-env
-
-# Install the required Python packages
-pip install vantage6==4.9.1 vantage6-algorithm-tools==4.9.1
-
-# Check installation
-pip list
+To install Vantage6 v5 run the following command:
+```bash
+uv pip install vantage6
 ```
 
 ## Develop a new algorithm
@@ -49,7 +51,7 @@ Once the algorithm has been developed and tested, integrate it with the Vantage6
 v6 algorithm create
 ```
 
-After answering a few questions, a template for a new algorithm will be generated.
+Running this command will prompt you to answering some questions, which will result in a personalized starting point or ‘boilerplate’ for your algorithm. After doing so, you will have a new folder with the name of your algorithm, boilerplate code and a checklist in the `README.md` file that you can follow to complete your algorithm.
 
 In VS Code, open the newly created folder and integrate the previously developed code, adapting it to Vantage6 requirements.
 
@@ -59,6 +61,8 @@ If you need to update some aspects of the algorithm by changing the answers from
 # Update answers
 v6 algorithm update --change-answers
 ```
+
+[Algorithm development step-by-step guide](https://docs.vantage6.ai/en/version-5.0.0b1/algorithms/develop.html)
 
 ## Build your algorithm into a docker image
 
