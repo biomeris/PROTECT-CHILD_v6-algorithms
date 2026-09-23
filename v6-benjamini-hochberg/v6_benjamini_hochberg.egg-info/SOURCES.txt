@@ -1,0 +1,15 @@
+README.md
+setup.py
+test/test.py
+test/test_math.py
+v6-benjamini-hochberg/__init__.py
+v6-benjamini-hochberg/bh.py
+v6-benjamini-hochberg/binned.py
+v6-benjamini-hochberg/central.py
+v6-benjamini-hochberg/globals.py
+v6-benjamini-hochberg/partial.py
+v6_benjamini_hochberg.egg-info/PKG-INFO
+v6_benjamini_hochberg.egg-info/SOURCES.txt
+v6_benjamini_hochberg.egg-info/dependency_links.txt
+v6_benjamini_hochberg.egg-info/requires.txt
+v6_benjamini_hochberg.egg-info/top_level.txt

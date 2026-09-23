@@ -1,0 +1,95 @@
+{
+  "name": "Benjamini-Hochberg FDR Correction",
+  "image": "biomerisdocker/benjamini-hochberg",
+  "vantage6_version": "4.9",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-benjamini-hochberg",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "display_name": "Benjamini-Hochberg Correction",
+      "description": "Apply the Benjamini-Hochberg false discovery rate correction to a family of p-values obtained from a previous federated analysis. Contacts no node and reads no data.",
+      "type": "central",
+      "standalone": true,
+      "databases": [
+
+      ],
+      "arguments": [
+        {
+          "name": "p_values",
+          "type": "json",
+          "description": "Family of p-values to correct, as {\"hypothesis name\": p_value}. Entries that are null or NaN are reported back untested and excluded from the family size.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "description": "Target false discovery rate.",
+          "default_value": 0.05,
+          "has_default_value": true,
+          "is_frontend_only": false
+        }
+      ],
+      "ui_visualizations": [
+
+      ]
+    },
+    {
+      "name": "central_federated",
+      "display_name": "Federated Test with Benjamini-Hochberg Correction",
+      "description": "Run a rank-based test on every selected column across multiple organizations and correct the resulting family of p-values with Benjamini-Hochberg. Nodes return only aggregate statistics: per-column moments, a group-blind histogram, and per-group rank-score sums. No raw data is shared.",
+      "type": "central",
+      "standalone": true,
+      "databases": [
+        {
+          "name": "Database"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "description": "List of organization IDs to include in the computation.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "group_col",
+          "type": "column",
+          "description": "Column name that defines the groups.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "columns",
+          "type": "column_list",
+          "description": "List of numeric column names to test, one hypothesis each. If None, all numeric columns are used.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "test",
+          "type": "string",
+          "description": "Per-column test to run: 'kruskal-wallis' (two or more groups) or 'mann-whitney' (exactly two groups).",
+          "default_value": "kruskal-wallis",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "description": "Target false discovery rate.",
+          "default_value": 0.05,
+          "has_default_value": true,
+          "is_frontend_only": false
+        }
+      ],
+      "ui_visualizations": [
+
+      ]
+    }
+  ]
+}

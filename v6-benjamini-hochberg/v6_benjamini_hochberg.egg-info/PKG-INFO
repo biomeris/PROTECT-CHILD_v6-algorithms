@@ -1,0 +1,223 @@
+Metadata-Version: 2.4
+Name: v6-benjamini-hochberg
+Version: 1.0.0
+Summary: Federated Benjamini-Hochberg false discovery rate correction across multiple organizations without sharing raw data
+Home-page: https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-benjamini-hochberg
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: vantage6-algorithm-tools==4.9.1
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: scipy
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+
+# v6-benjamini-hochberg
+
+Federated Benjamini-Hochberg false discovery rate correction across multiple
+organizations without sharing raw data.
+
+This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
+infrastructure for distributed analysis and learning.
+
+## What it does
+
+When you test many columns at once — one hypothesis per column — the chance of
+at least one false positive grows with the number of tests. The
+Benjamini-Hochberg procedure controls the *false discovery rate*: the expected
+proportion of rejected hypotheses that are actually true.
+
+The algorithm exposes two entry points.
+
+### `central` — correct p-values you already have
+
+Takes a family of p-values produced by a previous federated analysis (for
+example a run of `v6-kruskal-wallis-py`, `v6-mann-whitney-u-test-py`,
+`v6-t-test-py` or `v6-anova-py` over several columns) and returns adjusted
+p-values and rejection decisions. It creates no subtasks, contacts no node and
+opens no database.
+
+```python
+{
+  "method": "central",
+  "kwargs": {
+    "p_values": {"age": 0.0001, "Weight": 0.0031, "Height": 0.0402, "bmi": 0.21},
+    "alpha": 0.05
+  }
+}
+```
+
+Returns `n_hypotheses`, `n_tested`, `n_rejected` and, per hypothesis,
+`p_value`, `adjusted_p_value`, `reject`, `rank` and `critical_value`.
+p-values that are `null` or `NaN` are passed through with `tested: false` and
+are excluded from the family size `m`.
+
+### `central_federated` — test the columns and correct in one run
+
+Runs a rank-based test on every selected column across the participating
+organizations, then applies the correction to the resulting family of p-values.
+
+```python
+{
+  "method": "central_federated",
+  "kwargs": {
+    "organizations_to_include": [1, 2, 3],
+    "group_col": "Group",
+    "columns": ["age", "Weight", "Height", "bmi", "sbp"],
+    "test": "kruskal-wallis",
+    "alpha": 0.05
+  }
+}
+```
+
+`test` is either `"kruskal-wallis"` (two or more groups) or `"mann-whitney"`
+(exactly two groups).
+
+## How raw data is kept at the node
+
+A rank-based test needs a *global* ordering of observations, which is normally
+obtained by sending every value to the central server. This algorithm never does
+that. Instead it runs three rounds, and each round transmits only aggregates.
+
+**Round 1 — `partial_moments`.** Each node returns, per column, three numbers:
+the record count, the sum, and the sum of squares. The central server pools these
+into a global mean and standard deviation and uses them to lay out a shared
+reporting grid spanning `mean ± 4 sd`. No minimum, maximum, quantile or
+individual value is involved, so the grid cannot be traced back to any record.
+
+**Round 2 — `partial_histogram`.** Each node places its records into that grid
+and returns *record counts per bin*, pooled across groups. The central server
+sums those counts and merges adjacent bins into roughly equal-count **rank
+bins** — narrow where the data is dense, wide where it is sparse — then computes
+each rank bin's global mid-rank.
+
+**Round 3 — `partial_rank_sums`.** Each node assigns its records the mid-rank of
+the bin they fall into and returns, per (column, group), three numbers: the sum
+of those scores, their sum of squares, and the record count. The test statistic
+follows from those alone. No per-group distribution is transmitted at all.
+
+So the complete payload leaving a node is a handful of counts, sums and sums of
+squares. No value, no rank of any individual record, no identifier, no ordering.
+
+### Disclosure control
+
+Aggregates can still be revealing when they describe very few records, so three
+thresholds are enforced at the node before anything is returned:
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `BENJAMINI_HOCHBERG_MINIMUM_NUMBER_OF_RECORDS` | 10 | A node holding this many records or fewer refuses to contribute at all. |
+| `BENJAMINI_HOCHBERG_MINIMUM_GROUP_SIZE` | 5 | A (column, group) cell smaller than this is dropped from every round and reported as suppressed. |
+| `BENJAMINI_HOCHBERG_MINIMUM_CELL_COUNT` | 5 | No individual histogram cell below this count is ever transmitted. |
+
+The last one matters most: on a fine grid, a bin count of `1` would pin a record
+down to a narrow interval and effectively leak its value. Before the histogram
+leaves the node, adjacent bins are accumulated until the running total reaches
+the threshold and that total is reported at the run's count-weighted centre, so
+every non-zero cell describes at least five records while the record count and
+the shape of the distribution are preserved. The central server additionally
+requires every rank bin to hold at least `MINIMUM_CELL_COUNT` records per
+contributing node, so the bins that ranking is based on are non-disclosive too.
+The number of rank bins used is returned under `privacy.n_rank_bins_per_column`,
+together with the number of suppressed cells.
+
+### Accuracy of the approximation
+
+Records that land in the same rank bin are treated as tied. Both statistics are
+computed in their **general-scores** form — `H = (N-1) × SSB / SST` for
+Kruskal-Wallis, and a standardised linear rank statistic for Mann-Whitney. Fed
+exact mid-ranks these are algebraically identical to the textbook tie-corrected
+formulas, which `test/test_math.py` verifies against `scipy.stats.kruskal` and
+`scipy.stats.mannwhitneyu` to floating-point precision, with and without heavy
+ties.
+
+This form is used rather than the classical `12/(N(N+1)) · Σ R²/n − 3(N+1)`
+because it only assumes the scores are a monotone function of the values, not
+that they are a perfect permutation of `1..N`. The binning protocol produces
+scores that drift a fraction of a percent off that ideal; the classical formula
+is a difference of two large, nearly equal terms, and it turns that drift into a
+wildly wrong statistic — including false positives on null columns. The
+general-scores form is insensitive to it.
+
+What remains is the binning itself. On the bundled test data the federated
+statistic lands within a few percent of the exact value, and the test suite
+checks that the result is stable whether the data is split across 1, 2, 5 or 10
+nodes. The correction itself is exact — the ranking of hypotheses is driven by
+p-values, so small perturbations only matter for hypotheses sitting right on the
+threshold.
+
+If you need the exact statistic, run the dedicated `v6-kruskal-wallis-py` or
+`v6-mann-whitney-u-test-py` algorithm and feed its p-values to `central`. Note
+that those algorithms transmit the raw values to the central server in their
+first round, which is the trade-off this algorithm is designed to avoid.
+
+## Configuration
+
+The thresholds above are read with `get_env_var`, so a node administrator can
+tighten them per node without changing the image:
+
+```yaml
+algorithm_env:
+  BENJAMINI_HOCHBERG_MINIMUM_NUMBER_OF_RECORDS: 25
+  BENJAMINI_HOCHBERG_MINIMUM_GROUP_SIZE: 10
+  BENJAMINI_HOCHBERG_MINIMUM_CELL_COUNT: 10
+```
+
+`BENJAMINI_HOCHBERG_HISTOGRAM_BINS` (default 200),
+`BENJAMINI_HOCHBERG_MAXIMUM_RANK_BINS` (default 50) and
+`BENJAMINI_HOCHBERG_RANGE_SD` (default 4.0) control the reporting grid
+resolution, the cap on the number of rank bins, and the span of the grid.
+
+## Testing
+
+```bash
+# statistics only — needs numpy and scipy, not vantage6
+python test/test_math.py
+
+# end-to-end against the vantage6 mock client
+python test/test.py
+```
+
+## Dockerizing your algorithm
+
+To finally run your algorithm on the vantage6 infrastructure, you need to
+create a Docker image of your algorithm.
+
+A Docker image can be created by executing the following command in the root of your
+algorithm directory:
+
+```bash
+docker build -t [my_docker_image_name] .
+```
+
+where you should provide a sensible value for the Docker image name. The
+`docker build` command will create a Docker image that contains your algorithm.
+You can create an additional tag for it by running
+
+```bash
+docker tag [my_docker_image_name] [another_image_name]
+```
+
+This way, you can e.g. do
+`docker tag local_benjamini_hochberg_algorithm harbor2.vantage6.ai/algorithms/benjamini-hochberg` to
+make the algorithm available on a remote Docker registry (in this case
+`harbor2.vantage6.ai`).
+
+Finally, you need to push the image to the Docker registry. This can be done
+by running
+
+```bash
+docker push [my_docker_image_name]
+```
+
+Note that you need to be logged in to the Docker registry before you can push
+the image. You can do this by running `docker login` and providing your
+credentials. Check [this page](https://docs.docker.com/get-started/04_sharing_app/)
+For more details on sharing images on Docker Hub. If you are using a different
+Docker registry, check the documentation of that registry and be sure that you
+have sufficient permissions.
