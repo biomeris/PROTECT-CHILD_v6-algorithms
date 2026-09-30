@@ -1,0 +1,41 @@
+{
+  "name": "v6-nagelkerke-r2-py",
+  "description": "Federated Nagelkerke's R2 for an already-fitted logistic regression model. Exact federation via summed log-likelihoods (additive over independent observations).",
+  "image": "biomerisdocker/nagelkerke-r2",
+  "vantage6_version": "5.0",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "display_name": "Federated Nagelkerke R2 (central)",
+      "description": "Coordinator: aggregates per-node log-likelihood statistics and computes Cox-Snell and Nagelkerke R2 for the given fitted model.",
+      "type": "central",
+      "databases": [
+        {"name": "data", "description": "Predictor columns + binary outcome column"}
+      ],
+      "arguments": [
+        {"name": "features", "type": "column_list", "display_name": "Predictor columns", "description": "Predictor columns, in the same order as coefficients", "has_default_value": false},
+        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column (0/1)", "has_default_value": false},
+        {"name": "intercept", "type": "float", "display_name": "Intercept", "description": "Fitted model intercept", "has_default_value": false},
+        {"name": "coefficients", "type": "json", "display_name": "Coefficients", "description": "Fitted model coefficients, same length/order as features", "has_default_value": false},
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard: skip nodes with fewer samples", "default_value": 5, "has_default_value": true}
+      ]
+    },
+    {
+      "name": "partial_loglik",
+      "display_name": "Nagelkerke R2 — local log-likelihood",
+      "description": "Per-node: local sample size, outcome sum, and fitted-model log-likelihood contribution. Returns aggregates only.",
+      "type": "federated",
+      "databases": [
+        {"name": "data", "description": "Predictor columns + binary outcome column"}
+      ],
+      "arguments": [
+        {"name": "features", "type": "column_list", "display_name": "Predictor columns", "description": "Predictor columns, in the same order as coefficients", "has_default_value": false},
+        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column (0/1)", "has_default_value": false},
+        {"name": "intercept", "type": "float", "display_name": "Intercept", "description": "Fitted model intercept", "has_default_value": false},
+        {"name": "coefficients", "type": "json", "display_name": "Coefficients", "description": "Fitted model coefficients, same length/order as features", "has_default_value": false},
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true}
+      ]
+    }
+  ]
+}

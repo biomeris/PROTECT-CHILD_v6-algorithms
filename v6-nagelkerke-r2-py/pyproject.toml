@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "v6-nagelkerke-r2-py"
+version = "1.0.0"
+description = "Federated Nagelkerke's R2 for a fitted logistic regression model"
+requires-python = ">=3.13"
+dependencies = [
+    "vantage6-algorithm-tools",
+    "numpy",
+    "pandas",
+]
+
+[tool.setuptools]
+packages = ["v6-nagelkerke-r2-py"]
