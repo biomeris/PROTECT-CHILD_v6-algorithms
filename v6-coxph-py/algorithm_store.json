@@ -1,0 +1,84 @@
+{
+  "name": "v6-coxph-py",
+  "image": "v6-coxph-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://mygitrepo.org",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "coxph",
+      "description": "Federated Cox Proportional Hazards regression, fit via Newton-Raphson over WebDISCO-style risk-set aggregates",
+      "step_type": "central_compute",
+      "databases": [
+        {
+          "name": "Central database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "organizations_to_include",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "time_col",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "outcome_col",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "expl_vars",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "category_reference_values",
+          "type": "",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "name": "perform_iteration",
+      "description": "",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "time_col",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "expl_vars",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "beta",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "unique_time_events",
+          "type": "",
+          "description": ""
+        },
+        {
+          "name": "categorical_specs",
+          "type": "",
+          "description": ""
+        }
+      ]
+    }
+  ]
+}

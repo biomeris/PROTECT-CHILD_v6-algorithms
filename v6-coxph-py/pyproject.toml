@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-coxph-py"
+version = "1.0.0"
+description = "Federated Cox Proportional Hazards regression, fit via Newton-Raphson over WebDISCO-style risk-set aggregates"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0a43",
+  "pandas",
+  "numpy",
+  "scipy"
+]
+authors = [
+    # TODO add authors
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning", "coxph", "survival-analysis"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+# TODO add urls
+
+[tool.hatch.build.targets.wheel]
+packages = ["v6-coxph-py"]
+
+[tool.uv]
+prerelease = "allow"
