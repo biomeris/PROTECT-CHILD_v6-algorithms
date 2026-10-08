@@ -8,7 +8,7 @@
   "functions": [
     {
       "name": "central_function",
-      "description": "estimation of DNAm age",
+      "description": "Estimation of DNAm age per cohort (pooled across nodes)",
       "step_type": "central_compute",
       "databases": [
         {
@@ -17,15 +17,36 @@
       ],
       "arguments": [
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "lista_relojes",
+          "type": "string_list",
+          "display_name": "Clocks",
+          "description": "Names of the pyaging clocks to calculate (e.g. horvath2013, hannum, pcphenoage).",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Name of the column in each node's data that holds the cohort of each sample. Results are computed per cohort.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum number of samples a cohort needs on a node to be included in that node's result (at least 2). Cohorts below this threshold are dropped on the node.",
+          "default_value": 3,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     },
     {
       "name": "federated_function",
-      "description": "",
+      "description": "Per-cohort DNAm age statistics (N, mean, SD) on a node",
       "step_type": "federated_compute",
       "databases": [
         {
@@ -34,9 +55,30 @@
       ],
       "arguments": [
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "lista_relojes",
+          "type": "string_list",
+          "display_name": "Clocks",
+          "description": "Names of the pyaging clocks to calculate (e.g. horvath2013, hannum, pcphenoage).",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Name of the column in each node's data that holds the cohort of each sample. Results are computed per cohort.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum number of samples a cohort needs on a node to be included in that node's result (at least 2). Cohorts below this threshold are dropped on the node.",
+          "default_value": 3,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     }

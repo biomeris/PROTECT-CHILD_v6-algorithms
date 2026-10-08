@@ -10,200 +10,175 @@ import pandas as pd
 from typing import Any, List
 import numpy as np
 import pyaging as pya
-from pathlib import Path
-import os
 
 from vantage6.algorithm.tools.util import info, warn, error
 from vantage6.algorithm.decorator.action import federated
 from vantage6.algorithm.decorator.data import dataframe
 
-# Reference test data paths
-TEST_DATA_DIR = Path(__file__).parent.parent / "test"
-TEST_DATA_FILES = {
-    "test_data_1": TEST_DATA_DIR / "test_data_1.csv",
-    "test_data_2": TEST_DATA_DIR / "test_data_2.csv",
-    "test_data_3": TEST_DATA_DIR / "test_data_3.csv",
-}
+NODE_RESULT_COLUMNS = ["cohort", "clock", "n_samples", "mean_age", "sd_age"]
+
+
+def predict_sample_ages(df_long: pd.DataFrame, lista_relojes: List[str]) -> pd.DataFrame:
+    """
+    Predict the epigenetic age of every sample with each clock.
+
+    Parameters:
+    -----------
+    df_long : pd.DataFrame
+        Long-format beta values with columns probe_id, sample_label and beta
+    lista_relojes : List[str]
+        List of clock names to calculate (e.g., ['horvath2013', 'hannum', 'pcphenoage'])
+
+    Returns:
+    --------
+    pd.DataFrame : One row per sample (index sample_label), one column per clock.
+        A clock that fails to compute is all NaN.
+    """
+    # pyaging expects samples as rows, CpGs as columns
+    matrix = df_long.pivot(index="sample_label", columns="probe_id", values="beta")
+    matrix.columns.name = None
+    matrix.index.name = None
+
+    adata = pya.preprocess.df_to_adata(matrix, verbose=False)
+
+    for reloj in lista_relojes:
+        try:
+            pya.pred.predict_age(adata, clock_names=[reloj], verbose=False)
+            info(f"Successfully calculated {reloj}")
+        except Exception as e:
+            warn(f"Failed to calculate {reloj}: {str(e)}")
+            adata.obs[reloj] = np.nan
+
+    return adata.obs[list(lista_relojes)].astype(float)
+
+
+def federated_impl(
+    df1: pd.DataFrame,
+    lista_relojes: List[str],
+    cohort_column: str = "cohort",
+    min_samples: int = 3,
+) -> pd.DataFrame:
+    """
+    Calculate per-cohort epigenetic age statistics on this node.
+
+    PRIVACY: Returns only the number of samples, mean and standard deviation of the
+    predicted ages per (cohort, clock). Cohorts with fewer than ``min_samples``
+    samples on this node are dropped before anything is computed.
+
+    Parameters:
+    -----------
+    df1 : pd.DataFrame
+        Long-format beta values with one row per (sample, probe) and the columns
+        probe_id, sample_label, beta and ``cohort_column``
+    lista_relojes : List[str]
+        List of clock names to calculate (e.g., ['horvath2013', 'hannum', 'pcphenoage'])
+    cohort_column : str
+        Name of the column in ``df1`` that holds the cohort of each sample
+    min_samples : int
+        Minimum number of samples a cohort needs on this node to be included
+
+    Returns:
+    --------
+    pd.DataFrame : Columns cohort, clock, n_samples, mean_age, sd_age (sample
+        standard deviation, ddof=1), one row per (cohort, clock)
+    """
+    if not isinstance(min_samples, int) or isinstance(min_samples, bool) or min_samples < 2:
+        raise ValueError(f"min_samples must be an integer of at least 2, got {min_samples!r}")
+
+    empty = pd.DataFrame(columns=NODE_RESULT_COLUMNS)
+
+    if df1 is None or df1.empty:
+        error("Input dataframe is empty")
+        return empty
+
+    if not lista_relojes:
+        warn("No clocks specified")
+        return empty
+
+    if cohort_column not in df1.columns:
+        error(f"Cohort column '{cohort_column}' not found in the node data")
+        raise ValueError(
+            f"Cohort column '{cohort_column}' not found in the node data. "
+            f"Available columns: {sorted(map(str, df1.columns))}. "
+            "Add a cohort column to the sample sheet or pass the correct name "
+            "via the 'cohort_column' argument."
+        )
+
+    required = {"probe_id", "sample_label", "beta"}
+    missing = required - set(df1.columns)
+    if missing:
+        error(f"Input data missing required columns: {sorted(missing)}")
+        raise ValueError(f"Input data missing required columns: {sorted(missing)}")
+
+    data = df1[["probe_id", "sample_label", "beta", cohort_column]].rename(
+        columns={cohort_column: "cohort"}
+    )
+
+    n_no_cohort = data.loc[data["cohort"].isna(), "sample_label"].nunique()
+    if n_no_cohort:
+        warn(f"Ignoring {n_no_cohort} sample(s) without a cohort label")
+        data = data.dropna(subset=["cohort"])
+
+    cohort_per_sample = data.groupby("sample_label")["cohort"].nunique()
+    if (cohort_per_sample > 1).any():
+        raise ValueError("Some samples are assigned to more than one cohort")
+
+    # Privacy threshold: drop cohorts with too few samples on this node
+    cohort_sizes = data.groupby("cohort")["sample_label"].nunique()
+    small = cohort_sizes[cohort_sizes < min_samples].index
+    for cohort in small:
+        info(
+            f"Dropping cohort '{cohort}': fewer than min_samples={min_samples} "
+            "samples on this node"
+        )
+    data = data[~data["cohort"].isin(small)]
+
+    if data.empty:
+        info("No cohort on this node meets the min_samples threshold; returning no results")
+        return empty
+
+    info(f"Calculating clocks: {lista_relojes} for {data['sample_label'].nunique()} samples")
+    ages = predict_sample_ages(data, lista_relojes)
+    ages["cohort"] = data.groupby("sample_label")["cohort"].first().reindex(ages.index)
+
+    rows = []
+    for cohort, cohort_ages in ages.groupby("cohort"):
+        for clk in lista_relojes:
+            valid = cohort_ages[clk].dropna()
+            if len(valid) < min_samples:
+                info(
+                    f"Dropping clock '{clk}' for cohort '{cohort}': fewer than "
+                    f"min_samples={min_samples} samples with a predicted age"
+                )
+                continue
+            rows.append({
+                "cohort": cohort,
+                "clock": clk,
+                "n_samples": int(len(valid)),
+                "mean_age": float(valid.mean()),
+                "sd_age": float(valid.std(ddof=1)),
+            })
+
+    summary = pd.DataFrame(rows, columns=NODE_RESULT_COLUMNS)
+    info(f"Node summary: {summary['cohort'].nunique()} cohort(s), {len(summary)} (cohort, clock) results")
+    return summary
 
 
 @federated
 @dataframe(1)
 def federated_function(
-    df1: pd.DataFrame, lista_relojes: List[str],
-    # INDIVIDUAL_RESULTS: Add optional parameter to return individual sample ages
-    return_individual_results: bool = False
-) -> dict:
+    df1: pd.DataFrame,
+    lista_relojes: List[str],
+    cohort_column: str = "cohort",
+    min_samples: int = 3,
+) -> Any:
     """
-    Calculate epigenetic age using multiple clocks on beta values matrix.
-    
-    PRIVACY: Returns only aggregated statistics (mean, std, min, max, N) per clock.
-    Individual patient ages are NEVER returned by default.
-    
-    Parameters:
-    -----------
-    df1 : pd.DataFrame
-        Beta values matrix with CpG IDs as index and samples as columns
-    lista_relojes : List[str]
-        List of clock names to calculate (e.g., ['horvath2013', 'hannum', 'phenoage'])
-    # INDIVIDUAL_RESULTS: Document the new parameter for individual results
-    return_individual_results : bool, optional
-        If True, also returns individual sample ages (default: False for privacy)
-    
-    Returns:
-    --------
-    dict : Organization-level aggregated statistics per clock and optionally individual results
-        {
-            "aggregated": {
-                "horvath2013": {"mean": 45.2, "std": 8.3, "min": 32.1, "max": 58.9, "N": 5},
-            },
-            # INDIVIDUAL_RESULTS: Show structure when individual results are included
-            "individual": {
-                "horvath2013": {"Sample_1": 45.2, "Sample_2": 46.1, ...}
-            }  # Only included if return_individual_results=True
-        }
+    Calculate per-cohort epigenetic age statistics on this node.
+
+    Returns a list of records with cohort, clock, n_samples, mean_age and sd_age.
+    See ``federated_impl`` for details.
     """
-    # Validate inputs
-    if df1.empty:
-        error("Input dataframe is empty")
-        return {}
-    
-    if not lista_relojes:
-        warn("No clocks specified")
-        return {}
-    
-    n_samples = df1.shape[1]
-    info(f"Calculating clocks: {lista_relojes} for {n_samples} samples")
-    
-    try:
-        # Set CpG IDs as index (first column contains CpG IDs)
-        df_indexed = df1.set_index(df1.columns[0])
-        
-        # Transpose: pyaging expects samples as rows, CpGs as columns
-        df_transposed = df_indexed.T
-        
-        # Convert to AnnData format
-        adata = pya.preprocess.df_to_adata(df_transposed)
-        
-        # Calculate ages for each clock
-        for reloj in lista_relojes:
-            try:
-                pya.pred.predict_age(adata, clock_names=[reloj])
-                info(f"Successfully calculated {reloj}")
-            except Exception as e:
-                warn(f"Failed to calculate {reloj}: {str(e)}")
-                adata.obs[reloj] = np.nan
-        
-        # Aggregate at organization level (privacy preservation)
-        aggregated_stats = {}
-        # INDIVIDUAL_RESULTS: Initialize dictionary to store individual ages if requested
-        individual_ages = {}
-        
-        for clk in lista_relojes:
-            ages = adata.obs[clk].values
-            # Filter out NaN values
-            valid_ages = ages[~np.isnan(ages)]
-            
-            if len(valid_ages) > 0:
-                aggregated_stats[clk] = {
-                    "mean": float(np.mean(valid_ages)),
-                    "std": float(np.std(valid_ages)),
-                    "min": float(np.min(valid_ages)),
-                    "max": float(np.max(valid_ages)),
-                    "N": len(valid_ages)
-                }
-                info(f"{clk}: mean={aggregated_stats[clk]['mean']:.2f}, N={aggregated_stats[clk]['N']}")
-                
-                # INDIVIDUAL_RESULTS: Store individual ages if requested
-                if return_individual_results:
-                    # INDIVIDUAL_RESULTS: Create dictionary with sample names as keys
-                    individual_ages[clk] = {
-                        # INDIVIDUAL_RESULTS: Map each sample to its calculated age
-                        sample: float(age) for sample, age in 
-                        zip(adata.obs_names, adata.obs[clk].values)
-                    }
-            else:
-                warn(f"{clk}: No valid ages calculated")
-                aggregated_stats[clk] = {
-                    "mean": np.nan,
-                    "std": np.nan,
-                    "min": np.nan,
-                    "max": np.nan,
-                    "N": 0
-                }
-        
-        info("Clock calculation and aggregation complete")
-        
-        # INDIVIDUAL_RESULTS: Build result dictionary with conditional individual results
-        result = {"aggregated": aggregated_stats}
-        # INDIVIDUAL_RESULTS: Only add individual results if explicitly requested
-        if return_individual_results:
-            # INDIVIDUAL_RESULTS: Include individual sample ages in the response
-            result["individual"] = individual_ages
-            info("Individual results included in response")
-        
-        return result
-        
-    except Exception as e:
-        error(f"Error in partial calculation: {str(e)}")
-        return {}
-
-
-def load_test_data(test_data_name: str = "test_data_1") -> pd.DataFrame:
-    """
-    Load reference test data for algorithm validation and testing.
-    
-    Parameters:
-    -----------
-    test_data_name : str
-        Name of the test data file ('test_data_1', 'test_data_2', 'test_data_3')
-    
-    Returns:
-    --------
-    pd.DataFrame : Beta values matrix with CpG IDs as first column
-    """
-    if test_data_name not in TEST_DATA_FILES:
-        error(f"Test data '{test_data_name}' not found. Available: {list(TEST_DATA_FILES.keys())}")
-        return pd.DataFrame()
-    
-    test_file = TEST_DATA_FILES[test_data_name]
-    if not test_file.exists():
-        error(f"Test data file not found at: {test_file}")
-        return pd.DataFrame()
-    
-    try:
-        df = pd.read_csv(test_file)
-        info(f"Loaded {test_data_name}: {df.shape[0]} CpG sites × {df.shape[1]-1} samples")
-        return df
-    except Exception as e:
-        error(f"Failed to load test data: {str(e)}")
-        return pd.DataFrame()
-
-
-def get_test_data_reference_info() -> dict:
-    """
-    Get information about available test data files.
-    
-    Returns:
-    --------
-    dict : Metadata about available test data files
-    """
-    info_dict = {}
-    for name, path in TEST_DATA_FILES.items():
-        if path.exists():
-            df = pd.read_csv(path)
-            info_dict[name] = {
-                "path": str(path),
-                "cpg_sites": df.shape[0],
-                "samples": df.shape[1] - 1,
-                "exists": True
-            }
-        else:
-            info_dict[name] = {
-                "path": str(path),
-                "exists": False
-            }
-    return info_dict
-
-
-# TODO Feel free to add more partial functions here.
-
+    summary = federated_impl(
+        df1, lista_relojes, cohort_column=cohort_column, min_samples=min_samples
+    )
+    return summary.to_dict(orient="records")

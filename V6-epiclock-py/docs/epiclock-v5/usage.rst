@@ -4,8 +4,12 @@ How to use
 Input arguments
 ---------------
 
-.. describe the input arguments:
-.. ['arg1']
+- ``lista_relojes`` (list of strings, required): pyaging clocks to calculate, e.g.
+  ``["horvath2013", "hannum", "pcphenoage"]``.
+- ``cohort_column`` (string, default ``"cohort"``): name of the column in each node's
+  data that holds the cohort of each sample. Results are computed per cohort.
+- ``min_samples`` (integer, default ``3``, at least 2): minimum number of samples a
+  cohort needs on a node to be included. Smaller cohorts are dropped on the node.
 
 Python client example
 ---------------------
@@ -35,7 +39,9 @@ first, especially the part about the
   input_ = {
     "method": "central_function",
     "arguments": {
-        "arg1": "my_value",
+        "lista_relojes": ["horvath2013", "hannum", "pcphenoage"],
+        "cohort_column": "cohort",
+        "min_samples": 3,
     },
     "output_format": "json"
   }

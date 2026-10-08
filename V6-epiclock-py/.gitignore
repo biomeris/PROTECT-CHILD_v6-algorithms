@@ -104,3 +104,6 @@ venv.bak/
 .mypy_cache/
 
 .vscode/
+
+# pyaging clock files (downloaded at runtime)
+pyaging_data/
