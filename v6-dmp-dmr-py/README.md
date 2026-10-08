@@ -1,7 +1,88 @@
 
 # Differentialy methylated positions & regions
 
-DMPs and DMRs
+Federated differentially methylated positions (DMPs) and regions (DMRs) between
+two cohorts.
+
+Each hospital compares the two cohorts **within its own patients** (a per-probe
+linear model with pylluminator) and shares only per-probe summary statistics. The
+central function combines the hospitals with a meta-analysis. Because cohorts are
+compared within each hospital, differences between hospitals (batch, scanner,
+protocol) do not end up in the cohort effect. A hospital that does not hold at
+least `min_samples` patients of both cohorts is skipped and reported.
+
+### Input data
+
+Each node's data is the output of `v6-preprocessIDAT-py`: one row per
+(sample, probe) with `probe_id`, `sample_label`, `beta`, `m_value` and a cohort
+column (default `cohort`). Probe positions and genes come from the EPIC v2
+manifest at `MANIFEST_PATH` (default `test/EPIC-8v2-0_A2.csv`).
+
+### Arguments (`central_methylation_analysis`)
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `cohort_a` | required | Reference cohort label |
+| `cohort_b` | required | Compared cohort label; estimates are `cohort_b - cohort_a` |
+| `cohort_column` | `"cohort"` | Column that holds the cohort of each sample |
+| `use_m_values` | `true` | Model M-values (default) or beta values |
+| `min_samples` | `10` | Minimum patients of each cohort a hospital needs to take part (>= 2). See Privacy |
+| `dmr_max_gap` | `1000` | Maximum bp between neighbouring probes of a DMR |
+| `dmr_fdr` | `0.05` | Probe `adj_p_value` threshold for DMR probes |
+| `dmr_min_probes` | `2` | Minimum probes per DMR |
+
+### What each hospital shares
+
+Per probe: `estimate` (cohort_b - cohort_a), `std_err`, raw `p_value`, the number
+of patients per cohort and the mean beta per cohort, plus the probe's position and
+genes. Probes with fewer than `min_samples` values in a cohort are dropped. No
+patient-level values are shared.
+
+### Privacy
+
+Each hospital shares, for every probe, the mean and standard error per cohort.
+With few patients per cohort these reveal a lot about individuals, so the default
+`min_samples` is 10. Do not lower it for real data; the test script uses 3 only
+because the mock hospitals are small.
+
+### Output
+
+- `comparison`: the compared cohorts, direction (`cohort_b - cohort_a`) and
+  `estimate_scale`.
+- `n_nodes_used`, `skipped_nodes`: hospitals that took part / were skipped (with reason).
+- `warnings`: e.g. when only one hospital contributed. The results then equal that
+  hospital's own analysis, there is no replication across hospitals and
+  `heterogeneity_p_value` is empty.
+- `global_dmps`: per probe, a fixed-effect inverse-variance meta-analysis:
+  `estimate`, `std_err`, `estimate_scale`, `z`, `p_value`, `adj_p_value`
+  (Benjamini-Hochberg over all probes), `heterogeneity_p_value` (Cochran's Q; empty
+  when only one hospital contributed to the probe), `mean_beta_a`, `mean_beta_b`,
+  `delta_beta`, `n_nodes`, `n_samples_a`, `n_samples_b`, `chromosome`, `position`,
+  `genes`. Sorted by `p_value`.
+- `global_dmrs`: runs of neighbouring mapped probes (at most `dmr_max_gap` bp
+  apart) that all have `adj_p_value < dmr_fdr` and the same direction, with at
+  least `dmr_min_probes` probes. Ranked by `max_probe_adj_p_value` (the least
+  significant probe in the region), then `n_probes` and absolute `mean_estimate`.
+  Also reports `mean_delta_beta`. `stouffer_p_value` combines the probe z-scores
+  as if the probes were independent; neighbouring CpGs are correlated, so it is far
+  too small (e.g. 1e-190 for 4 probes). It is descriptive only and is not adjusted:
+  use `max_probe_adj_p_value`, `n_probes` and the effect size to judge regions.
+- `heatmap_data`: the top 50 DMPs with the mean beta per cohort, pooled over all
+  hospitals.
+
+### Scale of the estimates
+
+With `use_m_values=true` (default), `estimate` and `std_err` are differences of
+**M-values** (log2(beta / (1 - beta))), not of beta values. An M-value difference of
+1.4 can correspond to a beta difference of about 0.2, and with extreme betas M-value
+differences get very large. Use `delta_beta` / `mean_delta_beta` to read effects on
+the beta scale.
+
+### Testing
+
+```bash
+python test/test_compute.py
+```
 
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.

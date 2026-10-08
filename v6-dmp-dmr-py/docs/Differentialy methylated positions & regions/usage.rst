@@ -4,8 +4,10 @@ How to use
 Input arguments
 ---------------
 
-.. describe the input arguments:
-.. ['arg1']
+See the README for the full list. The main arguments of
+``central_methylation_analysis`` are ``cohort_a`` (reference cohort), ``cohort_b``
+(compared cohort), ``cohort_column`` (default ``"cohort"``) and ``min_samples``
+(default ``3``).
 
 Python client example
 ---------------------
@@ -33,9 +35,10 @@ first, especially the part about the
   client.authenticate()
 
   input_ = {
-    "method": "central_function",
+    "method": "central_methylation_analysis",
     "arguments": {
-        "arg1": "my_value",
+        "cohort_a": "cohort_A",
+        "cohort_b": "cohort_B",
     },
     "output_format": "json"
   }

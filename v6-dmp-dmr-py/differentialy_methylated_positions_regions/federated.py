@@ -8,14 +8,12 @@ or directly to the user (if they requested federated results).
 """
 from __future__ import annotations
 
-import traceback
+from functools import lru_cache
 from typing import Any
-import inspect 
 
 import pandas as pd
 import numpy as np
 import os
-from scipy.stats import ttest_ind
 
 from vantage6.algorithm.tools.util import info, warn, error
 from vantage6.algorithm.decorator.action import federated
@@ -23,9 +21,26 @@ from vantage6.algorithm.decorator.data import dataframe
 
 from pylluminator.samples import Samples
 from pylluminator.dm import DM
-from pylluminator.utils import save_object
 import pylluminator.utils as py_utils
 import pylluminator.dm as py_dm
+
+NODE_RESULT_COLUMNS = [
+    "probe_id", "chromosome", "position", "genes",
+    "estimate", "std_err", "p_value",
+    "n_a", "n_b", "mean_beta_a", "mean_beta_b",
+]
+
+
+@lru_cache(maxsize=2)
+def _read_manifest(path: str) -> pd.DataFrame:
+    """Read the columns of the EPIC v2 manifest that are needed (cached per process)."""
+    return pd.read_csv(
+        path,
+        skiprows=7,
+        usecols=["Name", "CHR", "MAPINFO", "UCSC_RefGene_Name"],
+        dtype={"Name": str, "CHR": str, "UCSC_RefGene_Name": str},
+    )
+
 
 # Build a pylluminator Samples object from precomputed beta/M matrix and sample-sheet.
 def build_samples_from_matrix(df_matrix: pd.DataFrame, df_metadata: pd.DataFrame, use_m_values: bool = True) -> Samples:
@@ -129,7 +144,7 @@ def build_samples_from_matrix(df_matrix: pd.DataFrame, df_metadata: pd.DataFrame
         try:
             info(f"Loading EPIC v2 manifest from: {ruta_manifiesto}")
 
-            df_manifest = pd.read_csv(ruta_manifiesto, low_memory=False, skiprows=7)
+            df_manifest = _read_manifest(ruta_manifiesto).copy()
 
             required_columns = {"Name", "CHR", "MAPINFO", "UCSC_RefGene_Name"}
             missing = sorted(required_columns - set(df_manifest.columns))
@@ -181,236 +196,157 @@ def build_samples_from_matrix(df_matrix: pd.DataFrame, df_metadata: pd.DataFrame
 # ==============================================================================
 # 1. RPC FUNCTION (runs locally on each node/hospital)
 # ==============================================================================
+def compute_methylation_impl(
+    df_metilacion: pd.DataFrame,
+    cohort_a: str,
+    cohort_b: str,
+    cohort_column: str = "cohort",
+    use_m_values: bool = True,
+    min_samples: int = 10,
+) -> dict:
+    """Compare two cohorts within this hospital, probe by probe.
+
+    Parameters
+    ----------
+    df_metilacion : pd.DataFrame
+        Long-format table with one row per (sample, probe) and the columns
+        probe_id, sample_label, beta, m_value and ``cohort_column``
+        (the output of v6-preprocessIDAT-py).
+    cohort_a, cohort_b : str
+        Cohort labels to compare. ``cohort_a`` is the reference, so estimates are
+        cohort_b - cohort_a.
+    cohort_column : str
+        Column holding the cohort of each sample.
+    use_m_values : bool
+        Fit the model on M-values (default) or on beta values.
+    min_samples : int
+        Minimum number of samples per cohort on this hospital. Below it, the
+        hospital is skipped. Probes with fewer non-missing values per cohort are
+        dropped.
+
+    Returns
+    -------
+    dict
+        ``{"status": "ok", "n_a", "n_b", "dmps": [records]}`` where each DMP record
+        has probe_id, chromosome, position, genes, estimate, std_err, p_value
+        (raw), n_a, n_b, mean_beta_a and mean_beta_b; or
+        ``{"status": "skipped", "reason": ...}``.
+    """
+    if not isinstance(min_samples, int) or isinstance(min_samples, bool) or min_samples < 2:
+        raise ValueError(f"min_samples must be an integer of at least 2, got {min_samples!r}")
+    if cohort_a == cohort_b:
+        raise ValueError("cohort_a and cohort_b must be different cohorts")
+
+    if cohort_column not in df_metilacion.columns:
+        error(f"Cohort column '{cohort_column}' not found in the node data")
+        raise ValueError(
+            f"Cohort column '{cohort_column}' not found in the node data. "
+            f"Available columns: {sorted(map(str, df_metilacion.columns))}. "
+            "Add a cohort column to the sample sheet or pass the correct name "
+            "via the 'cohort_column' argument."
+        )
+    required = {"probe_id", "sample_label", "beta", "m_value"}
+    missing = required - set(df_metilacion.columns)
+    if missing:
+        raise ValueError(f"Input data missing required columns: {sorted(missing)}")
+
+    info(f"Starting local differential methylation analysis: {cohort_b} vs {cohort_a}")
+
+    # 1. Keep only the samples of the two compared cohorts
+    data = df_metilacion[["probe_id", "sample_label", "beta", "m_value", cohort_column]].rename(
+        columns={cohort_column: "cohort"}
+    )
+    data = data[data["cohort"].isin([cohort_a, cohort_b])]
+    sizes = data.groupby("cohort")["sample_label"].nunique()
+    n_a, n_b = int(sizes.get(cohort_a, 0)), int(sizes.get(cohort_b, 0))
+
+    if n_a < min_samples or n_b < min_samples:
+        reason = (
+            f"fewer than min_samples={min_samples} samples of '{cohort_a}' and/or "
+            f"'{cohort_b}' on this node"
+        )
+        info(f"Skipping this node: {reason}")
+        return {"status": "skipped", "reason": reason}
+
+    info(f"Comparing {n_b} '{cohort_b}' samples with {n_a} '{cohort_a}' samples")
+
+    # 2. Sample sheet and wide matrices (probes x samples)
+    df_metadata = (
+        data[["sample_label", "cohort"]].drop_duplicates()
+        .rename(columns={"sample_label": "sample_id"})
+        .reset_index(drop=True)
+    )
+    value_column = "m_value" if use_m_values else "beta"
+    df_matriz = data.pivot(index="probe_id", columns="sample_label", values=value_column)
+    df_matriz.index.name = "probe_id"
+    df_matriz.columns.name = "sample_id"
+    betas = data.pivot(index="probe_id", columns="sample_label", values="beta")
+    info(f"Matrix shape: {df_matriz.shape}")
+
+    # 3. Per-probe linear model with pylluminator (cohort_a is the reference level)
+    my_samples = build_samples_from_matrix(df_matriz, df_metadata, use_m_values=use_m_values)
+    my_samples.array_type = "EPICv2"
+    my_dms = DM(
+        my_samples,
+        "~ cohort",
+        reference_value={"cohort": cohort_a},
+        probe_ids=df_matriz.index,
+        use_m_values=use_m_values,
+    )
+    if my_dms is None or my_dms.dmp is None or not my_dms.contrasts:
+        raise RuntimeError("pylluminator DMP computation failed")
+
+    contrast = f"cohort[T.{cohort_b}]"
+    if contrast not in my_dms.contrasts:
+        raise RuntimeError(f"Unexpected contrasts from pylluminator: {my_dms.contrasts}")
+    dmp = my_dms.dmp[[f"{contrast}_estimate", f"{contrast}_std_err", f"{contrast}_p_value"]]
+    dmp.columns = ["estimate", "std_err", "p_value"]
+    dmp = dmp.copy()
+    dmp.index = dmp.index.astype(str)
+
+    # 4. Per-cohort sample counts and mean beta values per probe
+    samples_a = df_metadata.loc[df_metadata["cohort"] == cohort_a, "sample_id"]
+    samples_b = df_metadata.loc[df_metadata["cohort"] == cohort_b, "sample_id"]
+    analysed = df_matriz.notna()
+    dmp["n_a"] = analysed[samples_a].sum(axis=1).reindex(dmp.index)
+    dmp["n_b"] = analysed[samples_b].sum(axis=1).reindex(dmp.index)
+    dmp["mean_beta_a"] = betas[samples_a].mean(axis=1).reindex(dmp.index)
+    dmp["mean_beta_b"] = betas[samples_b].mean(axis=1).reindex(dmp.index)
+
+    # A probe measured in too few samples of a cohort would expose those samples
+    keep = (dmp["n_a"] >= min_samples) & (dmp["n_b"] >= min_samples) & dmp["std_err"].notna()
+    if (~keep).any():
+        info(f"Dropping {int((~keep).sum())} probe(s) with fewer than min_samples={min_samples} values per cohort")
+    dmp = dmp[keep]
+
+    # 5. Probe annotation (chromosome, position, genes) from the manifest
+    annotation = getattr(getattr(my_samples, "annotation", None), "probe_infos", None)
+    if annotation is not None:
+        annotation = annotation.set_index("probe_id")[["chromosome", "position", "genes"]]
+        dmp = dmp.join(annotation, how="left")
+    else:
+        warn("No probe annotation available; DMRs cannot be computed from this node's probes")
+        dmp["chromosome"], dmp["position"], dmp["genes"] = None, None, None
+
+    dmp = dmp.reset_index(names="probe_id")
+    dmp[["n_a", "n_b"]] = dmp[["n_a", "n_b"]].astype(int)
+    dmp = dmp[NODE_RESULT_COLUMNS].astype(object).where(dmp[NODE_RESULT_COLUMNS].notna(), None)
+
+    info(f"Node DMPs computed for {len(dmp)} probes")
+    return {"status": "ok", "n_a": n_a, "n_b": n_b, "dmps": dmp.to_dict(orient="records")}
+
+
 @federated
 @dataframe(1)
 def rpc_compute_methylation(
-    df_metilacion: pd.DataFrame, 
-    ids_cohort_a: list, 
-    ids_cohort_b: list, 
-    use_m_values: bool = True
+    df_metilacion: pd.DataFrame,
+    cohort_a: str,
+    cohort_b: str,
+    cohort_column: str = "cohort",
+    use_m_values: bool = True,
+    min_samples: int = 10,
 ):
-    info("Starting local differential methylation analysis (long format)...")
-    
-    # 1. Filter rows: Keep only patients belonging to the global cohorts
-    pacientes_validos_globales = set(ids_cohort_a + ids_cohort_b)
-    df_filtrado = df_metilacion[df_metilacion['sample_id'].isin(pacientes_validos_globales)]
-    
-    pacientes_locales = df_filtrado['sample_id'].unique().tolist()
-    info(f"Retained {len(pacientes_locales)} local patients corresponding to the study cohorts.")
-
-    # 2. Generate the virtual Sample Sheet
-    metadata_lista = []
-    for pid in pacientes_locales:
-        cohorte = 'Cohorte_A' if pid in ids_cohort_a else 'Cohorte_B'
-        metadata_lista.append({
-            'sample_id': pid,
-            'cohorte': cohorte
-        })
-
-    df_metadata = pd.DataFrame(metadata_lista)
-
-    # Keep `sample_id` as a column — Pylluminator expects the sample label as a column
-    info(f"Metadata columns: {df_metadata.columns.tolist()}")
-    info(f"Metadata sample ids (first 10): {df_metadata['sample_id'].tolist()[:10]}")
-
-    # Security verification: Ensure there are at least two groups in the metadata for contrast
-    if df_metadata['cohorte'].nunique() < 2:
-        msg = "Not enough groups in this node to perform the methylation contrast."
-        error(msg)
-        return {"node_id": os.environ.get("NODE_ID", "unknown"), "error": msg}
-
-    # 3. Pivot from Long Format to Wide Matrix (Pylluminator expects a matrix)
-    # Rename 'beta_value' to 'beta' and 'm_value' to 'M' to match what Pylluminator expects
-    mapping = {'beta_value': 'beta', 'm_value': 'M'}
-    df_filtrado_renombrado = df_filtrado.rename(columns=mapping)
-    
-    col_selected = 'M' if use_m_values else 'beta'
-    info(f"Pivoting matrix using column: {col_selected}")
-    
-    df_matriz = df_filtrado_renombrado.pivot(index='probe_id', columns='sample_id', values=col_selected)
-
-    df_matriz.index.name = 'probe_id'  
-    # Ensure the column name matches the sample-sheet column used by Pylluminator
-    df_matriz.columns.name = 'sample_id'
-    info(f"Matrix shape: {df_matriz.shape}")
-    info(f"Matrix columns (first 10): {list(df_matriz.columns[:10])}")
-    info(f"Matrix index name: {df_matriz.index.name}")
-    
-    # 4. Pylluminator: build Samples from precomputed matrix
-    try:
-        my_samples = build_samples_from_matrix(df_matriz, df_metadata, use_m_values=use_m_values)
-        my_samples.array_type = 'EPICv2'
-    except Exception as e:
-        error(f"Failure in the injection/build Samples: {e}")
-        return {"error": str(e)}
-    
-    try:
-        info("_signal_df index name: {}".format(getattr(my_samples._signal_df.index, 'name', None)))
-    except Exception:
-        info("_signal_df index name: <unavailable>")
-    all_pct_probes = int(my_samples.nb_probes)
-    # Ensure my_samples._betas index name is set immediately before DM initialization
-    try:
-        if hasattr(my_samples, '_betas') and isinstance(my_samples._betas, pd.DataFrame):
-            my_samples._betas = my_samples._betas.copy()
-            my_samples._betas.index.name = 'probe_id'
-        info("_betas index name: {}".format(getattr(my_samples._betas.index, 'name', None)))
-    except Exception:
-        info("_betas index name: <unavailable>")
-
-    # Prefer using the _betas index which the adapter controls
-    if hasattr(my_samples, '_betas') and isinstance(my_samples._betas, pd.DataFrame):
-        probe_ids = my_samples._betas.index[:all_pct_probes]
-    else:
-        probe_ids = df_matriz.index[:all_pct_probes]
-
-    # 5. DMs & DMRs
-    formula_dinamica = '~ cohorte'
-    info(f"Calculating DMs. Formula: {formula_dinamica}")
-    
-    try:
-        info("_m index name: {}".format(getattr(my_samples._m.index, 'name', None)))
-    except Exception:
-        info("_m index name: <unavailable>")
-    try:
-        info("_betas index name: {}".format(getattr(my_samples._betas.index, 'name', None)))
-    except Exception:
-        info("_betas index name: <unavailable>")
-    my_dms = None
-    try:
-        my_dms = DM(my_samples, formula_dinamica, probe_ids=probe_ids, use_m_values=use_m_values)
-    except Exception as e:
-        warn(f"Pylluminator DM initialization failed: {e}")
-        my_dms = None
-
-    """
-    # Extract DMPs with essential information (probe_id, logFC, P.Value, etc.)
-    top_dmps_df = []
-    if my_dms is not None and getattr(my_dms, 'contrasts', None):
-        info("Extracting DMP results...")
-        try:
-            top_dmps_df = my_dms.get_top_dmp(my_dms.contrasts[0])
-        except Exception as e:
-            warn(f"Error extracting DMPs: {e}")
-    """
-
-    # Extract DMPs with all the information in the manifest (probe_id, genes, chromosome, position, etc.)
-    top_dmps_df = []
-    if my_dms is not None and getattr(my_dms, 'contrasts', None):
-        info("Extracting DMP results with full EPIC v2 annotation...")
-        try:
-            raw_top_dmps = my_dms.get_top_dmp(my_dms.contrasts[0])
-            
-            if isinstance(raw_top_dmps, pd.DataFrame) and not raw_top_dmps.empty:
-                if 'probe_id' not in raw_top_dmps.columns:
-                    raw_top_dmps = raw_top_dmps.reset_index().rename(columns={'index': 'probe_id'})
-                
-                # Avoid collisions when manifest and result columns share names.
-                manifest_df = my_samples.annotation.probe_infos.reset_index(drop=True)
-
-                cols_to_drop = [
-                    column
-                    for column in manifest_df.columns
-                    if column in raw_top_dmps.columns and column != "probe_id"
-                ]
-                manifest_clean = manifest_df.drop(columns=cols_to_drop)
-
-                top_dmps_df = raw_top_dmps.merge(
-                    manifest_clean,
-                    on="probe_id",
-                    how="left",
-                )
-
-                top_dmps_df = top_dmps_df.replace({np.nan: None})
-            else:
-                top_dmps_df = raw_top_dmps
-        except Exception as e:
-            warn(f"Error extracting DMPs with full annotation: {e}")    
-
-
-    # Fallback: calculate a simple per-probe t-test if Pylluminator returns no DMPs or fails to initialize.
-    if not isinstance(top_dmps_df, pd.DataFrame) or (isinstance(top_dmps_df, pd.DataFrame) and top_dmps_df.empty):
-        info("Pylluminator returned no DMPs; using the per-probe t-test fallback.")
-        fallback_dmps = []
-        try:
-            if None in df_metadata.columns:
-                grpA = df_metadata[df_metadata[None] == 'Cohorte_A']['sample_id'].tolist()
-                grpB = df_metadata[df_metadata[None] == 'Cohorte_B']['sample_id'].tolist()
-            elif 'cohorte' in df_metadata.columns:
-                grpA = df_metadata[df_metadata['cohorte'] == 'Cohorte_A']['sample_id'].tolist()
-                grpB = df_metadata[df_metadata['cohorte'] == 'Cohorte_B']['sample_id'].tolist()
-            else:
-                warn("No group column found in metadata; skipping fallback.")
-                fallback_dmps = []
-                grpA = grpB = []
-
-            if grpA and grpB:
-                probes = df_matriz.index.tolist()
-                records = []
-                for probe in probes:
-                    valsA = df_matriz.loc[probe, grpA].dropna().astype(float).values
-                    valsB = df_matriz.loc[probe, grpB].dropna().astype(float).values
-                    if len(valsA) < 2 or len(valsB) < 2:
-                        continue
-                    tstat, pval = ttest_ind(valsA, valsB, equal_var=False, nan_policy='omit')
-                    meanA = np.nanmean(valsA)
-                    meanB = np.nanmean(valsB)
-                    records.append({
-                        'probe_id': probe,
-                        'logFC': meanA - meanB,
-                        'P.Value': float(pval)
-                    })
-
-                fallback_dmps = pd.DataFrame(records).sort_values('P.Value').reset_index(drop=True)
-                info(f"Fallback DMPs computed: {len(fallback_dmps)}")
-        except Exception as e:
-            warn(f"Fallback DMP calculation failed: {e}")
-            fallback_dmps = []
-
-        top_dmps_df = fallback_dmps if isinstance(fallback_dmps, pd.DataFrame) else top_dmps_df
-
-    # Extract DMRs
-    info("Calculating DMRs...")
-    top_dmrs_df = []
-    if my_dms is not None and getattr(my_samples, "annotation", None) is not None:
-        try:
-            my_dms.compute_dmr(my_dms.contrasts)
-            top_dmrs_df = my_dms.get_top_dmr(my_dms.contrasts[0])
-        except Exception as e:
-            warn(f"DMR computation skipped due to missing annotation or unsupported input: {e}")
-            top_dmrs_df = []
-    else:
-        warn("No probe annotation available or Pylluminator DM initialization failed; skipping DMR computation.")
-
-    contrasts = getattr(my_dms, 'contrasts', None) or [formula_dinamica]
-
-    # Build the heatmap list; it is not needed for the federated analysis itself.
-    info("Calculating means for the clinical heatmap (top 50 DMPs)...")
-    heatmap_data = []
-    if isinstance(top_dmps_df, pd.DataFrame) and not top_dmps_df.empty:
-        top_50_probes = top_dmps_df['probe_id'].head(50).tolist()
-        
-        pac_A = df_metadata[df_metadata['cohorte'] == 'Cohorte_A']['sample_id'].tolist()
-        pac_B = df_metadata[df_metadata['cohorte'] == 'Cohorte_B']['sample_id'].tolist()
-        
-        for probe in top_50_probes:
-            mean_A = df_matriz.loc[probe, pac_A].mean() if pac_A else None
-            mean_B = df_matriz.loc[probe, pac_B].mean() if pac_B else None
-            
-            # Look up the gene name in the DMP table, if available.
-            gen = top_dmps_df.loc[top_dmps_df['probe_id'] == probe, 'genes'].values[0] if 'genes' in top_dmps_df.columns else "Unknown"
-
-            heatmap_data.append({
-                "probe_id": probe,
-                "genes": gen,
-                "mean_Cohorte_A": mean_A,
-                "mean_Cohorte_B": mean_B
-            })
-
-    return {
-        "node_id": os.environ.get("NODE_ID", "unknown"),
-        "contrasts": contrasts,
-        "top_dmps": top_dmps_df.to_dict(orient="records") if isinstance(top_dmps_df, pd.DataFrame) else top_dmps_df,
-        "top_dmrs": top_dmrs_df.to_dict(orient="records") if isinstance(top_dmrs_df, pd.DataFrame) else top_dmrs_df,
-        "heatmap_data": heatmap_data
-    }
+    """Per-hospital comparison of two cohorts; see ``compute_methylation_impl``."""
+    return compute_methylation_impl(
+        df_metilacion, cohort_a, cohort_b, cohort_column, use_m_values, min_samples
+    )

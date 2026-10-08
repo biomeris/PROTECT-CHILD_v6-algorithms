@@ -11,6 +11,10 @@ requires-python = ">=3.13"
 dependencies = [
   "vantage6-algorithm-tools>=5.0.0a43",
   "pandas",
+  "numpy",
+  "scipy",
+  "statsmodels",
+  "pylluminator",
 ]
 authors = [
     # TODO add authors

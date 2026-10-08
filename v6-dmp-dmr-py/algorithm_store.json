@@ -7,36 +7,139 @@
   "partitioning": "horizontal",
   "functions": [
     {
-      "name": "central_function",
-      "description": "DMPs and DMRs",
+      "name": "central_methylation_analysis",
+      "description": "Federated DMPs (inverse-variance meta-analysis of within-hospital cohort comparisons) and DMRs",
       "step_type": "central_compute",
       "databases": [
         {
-          "name": "Central database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "cohort_a",
+          "type": "string",
+          "display_name": "Reference cohort",
+          "description": "Cohort label (value of the cohort column) used as reference.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_b",
+          "type": "string",
+          "display_name": "Compared cohort",
+          "description": "Cohort label compared with the reference; estimates are cohort_b - cohort_a.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column in each node's data that holds the cohort of each sample.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "use_m_values",
+          "type": "boolean",
+          "display_name": "Use M-values",
+          "description": "Fit the per-probe models on M-values (default) or beta values.",
+          "default_value": true,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum samples of each cohort a hospital needs to take part (at least 2); otherwise it is skipped. Hospitals share per-probe means and standard errors per cohort, so small values reveal a lot about individual patients.",
+          "default_value": 10,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "dmr_max_gap",
+          "type": "integer",
+          "display_name": "DMR maximum gap (bp)",
+          "description": "Maximum distance between neighbouring probes of a DMR.",
+          "default_value": 1000,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "dmr_fdr",
+          "type": "float",
+          "display_name": "DMR probe FDR",
+          "description": "Probe adj_p_value threshold for probes in a DMR.",
+          "default_value": 0.05,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "dmr_min_probes",
+          "type": "integer",
+          "display_name": "DMR minimum probes",
+          "description": "Minimum number of probes in a DMR.",
+          "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     },
     {
-      "name": "federated_function",
-      "description": "",
+      "name": "rpc_compute_methylation",
+      "description": "Within-hospital per-probe comparison of two cohorts (estimate, standard error, p-value)",
       "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "cohort_a",
+          "type": "string",
+          "display_name": "Reference cohort",
+          "description": "Cohort label (value of the cohort column) used as reference.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_b",
+          "type": "string",
+          "display_name": "Compared cohort",
+          "description": "Cohort label compared with the reference; estimates are cohort_b - cohort_a.",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column in each node's data that holds the cohort of each sample.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "use_m_values",
+          "type": "boolean",
+          "display_name": "Use M-values",
+          "description": "Fit the per-probe models on M-values (default) or beta values.",
+          "default_value": true,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum samples of each cohort a hospital needs to take part (at least 2); otherwise it is skipped. Hospitals share per-probe means and standard errors per cohort, so small values reveal a lot about individual patients.",
+          "default_value": 10,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     }
