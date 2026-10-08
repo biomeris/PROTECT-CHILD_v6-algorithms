@@ -1,81 +1,89 @@
 """
-Run this script to test you preprocessing function locally (without building a Docker
-image) using the mock client.
+Run this script to test your preprocessing function locally (without building a
+Docker image).
 
 Run as:
 
-    python test_preprocessing.py
+    python test/test_preprocessing.py
 
-Make sure to do so in an environment where `vantage6-algorithm-tools` is
-installed. This can be done by running:
+Make sure to do so in an environment where `vantage6-algorithm-tools` and
+`pylluminator` are installed. This can be done by running:
 
-    pip install vantage6-algorithm-tools
+    pip install vantage6-algorithm-tools pylluminator
+
+The first check runs the real pipeline: the extraction from the sibling module
+`v6-extractionIDAT-py` reads the IDAT folders and sample sheets (with cohorts) in
+that module's `test/Hospital A` and `test/Hospital B`, and its output is passed to
+the preprocessing. The cohort of every sample must survive the preprocessing.
 """
-
-import pandas as pd
+import contextlib
+import io
 import sys
 from pathlib import Path
-from vantage6.algorithm.mock.network import MockNetwork
 
-# Add parent directory to path so we can import preprocessIDAT
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import pandas as pd
 
-from preprocessIDAT.preprocess import preprocessing_impl
-
-# get path of current directory
 current_path = Path(__file__).parent
+extraction_module = current_path.parent.parent / "v6-extractionIDAT-py"
 
-# Check if hospital folders exist with IDAT files
-hospitals = ["hospital_A", "hospital_B"]
-for hospital in hospitals:
-    hospital_path = current_path / hospital
-    if not hospital_path.exists():
-        print(f"⚠️  {hospital} folder not found at {hospital_path}")
-        print(f"   Please add IDAT files manually to: {hospital_path}")
-    else:
-        idat_files = list(hospital_path.glob("*.idat"))
-        if not idat_files:
-            print(f"⚠️  No IDAT files found in {hospital_path}")
-            print(f"   Please add .idat files to this directory")
-        else:
-            print(f"✓ Found {len(idat_files)} IDAT files in {hospital}")
+# Add the parent directories to the path so we can import both packages
+sys.path.insert(0, str(current_path.parent))
+sys.path.insert(0, str(extraction_module))
 
-print("\n" + "="*70)
-DATABASE_LABEL = "default"
+from preprocessIDAT.preprocess import preprocessing_impl  # noqa: E402
+from extractionIDAT.extract import extraction_impl  # noqa: E402
 
-try:
-    network = MockNetwork(
-        datasets=[
-            {DATABASE_LABEL: {"database": str(current_path / "hospital_A"), "db_type": "folder"}},
-            {DATABASE_LABEL: {"database": str(current_path / "hospital_B"), "db_type": "folder"}},
-            {DATABASE_LABEL: {"database": str(current_path / "hospital_A"), "db_type": "folder"}},
-        ],
-        module_name="preprocessIDAT"
+OUTPUT_COLUMNS = ["probe_id", "sample_label", "cohort", "beta", "m_value"]
+
+
+def check(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
+    print(f"  PASS: {message}")
+
+
+def run(fn, *args, **kwargs):
+    """Call fn with stdout captured; return (result, captured output)."""
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        result = fn(*args, **kwargs)
+    return result, buffer.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# 1. Extraction -> preprocessing keeps the cohort of every sample
+# ---------------------------------------------------------------------------
+print("\n[1] Extraction output -> preprocessing")
+for hospital in ["Hospital A", "Hospital B"]:
+    folder = extraction_module / "test" / hospital
+    extracted, _ = run(extraction_impl, {}, idat_dir=str(folder))
+    print(f"\n{hospital} extraction output:\n{extracted[['sample_label', 'cohort']]}")
+
+    # No idat_dir argument: the folder must come from the extraction output
+    result, log = run(preprocessing_impl, extracted)
+    print(f"preprocessed shape: {result.shape}")
+    print(result.head())
+
+    check(f"Loading IDAT samples from {folder}" in log, f"{hospital}: IDAT folder taken from the extraction output")
+    check(list(result.columns) == OUTPUT_COLUMNS, f"{hospital}: output columns are {OUTPUT_COLUMNS}")
+    check(
+        set(result["sample_label"]) == set(extracted["sample_label"]),
+        f"{hospital}: every extracted sample is preprocessed, with the same label",
     )
+    expected = dict(zip(extracted["sample_label"], extracted["cohort"]))
+    check(
+        (result["cohort"] == result["sample_label"].map(expected)).all(),
+        f"{hospital}: every row has the cohort of its sample ({expected})",
+    )
+    check(result["beta"].between(0, 1).all(), f"{hospital}: beta values are within [0, 1]")
 
-    # Once the network is created, we can get the client to interact with the MockNetwork.
-    client = network.user_client
+# ---------------------------------------------------------------------------
+# 2. Without a cohort (old extraction output) the result has no cohort column
+# ---------------------------------------------------------------------------
+print("\n[2] Extraction output without cohort")
+folder = current_path / "hospital_A"
+result, log = run(preprocessing_impl, pd.DataFrame({"idat_dir": [str(folder)]}))
+check("cohort" not in result.columns and not result.empty, "no cohort column, data still preprocessed")
+check("cannot be used by cohort-aware algorithms" in log, "a warning says the result has no cohort")
 
-    # List mock organizations for verification
-    organizations = client.organization.list()
-    print("organizations:", organizations)
-
-    # Call the preprocessing implementation directly on each hospital folder
-    for folder in ["hospital_A", "hospital_B"]:
-        idat_dir = str(current_path / folder)
-        print(f"\nRunning preprocessing on {folder}...")
-        df = pd.DataFrame({"idat_dir": [idat_dir]})
-        result = preprocessing_impl(
-            df,
-            idat_dir=idat_dir,
-            pvalue_threshold=0.05,
-            min_beads=1,
-        )
-        print(f"preprocessed shape: {result.shape}")
-        print(result.head())
-except ValueError as e:
-    print(f"\n❌ Error: {e}")
-    print("\nNo IDAT files detected. Please add IDAT files to the test directories:")
-    for hospital in hospitals:
-        hospital_path = current_path / hospital
-        print(f"  - {hospital_path}")
+print("\nAll checks passed.")

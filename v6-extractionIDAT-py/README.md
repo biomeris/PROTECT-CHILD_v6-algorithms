@@ -3,6 +3,37 @@
 
 Extraction of IDAT
 
+Discovers the IDAT samples in a node's IDAT folder and reads the cohort of each
+sample from the sample sheet in that folder.
+
+### Sample sheet
+
+The IDAT folder must contain a sample sheet named `samplesheet.csv` or
+`sample_sheet.csv` (or the name given in `sample_sheet_name`). Both plain CSV and
+Illumina sheets with a `[Data]` section are supported. Column names are
+case-insensitive. Required columns:
+
+| Column | Description |
+| --- | --- |
+| `Sample_ID` | Sample identifier. Matched to the IDAT file names (`<Sample_ID>_Grn.idat`); if that fails, `Sentrix_ID` + `Sentrix_Position` are used |
+| cohort column | Cohort of the sample (name set by `cohort_column`, default `cohort`). Use the same cohort codes at every hospital |
+
+Extraction stops with an error if the sample sheet or the cohort column is missing,
+or if any IDAT sample is not in the sheet or has an empty cohort.
+
+### Arguments (`data_extraction_function`)
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `idat_dir` | database URI | Optional override of the IDAT folder |
+| `cohort_column` | `"cohort"` | Sample sheet column that holds the cohort |
+| `sample_sheet_name` | `samplesheet.csv` or `sample_sheet.csv` | Sample sheet file name |
+
+### Output
+
+One row per sample: `sample_label`, `cohort`, `idat_dir`. The preprocessing in
+`v6-preprocessIDAT-py` carries the cohort into its Beta/M table.
+
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.
 

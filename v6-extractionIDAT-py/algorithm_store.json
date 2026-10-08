@@ -7,6 +7,45 @@
   "partitioning": "horizontal",
   "functions": [
     {
+      "name": "data_extraction_function",
+      "description": "Discover IDAT samples and read the cohort of each sample from the sample sheet",
+      "step_type": "data_extraction",
+      "databases": [
+        {
+          "name": "IDAT folder"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "idat_dir",
+          "type": "string",
+          "display_name": "IDAT folder",
+          "description": "Optional override of the IDAT folder (by default the database URI is used).",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohort_column",
+          "type": "string",
+          "display_name": "Cohort column",
+          "description": "Column in the sample sheet that holds the cohort of each sample (case-insensitive, e.g. 'Cohort').",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "sample_sheet_name",
+          "type": "string",
+          "display_name": "Sample sheet file name",
+          "description": "File name of the sample sheet in the IDAT folder. By default samplesheet.csv or sample_sheet.csv is used.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        }
+      ]
+    },
+    {
       "name": "central_function",
       "description": "Extraction of IDAT",
       "step_type": "central_compute",

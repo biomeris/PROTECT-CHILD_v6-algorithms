@@ -3,6 +3,17 @@
 
 Preprocessing of IDAT files to obtain beta-values
 
+Runs QC, dye-bias and NOOB background correction with pylluminator and returns a
+long-format table with one row per (sample, probe):
+`probe_id`, `sample_label`, `cohort`, `beta`, `m_value`.
+
+The input is the output of the extraction in `v6-extractionIDAT-py` (`sample_label`, `cohort`, `idat_dir`). The IDAT
+folder is taken from the `idat_dir` argument if given, otherwise from the
+extraction output. Samples are labelled exactly as in the extraction output and
+keep their cohort, so the table can be used directly by cohort-aware algorithms
+such as `v6-betavalues-py` and `V6-epiclock-py`. If the extraction output has no
+cohort column, the table has no `cohort` column either.
+
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.
 
