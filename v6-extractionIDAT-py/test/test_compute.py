@@ -53,7 +53,7 @@ central_task = client.task.create(
     },
     organizations=[org_ids[0]],
     databases=[
-        {"type": "dataframe", "dataframe_id": network.server.dataframes[0]["id"]}
+        {"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}
     ],
 )
 results = client.wait_for_results(central_task.get("id"))
@@ -68,7 +68,7 @@ task = client.task.create(
     },
     organizations=org_ids,
     databases=[
-        {"type": "dataframe", "dataframe_id": network.server.dataframes[0]["id"]}
+        {"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}
     ],
 )
 print(task)
