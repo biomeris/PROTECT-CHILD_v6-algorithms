@@ -4,8 +4,11 @@ How to use
 Input arguments
 ---------------
 
-.. describe the input arguments:
-.. ['arg1']
+- ``cohort_column`` (string, default ``"cohort"``): name of the column in each node's
+  data that holds the cohort of each sample. Results are computed per cohort.
+- ``min_samples`` (integer, default ``2``): minimum number of samples a cohort needs on
+  a node to be included. Smaller cohorts are dropped on the node.
+- ``idat_dir`` (optional): passed on to the nodes as ``arg1`` (currently unused).
 
 Python client example
 ---------------------
@@ -35,7 +38,8 @@ first, especially the part about the
   input_ = {
     "method": "central_function",
     "arguments": {
-        "arg1": "my_value",
+        "cohort_column": "cohort",
+        "min_samples": 2,
     },
     "output_format": "json"
   }

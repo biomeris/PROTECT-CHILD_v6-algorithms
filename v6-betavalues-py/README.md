@@ -1,7 +1,79 @@
 
 # globalIDAT
 
-Global beta and m values
+Global beta and m values, computed per cohort.
+
+For every CpG probe, each node computes the mean Beta and M value of its samples
+per cohort. The central function combines the node results within each cohort
+into a sample-weighted global mean. A node (e.g. a hospital) may hold samples of
+several cohorts, and a cohort may span several nodes.
+
+### Input data
+
+Each node's data must be a long-format table with one row per (sample, probe) and
+the columns:
+
+| Column | Description |
+| --- | --- |
+| `probe_id` | CpG probe identifier |
+| `sample_label` | Sample identifier |
+| `beta` | Beta value |
+| `m_value` | M value |
+| *cohort column* | Cohort of the sample (name set by `cohort_column`, default `cohort`) |
+
+If the cohort column is missing, the node raises an error.
+
+### Arguments
+
+`central_function` and `federated_function` accept:
+
+| Argument | Type | Default | Description |
+| --- | --- | --- | --- |
+| `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample. |
+| `min_samples` | integer | `2` | Minimum number of samples a cohort needs on a node to be included. |
+
+`central_function` also accepts `idat_dir`, which is passed on to the nodes as
+`arg1` (currently unused).
+
+### Privacy threshold
+
+On each node, any cohort with fewer than `min_samples` samples is dropped before
+anything is returned, and an info message names the dropped cohort and the reason.
+Probes that fewer than `min_samples` samples of a cohort have a value for are
+dropped as well. If every cohort on a node is dropped, the node returns an empty
+result.
+
+### Output
+
+`federated_function` returns one record per (cohort, probe):
+
+| Column | Description |
+| --- | --- |
+| `cohort` | Cohort label |
+| `probe_id` | CpG probe identifier |
+| `beta_mean` | Mean Beta value of the cohort's samples on this node |
+| `m_mean` | Mean M value of the cohort's samples on this node |
+| `n_samples` | Number of samples used for the means |
+
+`central_function` returns one record per (cohort, probe):
+
+| Column | Description |
+| --- | --- |
+| `cohort` | Cohort label |
+| `probe_id` | CpG probe identifier |
+| `beta_mean_global` | `sum(beta_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
+| `m_mean_global` | `sum(m_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
+| `n_samples_total` | `sum(n_samples_i)` over the nodes |
+
+### Testing
+
+```bash
+python test/test_compute.py
+```
+
+The mock data in `test/hospital_A` and `test/hospital_B` represents two nodes:
+`hospital_A` holds `cohort_A` and `cohort_B`, and `hospital_B` holds `cohort_B` and
+`cohort_C`.
 
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.

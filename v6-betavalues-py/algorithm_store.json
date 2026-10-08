@@ -8,7 +8,7 @@
   "functions": [
     {
       "name": "central_function",
-      "description": "Global beta and m values",
+      "description": "Global per-cohort Beta and M values (sample-weighted across nodes)",
       "step_type": "central_compute",
       "databases": [
         {
@@ -20,12 +20,30 @@
           "name": "arg1",
           "type": "",
           "description": ""
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Name of the column in each node's data that holds the cohort of each sample. Results are computed per cohort.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum number of samples a cohort needs on a node to be included in that node's result. Cohorts below this threshold are dropped on the node.",
+          "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     },
     {
       "name": "federated_function",
-      "description": "",
+      "description": "Per-cohort mean Beta and M values per CpG probe on a node",
       "step_type": "federated_compute",
       "databases": [
         {
@@ -37,6 +55,24 @@
           "name": "arg1",
           "type": "",
           "description": ""
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Name of the column in each node's data that holds the cohort of each sample. Results are computed per cohort.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum number of samples a cohort needs on a node to be included in that node's result. Cohorts below this threshold are dropped on the node.",
+          "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     }
