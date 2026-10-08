@@ -4,12 +4,24 @@ How to use
 Input arguments
 ---------------
 
-- ``lista_relojes`` (list of strings, required): pyaging clocks to calculate, e.g.
-  ``["horvath2013", "hannum", "pcphenoage"]``.
+- ``lista_relojes`` (list of strings, optional): pyaging clocks to calculate. If not
+  given, the default clocks are used: ``horvath2013``, ``hannum``, ``pcphenoage``
+  and ``pedbe``. Any other pyaging clock can be chosen, e.g. ``dnamphenoage``,
+  ``zhangen``, ``weidner``, ``lin``, ``bocklandt`` or ``corticalclock``.
 - ``cohort_column`` (string, default ``"cohort"``): name of the column in each node's
   data that holds the cohort of each sample. Results are computed per cohort.
 - ``min_samples`` (integer, default ``3``, at least 2): minimum number of samples a
   cohort needs on a node to be included. Smaller cohorts are dropped on the node.
+- ``coverage_threshold`` (float, default ``0.9``): minimum coverage (share of a
+  clock's CpGs present in a node's data) for a result to be flagged ``coverage_ok``.
+  EPIC v2 identifiers are converted automatically. It only sets the flag; no clock
+  or result is removed. Every result reports ``coverage_min`` and ``coverage_max``
+  over the contributing nodes.
+
+EPIC v2 data: suffixes are stripped, replicate probes averaged and CpGs renamed in
+EPIC v2 mapped to their 450K / EPIC v1 identifier automatically, using the mapping
+packaged with the algorithm. ``MANIFEST_PATH`` (a newer manifest) overrides it;
+``EPICLOCK_LEGACY_MAP=none`` switches it off.
 
 Python client example
 ---------------------

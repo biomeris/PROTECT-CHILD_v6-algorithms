@@ -1,0 +1,7 @@
+# Local caches and environments; the clocks are downloaded during the build
+pyaging_data/
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.git/

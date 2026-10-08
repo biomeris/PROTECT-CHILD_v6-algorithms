@@ -20,9 +20,15 @@
           "name": "lista_relojes",
           "type": "string_list",
           "display_name": "Clocks",
-          "description": "Names of the pyaging clocks to calculate (e.g. horvath2013, hannum, pcphenoage).",
-          "has_default_value": false,
-          "is_frontend_only": false
+          "description": "pyaging clocks to calculate. Default: horvath2013, hannum, pcphenoage and pedbe (paediatric buccal clock). Any other pyaging clock name can be given, e.g. dnamphenoage (Levine DNAm PhenoAge), zhangen, weidner, lin, bocklandt or corticalclock (Shireby).",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": [
+            "horvath2013",
+            "hannum",
+            "pcphenoage",
+            "pedbe"
+          ]
         },
         {
           "name": "cohort_column",
@@ -39,6 +45,15 @@
           "display_name": "Minimum samples per cohort",
           "description": "Minimum number of samples a cohort needs on a node to be included in that node's result (at least 2). Cohorts below this threshold are dropped on the node.",
           "default_value": 3,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "coverage_threshold",
+          "type": "float",
+          "display_name": "Coverage threshold",
+          "description": "Minimum coverage (share of a clock's CpGs present in a node's data, 0-1) for a result to be flagged coverage_ok. EPIC v2 lacks some clock CpGs and pyaging fills them with reference values or 0, which can bias the age. It only sets the flag; no clock or result is removed.",
+          "default_value": 0.9,
           "has_default_value": true,
           "is_frontend_only": false
         }
@@ -58,9 +73,15 @@
           "name": "lista_relojes",
           "type": "string_list",
           "display_name": "Clocks",
-          "description": "Names of the pyaging clocks to calculate (e.g. horvath2013, hannum, pcphenoage).",
-          "has_default_value": false,
-          "is_frontend_only": false
+          "description": "pyaging clocks to calculate. Default: horvath2013, hannum, pcphenoage and pedbe (paediatric buccal clock). Any other pyaging clock name can be given, e.g. dnamphenoage (Levine DNAm PhenoAge), zhangen, weidner, lin, bocklandt or corticalclock (Shireby).",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": [
+            "horvath2013",
+            "hannum",
+            "pcphenoage",
+            "pedbe"
+          ]
         },
         {
           "name": "cohort_column",
@@ -77,6 +98,15 @@
           "display_name": "Minimum samples per cohort",
           "description": "Minimum number of samples a cohort needs on a node to be included in that node's result (at least 2). Cohorts below this threshold are dropped on the node.",
           "default_value": 3,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "coverage_threshold",
+          "type": "float",
+          "display_name": "Coverage threshold",
+          "description": "Minimum coverage (share of a clock's CpGs present in a node's data, 0-1) for a result to be flagged coverage_ok. EPIC v2 lacks some clock CpGs and pyaging fills them with reference values or 0, which can bias the age. It only sets the flag; no clock or result is removed.",
+          "default_value": 0.9,
           "has_default_value": true,
           "is_frontend_only": false
         }

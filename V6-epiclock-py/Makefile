@@ -1,6 +1,11 @@
 VANTAGE6_VERSION ?= 5.0.0
 TAG ?= latest
-IMAGE ?= ghcr.io/vantage6/algorithm/epiclock-v5PLATFORMS ?= linux/amd64
+IMAGE ?= ghcr.io/vantage6/algorithm/epiclock-v5
+PLATFORMS ?= linux/amd64
+
+# Optional Hugging Face token for downloading the clocks during the build; passed
+# as a build secret, never stored in the image: HF_TOKEN=hf_xxx make image
+comma := ,
 
 # Major segment of VANTAGE6_VERSION (e.g. 5.0.0 -> 5)
 VANTAGE6_MAJOR := $(firstword $(subst ., ,$(VANTAGE6_VERSION)))
@@ -35,5 +40,6 @@ image:
 		--tag ${IMAGE}:latest \
 		$$EXTRA_MAJOR \
 		--platform ${PLATFORMS} \
+		$(if $(HF_TOKEN),--secret id=hf_token$(comma)env=HF_TOKEN) \
 		-f ./Dockerfile \
 		$(if ${_condition_push},--push .,.)
