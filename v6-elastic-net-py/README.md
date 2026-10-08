@@ -31,9 +31,36 @@ centralizado. Dos rondas:
 
 ## Input
 
-Una base de datos por nodo (CSV): columnas de CpGs (`cg...`) con beta-values
-[0,1] + una columna `outcome` binaria (0/1). `patient_id` y otras columnas se
-ignoran.
+Una tabla por nodo, en cualquiera de estos formatos (se detecta solo):
+
+- **Ancho**: una fila por paciente, columnas de CpGs (`cg...`) con beta-values
+  + la columna outcome (+ la columna de cohorte si se usa). Otras columnas se
+  ignoran.
+- **Largo** (salida de `v6-preprocessIDAT-py`): una fila por (muestra, sonda) con
+  `probe_id`, `sample_column` (default `sample_label`), `value_column` (default
+  `beta`) y las columnas por muestra outcome (+ cohorte). Se pivota en el nodo
+  solo para las `features` pedidas.
+
+Los nombres de columna (outcome, cohorte, muestra, valor) se pasan como
+argumentos, así que el algoritmo no depende de cómo se integre el modelo de
+datos. Las muestras con algún valor ausente en las features/outcome se excluyen.
+
+## Centrado: hospitales y cohortes
+
+| `center_by` | Qué hace | Equivale a |
+|---|---|---|
+| `hospital` (default) | cada nodo centra X e y con sus propias medias | un intercepto no penalizado por hospital: elimina batch entre hospitales |
+| `hospital_cohort` | centra dentro de cada (hospital, cohorte) | un intercepto por hospital × cohorte |
+| `global` | media/std global (comportamiento original) | un único intercepto |
+
+La equivalencia es exacta (Frisch-Waugh-Lovell) y el test lo comprueba contra
+sklearn. La escala es la desviación típica intra-grupo agregada. **Ojo**:
+`hospital_cohort` elimina también las diferencias entre cohortes; no usarlo si el
+outcome depende de la cohorte que se quiere estudiar. Con `hospital_cohort`, los
+grupos (hospital, cohorte) con menos de `min_samples` muestras se descartan.
+
+`cohorts` permite ajustar el modelo solo con algunas cohortes (p.ej.
+`["cohort_A"]`).
 
 ## Argumentos (función `central`)
 
@@ -47,6 +74,11 @@ ignoran.
 | `tol` | float | 1e-8 | umbral de convergencia |
 | `min_samples` | int | 5 | privacy guard: nodos con menos muestras se saltan |
 | `warn_gram_gb` | float | 1.0 | avisa si la matriz Gram p×p supera este tamaño |
+| `center_by` | string | `hospital` | `hospital`, `hospital_cohort` o `global` (ver arriba) |
+| `cohort_column` | column | — | columna de cohorte (para `hospital_cohort` o `cohorts`) |
+| `cohorts` | string_list | — | cohortes a incluir; vacío = todas |
+| `sample_column` | string | `sample_label` | columna de muestra (solo formato largo) |
+| `value_column` | string | `beta` | columna de valores (solo formato largo) |
 
 ## Output
 
@@ -57,6 +89,10 @@ ignoran.
   "selected_cpgs": ["cg...", ...],
   "n_total": 200,
   "n_nodes": 4,
+  "n_groups": 4,
+  "nodes_skipped": 0,
+  "center_by": "hospital",
+  "cohorts": null,
   "hyperparams": {"alpha": 0.01, "l1_ratio": 0.5}
 }
 ```
@@ -64,7 +100,10 @@ ignoran.
 ## Privacidad
 
 Solo salen agregados (sumas, matriz Gram), nunca filas de pacientes. Guard K
-(`min_samples`, default 5). Ver `docs/privacy.md`.
+(`min_samples`, default 5), aplicado también por grupo (hospital, cohorte). Si un
+nodo tiene más features que pacientes (p >= n), la matriz Gram contiene mucha
+información de cada paciente: el nodo avisa; usar menos features que pacientes
+por nodo. Ver `docs/privacy.md`.
 
 ## Limitación de escala
 

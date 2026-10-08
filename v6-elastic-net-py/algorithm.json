@@ -21,7 +21,12 @@
         {"name": "max_iter", "type": "integer", "display_name": "Max iterations", "description": "Max coordinate-descent iterations", "default_value": 1000, "has_default_value": true},
         {"name": "tol", "type": "float", "display_name": "Tolerance", "description": "Convergence threshold", "default_value": 1e-08, "has_default_value": true},
         {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard: skip nodes with fewer samples", "default_value": 5, "has_default_value": true},
-        {"name": "warn_gram_gb", "type": "float", "display_name": "Gram memory warning (GB)", "description": "Warn if the p×p Gram matrix exceeds this size", "default_value": 1.0, "has_default_value": true}
+        {"name": "warn_gram_gb", "type": "float", "display_name": "Gram memory warning (GB)", "description": "Warn if the p×p Gram matrix exceeds this size", "default_value": 1.0, "has_default_value": true},
+        {"name": "center_by", "type": "string", "display_name": "Centering", "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)", "default_value": "hospital", "has_default_value": true},
+        {"name": "cohort_column", "type": "column", "display_name": "Cohort column", "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)", "default_value": null, "has_default_value": true},
+        {"name": "cohorts", "type": "string_list", "display_name": "Cohorts", "description": "Cohorts to include; empty = all", "default_value": null, "has_default_value": true},
+        {"name": "sample_column", "type": "string", "display_name": "Sample column (long format)", "description": "Sample column when the input is long format (probe_id, sample, value)", "default_value": "sample_label", "has_default_value": true},
+        {"name": "value_column", "type": "string", "display_name": "Value column (long format)", "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format", "default_value": "beta", "has_default_value": true}
       ]
     },
     {
@@ -35,7 +40,12 @@
       "arguments": [
         {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns", "has_default_value": false},
         {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column", "has_default_value": false},
-        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true}
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true},
+        {"name": "center_by", "type": "string", "display_name": "Centering", "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)", "default_value": "hospital", "has_default_value": true},
+        {"name": "cohort_column", "type": "column", "display_name": "Cohort column", "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)", "default_value": null, "has_default_value": true},
+        {"name": "cohorts", "type": "string_list", "display_name": "Cohorts", "description": "Cohorts to include; empty = all", "default_value": null, "has_default_value": true},
+        {"name": "sample_column", "type": "string", "display_name": "Sample column (long format)", "description": "Sample column when the input is long format (probe_id, sample, value)", "default_value": "sample_label", "has_default_value": true},
+        {"name": "value_column", "type": "string", "display_name": "Value column (long format)", "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format", "default_value": "beta", "has_default_value": true}
       ]
     },
     {
@@ -52,7 +62,12 @@
         {"name": "mean", "type": "json", "display_name": "Global mean", "description": "Global per-column mean (from round 1)", "has_default_value": false},
         {"name": "std", "type": "json", "display_name": "Global std", "description": "Global per-column std (from round 1)", "has_default_value": false},
         {"name": "ymean", "type": "float", "display_name": "Global outcome mean", "description": "Global mean of the outcome (from round 1)", "has_default_value": false},
-        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true}
+        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true},
+        {"name": "center_by", "type": "string", "display_name": "Centering", "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)", "default_value": "hospital", "has_default_value": true},
+        {"name": "cohort_column", "type": "column", "display_name": "Cohort column", "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)", "default_value": null, "has_default_value": true},
+        {"name": "cohorts", "type": "string_list", "display_name": "Cohorts", "description": "Cohorts to include; empty = all", "default_value": null, "has_default_value": true},
+        {"name": "sample_column", "type": "string", "display_name": "Sample column (long format)", "description": "Sample column when the input is long format (probe_id, sample, value)", "default_value": "sample_label", "has_default_value": true},
+        {"name": "value_column", "type": "string", "display_name": "Value column (long format)", "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format", "default_value": "beta", "has_default_value": true}
       ]
     }
   ]
