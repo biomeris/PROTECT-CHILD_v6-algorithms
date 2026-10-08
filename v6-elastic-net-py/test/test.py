@@ -23,7 +23,8 @@ ALPHA, L1_RATIO = 0.01, 0.5
 
 # --- Datos: repartir en 3 nodos (DataFrames -> extraccion automatica) ---
 df = pd.read_csv(DATA)
-splits = [s.reset_index(drop=True) for s in np.array_split(df, 3)]
+splits = [df.iloc[indexes].reset_index(drop=True)
+          for indexes in np.array_split(np.arange(len(df)), 3)]
 
 network = MockNetwork(
     module_name="v6-elastic-net-py",

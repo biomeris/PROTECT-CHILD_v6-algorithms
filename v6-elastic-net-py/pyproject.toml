@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Federated Elastic Net for feature selection on high-dimensional methylation data (p >> n)"
 requires-python = ">=3.13"
 dependencies = [
-    "vantage6-algorithm-tools",
+    "vantage6-algorithm-tools>=5.0.0a43",
     "numpy",
     "pandas",
     "scikit-learn",
