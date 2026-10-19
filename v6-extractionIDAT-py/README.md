@@ -3,8 +3,21 @@
 
 Extraction of IDAT
 
-Discovers the IDAT samples in a node's IDAT folder and reads the cohort of each
-sample from the sample sheet in that folder.
+Reads the IDAT files of a node into Beta and M values, with the cohort of each
+sample from the sample sheet in the IDAT folder.
+
+This is a **data extraction** step: the result is a dataframe stored at each node
+(nothing is returned to the user). Analyses such as `v6-betavalues-py`,
+`v6-dmp-dmr-py`, `v6-elastic-net-py` and the epigenetic clocks run on it. The IDAT
+files are only available to the data extraction step of vantage6, so the quality
+control and normalisation happen here; `v6-preprocessIDAT-py` is no longer needed.
+
+### Node database
+
+A database of type `folder` that holds the IDAT pairs (`<label>_Grn.idat`,
+`<label>_Red.idat`) and the sample sheet. 450K, EPIC and EPIC v2 arrays are
+supported; their pylluminator annotations are bundled in the Docker image, so the
+node needs no internet access.
 
 ### Sample sheet
 
@@ -18,21 +31,37 @@ case-insensitive. Required columns:
 | `Sample_ID` | Sample identifier. Matched to the IDAT file names (`<Sample_ID>_Grn.idat`); if that fails, `Sentrix_ID` + `Sentrix_Position` are used |
 | cohort column | Cohort of the sample (name set by `cohort_column`, default `cohort`). Use the same cohort codes at every hospital |
 
-Extraction stops with an error if the sample sheet or the cohort column is missing,
-or if any IDAT sample is not in the sheet or has an empty cohort.
+Extraction stops with an error if the IDAT folder, the sample sheet or the cohort
+column is missing, if any IDAT sample is not in the sheet or has an empty cohort,
+or if pylluminator returns no values for a sample. It never falls back to other data.
+
+### Processing
+
+pOOBAH detection p-value masking, masking of quality, control, non-CpG, SNP and
+sex-chromosome probes, non-linear dye-bias correction, NOOB background correction,
+then Beta and M values of the probes that pass the masks (pylluminator).
 
 ### Arguments (`data_extraction_function`)
 
 | Argument | Default | Description |
 | --- | --- | --- |
-| `idat_dir` | database URI | Optional override of the IDAT folder |
 | `cohort_column` | `"cohort"` | Sample sheet column that holds the cohort |
 | `sample_sheet_name` | `samplesheet.csv` or `sample_sheet.csv` | Sample sheet file name |
+| `sample_columns` | none | Other sample sheet columns to add to every row, e.g. `["Age"]` (named in snake_case: `age`). Numeric columns become numbers; empty or `NA` values are kept as missing |
+| `pvalue_threshold` | `0.05` | pOOBAH detection p-value threshold |
+| `min_beads` | `1` | Minimum number of beads per probe |
 
 ### Output
 
-One row per sample: `sample_label`, `cohort`, `idat_dir`. The preprocessing in
-`v6-preprocessIDAT-py` carries the cohort into its Beta/M table.
+One row per (probe, sample): `probe_id`, `sample_label`, `cohort`, `beta`,
+`m_value` (float32), followed by the `sample_columns`.
+
+Size: an EPIC v2 sample has about 870k probes after QC. 17 samples gave 14.7 million
+rows, a 226 MB dataframe at the node, about 100 s and 4 GB of memory to extract.
+
+### Tests
+
+    python test/test_extraction.py
 
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.

@@ -4,13 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "extractionIDAT"
-version = "1.0.0"
-description = "Extraction of IDAT"
+version = "2.0.0"
+description = "Extraction of IDAT files into Beta and M values"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
   "vantage6-algorithm-tools>=5.0.0a43",
+  "numpy",
   "pandas",
+  "pylluminator>=2.2,<3",
 ]
 authors = [
     # TODO add authors

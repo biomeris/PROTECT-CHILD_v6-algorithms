@@ -8,7 +8,7 @@
   "functions": [
     {
       "name": "data_extraction_function",
-      "description": "Discover IDAT samples and read the cohort of each sample from the sample sheet",
+      "description": "Read the IDAT files and sample sheet of a node into a long table of Beta and M values per probe and sample, with the cohort of each sample",
       "step_type": "data_extraction",
       "databases": [
         {
@@ -16,15 +16,6 @@
         }
       ],
       "arguments": [
-        {
-          "name": "idat_dir",
-          "type": "string",
-          "display_name": "IDAT folder",
-          "description": "Optional override of the IDAT folder (by default the database URI is used).",
-          "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
-        },
         {
           "name": "cohort_column",
           "type": "string",
@@ -42,40 +33,33 @@
           "default_value": null,
           "has_default_value": true,
           "is_frontend_only": false
-        }
-      ]
-    },
-    {
-      "name": "central_function",
-      "description": "Extraction of IDAT",
-      "step_type": "central_compute",
-      "databases": [
+        },
         {
-          "name": "Central database 1"
-        }
-      ],
-      "arguments": [
+          "name": "sample_columns",
+          "type": "string_list",
+          "display_name": "Extra sample sheet columns",
+          "description": "Other sample sheet columns to add to every row, e.g. Age. Column names become snake_case (Age -> age).",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
         {
-          "name": "arg1",
-          "type": "",
-          "description": ""
-        }
-      ]
-    },
-    {
-      "name": "federated_function",
-      "description": "",
-      "step_type": "federated_compute",
-      "databases": [
+          "name": "pvalue_threshold",
+          "type": "float",
+          "display_name": "Detection p-value threshold",
+          "description": "pOOBAH detection p-value above which a probe is masked.",
+          "default_value": 0.05,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
         {
-          "name": "Database 1"
-        }
-      ],
-      "arguments": [
-        {
-          "name": "arg1",
-          "type": "",
-          "description": ""
+          "name": "min_beads",
+          "type": "integer",
+          "display_name": "Minimum number of beads",
+          "description": "Probes measured with fewer beads are masked.",
+          "default_value": 1,
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     }

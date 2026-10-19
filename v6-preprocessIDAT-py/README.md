@@ -1,5 +1,9 @@
-
 # preprocessIDAT
+
+> **Deprecated.** The IDAT files are only available to the data extraction step of
+> vantage6, so a separate preprocessing step cannot read them on a node. The QC and
+> Beta/M calculation moved into `v6-extractionIDAT-py` (version 2), which returns the
+> same `probe_id, sample_label, cohort, beta, m_value` table. Use that instead.
 
 Preprocessing of IDAT files to obtain beta-values
 

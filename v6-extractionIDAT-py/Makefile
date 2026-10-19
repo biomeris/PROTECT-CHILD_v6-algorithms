@@ -1,6 +1,7 @@
 VANTAGE6_VERSION ?= 5.0.0
 TAG ?= latest
-IMAGE ?= ghcr.io/vantage6/algorithm/extractionIDATPLATFORMS ?= linux/amd64
+IMAGE ?= ghcr.io/vantage6/algorithm/extractionIDAT
+PLATFORMS ?= linux/amd64
 
 # Major segment of VANTAGE6_VERSION (e.g. 5.0.0 -> 5)
 VANTAGE6_MAJOR := $(firstword $(subst ., ,$(VANTAGE6_VERSION)))

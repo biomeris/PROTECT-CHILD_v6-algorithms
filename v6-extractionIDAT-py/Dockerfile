@@ -9,6 +9,11 @@ ARG PKG_NAME="extractionIDAT"
 COPY . /app
 RUN pip install /app
 
+# pylluminator downloads its array annotations on first use. Algorithms on a node
+# have no internet access, so bundle the supported arrays into the image.
+RUN python -c "from pylluminator.annotations import Annotations, ArrayType, GenomeVersion; \
+[Annotations(array, GenomeVersion.HG38) for array in (ArrayType.HUMAN_450K, ArrayType.HUMAN_EPIC, ArrayType.HUMAN_EPIC_V2)]"
+
 # Set environment variable to make name of the package available within the
 # docker image.
 ENV PKG_NAME=${PKG_NAME}
