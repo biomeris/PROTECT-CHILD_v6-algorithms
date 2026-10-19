@@ -22,6 +22,7 @@ means differs from the correct sample-weighted mean.
 import contextlib
 import io
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -35,8 +36,23 @@ sys.path.insert(0, str(current_path.parent))
 
 from vantage6.algorithm.mock.network import MockNetwork  # noqa: E402
 
-from globalIDAT.central import GLOBAL_RESULT_COLUMNS, aggregate_cohort_results  # noqa: E402
-from globalIDAT.federated import NODE_RESULT_COLUMNS, federated_impl  # noqa: E402
+from globalIDAT.central import (  # noqa: E402
+    CENTRAL_RESULT_COLUMNS,
+    GLOBAL_RESULT_COLUMNS,
+    aggregate_cohort_results,
+    cohort_totals,
+)
+from globalIDAT.federated import (  # noqa: E402
+    MAX_NODE_PROBES,
+    MAX_RESULT_PROBES,
+    NODE_RESULT_COLUMNS,
+    _validate_probes,
+    _validate_top_n,
+    cohort_sizes,
+    federated_impl,
+    matching_probe_ids,
+    top_probes_impl,
+)
 
 DATABASE_LABEL = "default"
 NODE_FOLDERS = ["hospital_A", "hospital_B"]
@@ -114,7 +130,8 @@ results = client.wait_for_results(task.get("id"))
 global_summary = pd.DataFrame(results[0])
 print(f"\nGlobal summary:\n{global_summary}")
 
-check(list(global_summary.columns) == GLOBAL_RESULT_COLUMNS, f"output columns are {GLOBAL_RESULT_COLUMNS}")
+check(list(global_summary.columns) == CENTRAL_RESULT_COLUMNS, f"output columns are {CENTRAL_RESULT_COLUMNS}")
+check(global_summary["probe_id"].nunique() == raw_all["probe_id"].nunique(), "default top_n (1000) covers all 5 mock probes")
 check(
     set(global_summary["cohort"]) == {"cohort_A", "cohort_B", "cohort_C"},
     "global result contains cohort_A, cohort_B and cohort_C",
@@ -157,6 +174,21 @@ check(
     not np.allclose(plain_avg["beta_mean"], cohort_b["beta_ref"].loc[plain_avg.index])
     and not np.allclose(plain_avg["m_mean"], cohort_b["m_ref"].loc[plain_avg.index]),
     "a plain average of cohort_B node means would differ (test is discriminating)",
+)
+
+reference_delta = (
+    reference.groupby("probe_id")["beta_ref"].agg(lambda b: b.max() - b.min()).rename("delta_ref")
+)
+deltas = global_summary.drop_duplicates("probe_id").set_index("probe_id")["delta_beta"]
+check(
+    np.allclose(deltas, reference_delta.loc[deltas.index]),
+    "delta_beta is the largest minus the smallest cohort mean Beta of the probe",
+)
+check(deltas.is_monotonic_decreasing, "rows are sorted by delta_beta, largest first")
+check(
+    (global_summary["n_samples_cohort"] == global_summary["cohort"].map(expected_totals)).all()
+    and (global_summary["coverage"] == 1.0).all(),
+    "every sample has every mock probe: n_samples_cohort is the cohort size and coverage is 1",
 )
 
 # ---------------------------------------------------------------------------
@@ -218,5 +250,155 @@ except ValueError as exc:
     check("cohort" in str(exc) and "cohort_column" in str(exc), f"missing cohort column raises: {exc}")
 else:
     raise AssertionError("missing cohort column did not raise")
+
+# ---------------------------------------------------------------------------
+# 5. Targeted query: only the requested probes are returned
+# ---------------------------------------------------------------------------
+print("\n[5] Targeted query with 'probes'")
+task = client.task.create(
+    method="central_function",
+    organizations=[org_ids[0]],
+    arguments={"cohort_column": "cohort", "min_samples": MIN_SAMPLES,
+               "probes": ["cg00000769", "cg99999999"]},
+    databases=[{"dataframe_id": dataframe["id"]}],
+)
+targeted = pd.DataFrame(client.wait_for_results(task.get("id"))[0])
+print(targeted)
+check(set(targeted["probe_id"]) == {"cg00000769"}, "only the requested probe is returned; unknown probes are skipped")
+check(set(targeted["cohort"]) == {"cohort_A", "cohort_B", "cohort_C"}, "the probe is reported for every cohort")
+check(
+    targeted.set_index("cohort")["beta_mean_global"].round(10).equals(
+        global_summary.query("probe_id == 'cg00000769'").set_index("cohort")["beta_mean_global"]
+        .loc[targeted["cohort"]].round(10)
+    ),
+    "targeted means equal those of the overview",
+)
+
+ids = pd.Series(["cg00000029_TC21", "cg00000029_BC11", "cg00000108_TC11", "cg00000769", "ch.1.123_BC11"])
+check(
+    set(matching_probe_ids(ids, ["cg00000029"])) == {"cg00000029_TC21", "cg00000029_BC11"},
+    "a CpG name selects all its EPIC v2 replicate probes",
+)
+check(
+    set(matching_probe_ids(ids, ["cg00000108_TC11", "cg00000769"])) == {"cg00000108_TC11", "cg00000769"},
+    "full EPIC v2 IDs and 450K IDs match exactly",
+)
+
+# ---------------------------------------------------------------------------
+# 6. top_n on a larger network: the probes that differ most between cohorts
+# ---------------------------------------------------------------------------
+print("\n[6] top_n selects the probes with the largest difference between cohorts")
+rng = np.random.default_rng(6)
+N_PROBES, SHIFTED = 300, 12
+probe_ids = [f"cg{i:08d}" for i in range(N_PROBES)]
+shift = pd.Series(0.0, index=probe_ids)
+shift.iloc[:SHIFTED] = np.linspace(0.30, 0.52, SHIFTED)  # cohort_Y is higher on these probes
+layout = {  # node -> {cohort: samples}; both cohorts on both nodes, unequal sizes
+    "node_1": {"cohort_X": 4, "cohort_Y": 2},
+    "node_2": {"cohort_X": 2, "cohort_Y": 5},
+}
+synthetic = {}
+for node, cohorts in layout.items():
+    rows = []
+    for cohort, n in cohorts.items():
+        for s in range(n):
+            beta = np.clip(0.3 + rng.normal(0, 0.03, N_PROBES) + (shift.values if cohort == "cohort_Y" else 0), 0.01, 0.99)
+            rows.append(pd.DataFrame({
+                "probe_id": probe_ids, "sample_label": f"{node}_{cohort}_{s}", "cohort": cohort,
+                "beta": beta, "m_value": np.log2(beta / (1 - beta)),
+            }))
+    synthetic[node] = pd.concat(rows, ignore_index=True)
+
+# QC removed the strongest probe in 2 of node_2's cohort_Y samples (beta/M missing)
+GAPPY = probe_ids[SHIFTED - 1]
+gaps = (synthetic["node_2"]["probe_id"] == GAPPY) & synthetic["node_2"]["sample_label"].isin(
+    ["node_2_cohort_Y_0", "node_2_cohort_Y_1"]
+)
+synthetic["node_2"].loc[gaps, ["beta", "m_value"]] = np.nan
+
+with tempfile.TemporaryDirectory() as tmp:
+    paths = []
+    for node, df in synthetic.items():
+        path = Path(tmp) / f"{node}.csv"
+        df.to_csv(path, index=False)
+        paths.append(path)
+    big_network = MockNetwork(
+        datasets=[{DATABASE_LABEL: {"database": str(path), "db_type": "csv"}} for path in paths],
+        module_name="globalIDAT",
+    )
+    big_client = big_network.user_client
+    big_df = big_client.dataframe.create(
+        label=DATABASE_LABEL, method="data_extraction_function", arguments={"arg1": None}, name=DATABASE_LABEL,
+    )
+    big_orgs = [organization["id"] for organization in big_client.organization.list()]
+    task = big_client.task.create(
+        method="central_function",
+        organizations=[big_orgs[0]],
+        arguments={"min_samples": MIN_SAMPLES, "top_n": 5},
+        databases=[{"dataframe_id": big_df["id"]}],
+    )
+    top = pd.DataFrame(big_client.wait_for_results(task.get("id"))[0])
+print(top)
+
+pooled = pd.concat(synthetic.values(), ignore_index=True)
+pooled_means = pooled.groupby(["probe_id", "cohort"])["beta"].mean().unstack()
+exact_delta = (pooled_means.max(axis=1) - pooled_means.min(axis=1)).sort_values(ascending=False)
+check(top["probe_id"].nunique() == 5 and len(top) == 10, "top_n=5 returns 5 probes x 2 cohorts")
+check(
+    list(top["probe_id"].drop_duplicates()) == list(exact_delta.index[:5]),
+    "they are the 5 probes with the largest pooled delta_beta, in that order",
+)
+top_delta = top.drop_duplicates("probe_id").set_index("probe_id")["delta_beta"]
+check(np.allclose(top_delta, exact_delta.loc[top_delta.index]), "delta_beta equals the pooled difference of cohort means")
+gappy = top[top["probe_id"] == GAPPY].set_index("cohort")
+check(not gappy.empty, f"{GAPPY} (missing in 2 samples) is kept in the result, not removed")
+check(
+    gappy.loc["cohort_Y", "n_samples_total"] == 5 and gappy.loc["cohort_Y", "n_samples_cohort"] == 7
+    and np.isclose(gappy.loc["cohort_Y", "coverage"], 5 / 7) and gappy.loc["cohort_X", "coverage"] == 1.0,
+    f"{GAPPY}: coverage is 5/7 in cohort_Y (2 of 7 samples missing) and 1 in cohort_X",
+)
+check((top.loc[top["probe_id"] != GAPPY, "coverage"] == 1.0).all(), "the other top probes have coverage 1")
+check(
+    cohort_sizes(synthetic["node_2"]) == {"cohort_X": 2, "cohort_Y": 5}
+    and cohort_totals([{"cohort_sizes": {"a": 2}}, {"cohort_sizes": {"a": 3, "b": 4}}, []]).to_dict() == {"a": 5, "b": 4},
+    "nodes report their cohort sizes and the central function sums them",
+)
+candidates = top_probes_impl(synthetic["node_1"], min_samples=MIN_SAMPLES, top_n=5)
+check(
+    list(candidates.columns) == ["probe_id", "delta_beta"] and len(candidates) == 5,
+    "a node's candidate list holds only probe IDs and the node's delta_beta",
+)
+
+# ---------------------------------------------------------------------------
+# 7. Size limits: requests above the cap are rejected with a clear message
+# ---------------------------------------------------------------------------
+print("\n[7] Size limits")
+
+
+def expect_value_error(fn, text: str, message: str) -> None:
+    try:
+        fn()
+    except ValueError as exc:
+        check(text in str(exc), f"{message}: {exc}")
+    else:
+        raise AssertionError(f"{message}: no error raised")
+
+
+too_many = [f"cg{i:08d}" for i in range(MAX_RESULT_PROBES + 1)]
+check(len(_validate_probes(too_many[:-1], MAX_RESULT_PROBES)) == MAX_RESULT_PROBES, f"{MAX_RESULT_PROBES:,} probes are accepted")
+expect_value_error(lambda: _validate_probes(too_many, MAX_RESULT_PROBES), "maximum is 10,000", "10,001 probes are rejected")
+expect_value_error(lambda: _validate_top_n(MAX_RESULT_PROBES + 1), "between 1 and 10,000", "top_n=10,001 is rejected")
+expect_value_error(lambda: _validate_top_n(0), "between 1 and 10,000", "top_n=0 is rejected")
+expect_value_error(lambda: _validate_probes("cg00000769", MAX_RESULT_PROBES), "must be a list", "a single string is rejected")
+expect_value_error(lambda: _validate_probes(None, MAX_NODE_PROBES), "list of probes is required", "a node never returns all probes")
+expect_value_error(
+    lambda: _validate_probes([f"cg{i:08d}" for i in range(MAX_NODE_PROBES + 1)], MAX_NODE_PROBES),
+    f"maximum is {MAX_NODE_PROBES:,}",
+    "a node rejects more than its own limit",
+)
+check(
+    len(_validate_probes(["cg1", " cg1 ", "cg2", ""], MAX_RESULT_PROBES)) == 2,
+    "duplicate and empty probe IDs are ignored",
+)
 
 print("\nAll checks passed.")

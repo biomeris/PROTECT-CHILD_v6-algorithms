@@ -8,19 +8,14 @@
   "functions": [
     {
       "name": "central_function",
-      "description": "Global per-cohort Beta and M values (sample-weighted across nodes)",
+      "description": "Global per-cohort Beta and M values (sample-weighted across nodes) of chosen probes or of the top probes by difference between cohorts",
       "step_type": "central_compute",
       "databases": [
         {
-          "name": "Central database 1"
+          "name": "Beta/M dataframe"
         }
       ],
       "arguments": [
-        {
-          "name": "arg1",
-          "type": "",
-          "description": ""
-        },
         {
           "name": "cohort_column",
           "type": "column",
@@ -36,6 +31,24 @@
           "display_name": "Minimum samples per cohort",
           "description": "Minimum number of samples a cohort needs on a node to be included in that node's result. Cohorts below this threshold are dropped on the node.",
           "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "probes",
+          "type": "string_list",
+          "display_name": "Probes",
+          "description": "CpG probes to report, at most 10,000 (e.g. cg00000029; a CpG name also selects its EPIC v2 replicates such as cg00000029_TC21). Leave empty for the top probes.",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "top_n",
+          "type": "integer",
+          "display_name": "Number of top probes",
+          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta).",
+          "default_value": 1000,
           "has_default_value": true,
           "is_frontend_only": false
         }
@@ -43,19 +56,14 @@
     },
     {
       "name": "federated_function",
-      "description": "Per-cohort mean Beta and M values per CpG probe on a node",
+      "description": "Per-cohort mean Beta and M values of the given probes on a node",
       "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database 1"
+          "name": "Beta/M dataframe"
         }
       ],
       "arguments": [
-        {
-          "name": "arg1",
-          "type": "",
-          "description": ""
-        },
         {
           "name": "cohort_column",
           "type": "column",
@@ -71,6 +79,54 @@
           "display_name": "Minimum samples per cohort",
           "description": "Minimum number of samples a cohort needs on a node to be included in that node's result. Cohorts below this threshold are dropped on the node.",
           "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "probes",
+          "type": "string_list",
+          "display_name": "Probes",
+          "description": "CpG probes to summarise, at most 20,000 (required).",
+          "default_value": null,
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ]
+    },
+    {
+      "name": "federated_top_probes",
+      "description": "IDs of a node's probes with the largest difference in mean Beta between its cohorts (used by central_function)",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Beta/M dataframe"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Name of the column in each node's data that holds the cohort of each sample. Results are computed per cohort.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum number of samples a cohort needs on a node to be included in that node's result. Cohorts below this threshold are dropped on the node.",
+          "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "top_n",
+          "type": "integer",
+          "display_name": "Number of top probes",
+          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta).",
+          "default_value": 1000,
           "has_default_value": true,
           "is_frontend_only": false
         }

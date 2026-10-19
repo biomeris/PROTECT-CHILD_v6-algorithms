@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "globalIDAT"
-version = "1.0.0"
+version = "2.1.0"
 description = "Global beta and m values"
 readme = "README.md"
 requires-python = ">=3.13"

@@ -23,17 +23,47 @@ the columns:
 
 If the cohort column is missing, the node raises an error.
 
-### Arguments
+### What the user gets
 
-`central_function` and `federated_function` accept:
+The full table has one row per cohort and probe: about 3.5 million rows (some
+460 MB) for four cohorts on EPIC v2, more than vantage6 can store as a result or the
+UI can show. The result is therefore limited to at most **10,000 probes**:
+
+- **Targeted query** (`probes`): the probes the user asks for, e.g. the CpGs of a
+  gene. A CpG name such as `cg00000029` also selects its EPIC v2 replicates
+  (`cg00000029_TC21`, `cg00000029_BC11`), so 450K/EPIC probe lists work on EPIC v2.
+  Requested probes that no node has are skipped (the log says how many).
+- **Overview** (no `probes`): the `top_n` probes (default 1,000) with the largest
+  difference in mean Beta between cohorts, Δβ = largest minus smallest cohort mean.
+
+Requests above 10,000 probes are rejected with a message instead of being tried.
+
+### Arguments (`central_function`)
 
 | Argument | Type | Default | Description |
 | --- | --- | --- | --- |
 | `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample. |
 | `min_samples` | integer | `2` | Minimum number of samples a cohort needs on a node to be included. |
+| `probes` | list of strings | none | Probes to report (at most 10,000). When given, `top_n` is not used. |
+| `top_n` | integer | `1000` | Without `probes`: number of top probes by Δβ to report (1-10,000). |
 
-`central_function` also accepts `idat_dir`, which is passed on to the nodes as
-`arg1` (currently unused).
+### How the top probes are found
+
+Ranking all probes globally would need every node's full table. Instead:
+
+1. Each node proposes its own `top_n` probes by Δβ between its cohorts
+   (`federated_top_probes`; only probe IDs and the node's Δβ leave the node).
+2. The central function keeps the best `2 x top_n` candidates and asks every node
+   for the per-cohort summaries of those probes (`federated_function`).
+3. It computes the global, sample-weighted cohort means and Δβ and returns the
+   `top_n` probes with the largest global Δβ.
+
+A probe that is not among the top candidates of any node can be missed, so the
+overview is exact for the probes it reports but may not contain every probe of the
+true global top. Use a targeted query to check specific probes.
+
+On EPIC v2 data (17 samples on a node) a node sends about 70 KB of candidates and
+1 MB of summaries, and needs about 20 s.
 
 ### Privacy threshold
 
@@ -41,21 +71,13 @@ On each node, any cohort with fewer than `min_samples` samples is dropped before
 anything is returned, and an info message names the dropped cohort and the reason.
 Probes that fewer than `min_samples` samples of a cohort have a value for are
 dropped as well. If every cohort on a node is dropped, the node returns an empty
-result.
+result. A node never returns the summaries of all its probes: `federated_function`
+requires a probe list of at most 20,000 probes.
 
 ### Output
 
-`federated_function` returns one record per (cohort, probe):
-
-| Column | Description |
-| --- | --- |
-| `cohort` | Cohort label |
-| `probe_id` | CpG probe identifier |
-| `beta_mean` | Mean Beta value of the cohort's samples on this node |
-| `m_mean` | Mean M value of the cohort's samples on this node |
-| `n_samples` | Number of samples used for the means |
-
-`central_function` returns one record per (cohort, probe):
+`central_function` returns one record per (cohort, probe), sorted by `delta_beta`
+(largest first):
 
 | Column | Description |
 | --- | --- |
@@ -64,6 +86,14 @@ result.
 | `beta_mean_global` | `sum(beta_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
 | `m_mean_global` | `sum(m_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
 | `n_samples_total` | `sum(n_samples_i)` over the nodes |
+| `n_samples_cohort` | Samples of the cohort over all nodes (cohorts that pass `min_samples`) |
+| `coverage` | `n_samples_total / n_samples_cohort`: share of the cohort's samples behind the means. QC removes a probe in samples where it fails detection, so a probe can have coverage below 1; such probes are kept, and users can filter on coverage |
+| `delta_beta` | Δβ of the probe: largest minus smallest `beta_mean_global` over its cohorts (empty if the probe has only one cohort) |
+
+`federated_function` returns `summary` (one record per (cohort, probe) with
+`beta_mean`, `m_mean` and `n_samples` of the node) and `cohort_sizes` (samples per
+cohort on the node); `federated_top_probes` returns `probe_id` and
+`delta_beta` of the node's candidates.
 
 ### Testing
 
