@@ -1,41 +1,53 @@
 {
-  "name": "ANOVA",
-  "image": "biomerisdocker/anova",
-  "vantage6_version": "4.9",
-  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-anova-py",
+  "name": "v6-anova-py",
+  "image": "ghcr.io/biomeris/v6-anova-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/AndrewCesc/PROTECT-CHILD_v6-algorithms/tree/anova-andrea-v5/v6-anova-py",
   "documentation_url": "",
   "partitioning": "horizontal",
   "functions": [
     {
-      "name": "central",
-      "display_name": "ANOVA",
-      "description": "Federated ANOVA for distributed hypothesis testing, enabling variance analysis across multiple organizations without sharing raw data",
-      "type": "central",
-      "standalone": true,
+      "name": "central_function",
+      "description": "Federated one-way ANOVA using per-group count/sum/sum_sq",
+      "step_type": "central_compute",
+      "arguments": [
+        {
+          "name": "group_col",
+          "type": "str",
+          "description": "Grouping column name"
+        },
+        {
+          "name": "features",
+          "type": "list[str]",
+          "description": "Numeric features or null for all"
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "list[int]",
+          "description": "Optional organization IDs"
+        }
+      ]
+    },
+    {
+      "name": "federated_function",
+      "description": "Return local group sufficient statistics",
+      "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database"
+          "name": "Database 1"
         }
       ],
       "arguments": [
         {
-          "name": "groups",
-          "type": "column_list",
-          "description": "List of column names that define the groups for ANOVA.",
-          "has_default_value": false,
-          "is_frontend_only": false
+          "name": "group_col",
+          "type": "str",
+          "description": "Grouping column"
         },
         {
           "name": "features",
-          "type": "column_list",
-          "description": "List of column names to include in ANOVA. If None, numeric columns are used.",
-          "default_value": null,
-          "has_default_value": true,
-          "is_frontend_only": false
+          "type": "list[str]",
+          "description": "Numeric features or null"
         }
-      ],
-      "ui_visualizations": [
-        
       ]
     }
   ]

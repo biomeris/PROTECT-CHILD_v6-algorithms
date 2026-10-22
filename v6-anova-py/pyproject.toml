@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-anova-py"
+version = "2.0.0"
+description = "Exact federated one-way ANOVA using sufficient statistics, Vantage6 v5"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["vantage6-algorithm-tools>=5.0.0", "numpy", "pandas", "scipy"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["v6-anova-py"]
+
+[dependency-groups]
+dev = ["pytest"]

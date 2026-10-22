@@ -1,146 +1,121 @@
-"""
-This file contains all central algorithm functions. It is important to note
-that the central method is executed on a node, just like any other method.
-
-The results in a return statement are sent to the vantage6 server (after
-encryption if that is enabled).
-"""
-from typing import Any, Dict, List, Optional
-
-import pandas as pd
-import numpy as np
-from scipy import stats
-
-from vantage6.algorithm.tools.util import info, warn, error
-from vantage6.algorithm.tools.decorators import algorithm_client
-from vantage6.algorithm.tools.decorators import data
+"""Exact federated one-way ANOVA based on per-group sufficient statistics."""
+from typing import Any
+import math
+from scipy.stats import f as f_distribution
 from vantage6.algorithm.client import AlgorithmClient
+from vantage6.algorithm.decorator.algorithm_client import algorithm_client
+from vantage6.algorithm.decorator.action import central
+from vantage6.algorithm.tools.util import info
 
 
+@central
 @algorithm_client
-def central(
+def central_function(
     client: AlgorithmClient,
-    groups: List[str],
-    features: Optional[List[str]] = None,
-) -> Any:
+    group_col: str | None = None,
+    groups: list[str] | None = None,
+    features: list[str] | None = None,
+    organizations_to_include: list[int] | None = None,
+) -> dict[str, Any]:
+    """Fit exact one-way ANOVA for each numeric feature.
+
+    'groups' is accepted as a backwards-compatible alias; only the first
+    grouping column is supported.
     """
-    Central part of the federated ANOVA algorithm.
+    group_col = group_col or (groups[0] if groups else None)
+    if not group_col:
+        return {"error": "Provide a grouping column using 'group_col'."}
+    if not group_col.strip():
+        return {"error": "Grouping column cannot be blank."}
 
-    Parameters
-    ----------
-    groups:
-        List of column names that define the groups for ANOVA.
-    features:
-        List of column names to include in ANOVA. If None, numeric columns are used.
+    available = [item["id"] for item in client.organization.list()]
+    if organizations_to_include is None:
+        org_ids = available
+    else:
+        org_ids = list(organizations_to_include)
+        if not set(org_ids).issubset(set(available)):
+            return {"error": "Unknown organization requested."}
+    if not org_ids or len(set(org_ids)) != len(org_ids):
+        return {"error": "Supply a nonempty list of distinct organizations."}
 
-    Returns
-    -------
-    dict with:
-        - f_statistic
-        - p_value
-        - group_means
-        - group_variances
-    """
-
-    info("Starting central federated ANOVA")
-
-    # get all organizations (ids) within the collaboration so you can send a
-    # task to them.
-    organizations = client.organization.list()
-    org_ids = [organization.get("id") for organization in organizations]
-
-    if not org_ids:
-        error("No organizations found in the collaboration.")
-        return {"error": "No organizations found in the collaboration."}
-
-    # Define input parameters for a subtask
-    info("Defining input parameters for partial ANOVA tasks")
-    input_ = {
-        "method": "partial",
-        "kwargs": {
-            "groups": groups,
-            "features": features,
-        },
-    }
-
-    # create a subtask for all organizations in the collaboration.
-    info("Creating subtask for all organizations in the collaboration")
     task = client.task.create(
-        input_=input_,
+        method="federated_function",
+        arguments={"group_col": group_col, "features": features},
         organizations=org_ids,
-        name="Federated ANOVA partial stats",
-        description="Compute local statistics for federated ANOVA"
+        name="Federated ANOVA sufficient statistics",
+        description="Local group counts, sums and sums of squares",
     )
+    replies = client.wait_for_results(task_id=task["id"])
+    if not isinstance(replies, list) or len(replies) != len(org_ids):
+        return {"error": "Missing or unexpected number of node results."}
 
-    # wait for node to return results of the subtask.
-    info("Waiting for results")
-    results = client.wait_for_results(task_id=task.get("id"))
-    info("Results obtained!")
+    columns = None
+    agg: dict[str, dict[str, dict[str, Any]]] = {}
+    for index, reply in enumerate(replies):
+        if not isinstance(reply, dict) or "error" in reply:
+            return {"error": f"Organization result {index}: {reply}"}
+        if reply.get("group_col") != group_col:
+            return {"error": "Grouping column mismatch between nodes."}
+        local_columns = reply.get("columns")
+        if not isinstance(local_columns, list) or not isinstance(reply.get("stats"), dict):
+            return {"error": "Malformed node result."}
+        if columns is None:
+            columns = local_columns
+            agg = {feature: {} for feature in columns}
+        elif columns != local_columns:
+            return {"error": "Feature list/order differs between organizations."}
+        for feature in columns:
+            for entry in reply["stats"].get(feature, []):
+                group = entry["group"]
+                key = str(group)
+                slot = agg[feature].setdefault(
+                    key, {"group": group, "n": 0, "sum": 0.0, "sum_sq": 0.0}
+                )
+                slot["n"] += int(entry["n"])
+                slot["sum"] += float(entry["sum"])
+                slot["sum_sq"] += float(entry["sum_sq"])
 
-    if not results:
-        error("No results received from partial tasks.")
-        return {"error": "No results received from partial tasks."}
+    if not columns:
+        return {"error": "No numeric features were returned."}
 
-    # Validate and aggregate statistics
-    info("Aggregating local statistics")
-
-    group_means = None
-    group_variances = None
-    n_total = 0
-    total_ss_between = 0
-    total_ss_within = 0
-
-    for idx, res in enumerate(results):
-        if res is None:
-            warn(f"Received empty result from a node at index {idx}. Skipping.")
+    output: dict[str, Any] = {}
+    for feature in columns:
+        groups_out = []
+        for entry in agg[feature].values():
+            n = entry["n"]
+            if n <= 0:
+                continue
+            avg = entry["sum"] / n
+            within = max(0.0, entry["sum_sq"] - entry["sum"] ** 2 / n)
+            groups_out.append({
+                "group": entry["group"], "n": n, "mean": avg,
+                "variance": within / (n - 1) if n > 1 else None,
+                "sse": within,
+            })
+        groups_out.sort(key=lambda item: str(item["group"]))
+        k = len(groups_out)
+        n_total = sum(g["n"] for g in groups_out)
+        if k < 2 or n_total <= k:
+            output[feature] = {"error": "At least 2 groups and positive residual degrees of freedom required."}
             continue
-
-        if "error" in res:
-            warn(f"Node at index {idx} returned error: {res['error']}")
-            continue
-
-        groups = res.get("groups")
-        n = res.get("n")
-        means = np.array(res.get("means"))
-        variances = np.array(res.get("variances"))
-        ss_between = res.get("ss_between")
-        ss_within = res.get("ss_within")
-
-        if groups is None or n is None or means is None or variances is None:
-            warn(f"Incomplete result from node at index {idx}. Skipping.")
-            continue
-
-        if group_means is None:
-            group_means = np.zeros_like(means)
-            group_variances = np.zeros_like(variances)
-
-        n_total += n
-        group_means += means * n
-        group_variances += variances * (n - 1)
-        total_ss_between += ss_between
-        total_ss_within += ss_within
-
-    if group_means is None or n_total == 0:
-        error("No valid node results to aggregate.")
-        return {"error": "No valid node results to aggregate."}
-
-    group_means /= n_total
-    ss_total = total_ss_within + total_ss_between
-    ms_between = total_ss_between / len(groups)
-    ms_within = total_ss_within / (n_total - len(groups))
-
-    # F-statistic and p-value
-    f_statistic = ms_between / ms_within
-    p_value = stats.f.sf(f_statistic, len(groups) - 1, n_total - len(groups))
-
-    result = {
-        "f_statistic": f_statistic,
-        "p_value": p_value,
-        "group_means": group_means.tolist(),
-        "group_variances": group_variances.tolist(),
-    }
-
-    info("Central federated ANOVA finished")
-    return result
-
-# Feel free to add more central functions here.
+        grand_mean = sum(g["n"] * g["mean"] for g in groups_out) / n_total
+        ss_between = sum(g["n"] * (g["mean"] - grand_mean) ** 2 for g in groups_out)
+        ss_within = sum(g["sse"] for g in groups_out)
+        df_between, df_within = k - 1, n_total - k
+        ms_between, ms_within = ss_between / df_between, ss_within / df_within
+        if ms_within == 0:
+            f_stat = None if ms_between == 0 else float("inf")
+            p_value = None if ms_between == 0 else 0.0
+        else:
+            f_stat = ms_between / ms_within
+            p_value = float(f_distribution.sf(f_stat, df_between, df_within))
+        output[feature] = {
+            "n_total": n_total, "n_groups": k,
+            "grand_mean": grand_mean, "df_between": df_between, "df_within": df_within,
+            "ss_between": ss_between, "ss_within": ss_within,
+            "ms_between": ms_between, "ms_within": ms_within,
+            "f_statistic": f_stat, "p_value": p_value,
+            "group_statistics": groups_out,
+        }
+    info("Federated ANOVA V5 completed")
+    return {"test": "federated_anova", "group_col": group_col, "columns": columns, "results": output}
