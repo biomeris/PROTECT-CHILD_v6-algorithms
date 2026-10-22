@@ -1,50 +1,26 @@
+# Federated independent-samples t-test (Vantage6 v5)
 
-# v6-t-test-py
+Computes a pooled-variance two-sided Student t-test from local count, sum
+and sum-of-squares without sharing row-level data.
 
-Independent Samples t-test: This test compares the means of two independent groups to see if there is a significant difference between them.
+Modes:
 
-This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
-infrastructure for distributed analysis and learning.
+- `group_col="Group"`: compare exactly two labels pooled globally over
+  participating organizations.
+- `group_col=None`: legacy mode comparing two distinct organizations in
+  the specified `organizations_to_include` order.
 
-The base code for this algorithm has been created via the
-[v6-algorithm-template](https://github.com/vantage6/v6-algorithm-template)
-template generator.
+The test assumes independent samples with equal population variances and
+uses two-sided p-values. It is **not** Welch's t-test.
 
-### Dockerizing your algorithm
+Local nodes must contain more than
+`T_TEST_MINIMUM_NUMBER_OF_RECORDS` (default 3) rows.
 
-To finally run your algorithm on the vantage6 infrastructure, you need to
-create a Docker image of your algorithm.
+## Test
 
-A Docker image can be created by executing the following command in the root of your
-algorithm directory:
+Using Python 3.13 and Vantage6 v5:
 
-```bash
-docker build -t [my_docker_image_name] .
+```shell
+pip install -e .
+python test/test_compute.py
 ```
-
-where you should provide a sensible value for the Docker image name. The
-`docker build` command will create a Docker image that contains your algorithm.
-You can create an additional tag for it by running
-
-```bash
-docker tag [my_docker_image_name] [another_image_name]
-```
-
-This way, you can e.g. do
-`docker tag local_average_algorithm harbor2.vantage6.ai/algorithms/average` to
-make the algorithm available on a remote Docker registry (in this case
-`harbor2.vantage6.ai`).
-
-Finally, you need to push the image to the Docker registry. This can be done
-by running
-
-```bash
-docker push [my_docker_image_name]
-```
-
-Note that you need to be logged in to the Docker registry before you can push
-the image. You can do this by running `docker login` and providing your
-credentials. Check [this page](https://docs.docker.com/get-started/04_sharing_app/)
-For more details on sharing images on Docker Hub. If you are using a different
-Docker registry, check the documentation of that registry and be sure that you
-have sufficient permissions.
