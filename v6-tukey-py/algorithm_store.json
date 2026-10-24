@@ -1,0 +1,59 @@
+{
+  "name": "v6-tukey-py",
+  "image": "ghcr.io/biomeris/v6-tukey-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/AndrewCesc/PROTECT-CHILD_v6-algorithms/tree/tukey-andrea-v5/v6-tukey-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central_function",
+      "description": "Global Tukey-Kramer group comparisons with confidence intervals",
+      "step_type": "central_compute",
+      "arguments": [
+        {
+          "name": "group_col",
+          "type": "str",
+          "description": "Categorical grouping column"
+        },
+        {
+          "name": "features",
+          "type": "list[str]",
+          "description": "Numeric features"
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "description": "Significance level"
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "list[int]",
+          "description": "Optional organization IDs"
+        }
+      ]
+    },
+    {
+      "name": "federated_function",
+      "description": "Local per-group n/sum/sum-of-squares",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_col",
+          "type": "str",
+          "description": "Grouping column"
+        },
+        {
+          "name": "features",
+          "type": "list[str]",
+          "description": "Numeric features"
+        }
+      ]
+    }
+  ]
+}
