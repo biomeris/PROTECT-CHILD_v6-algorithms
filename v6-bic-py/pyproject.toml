@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-bic-py"
+version = "1.0.0"
+description = "Exact federated BIC scoring for a previously fitted global model (Vantage6 v5)"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "vantage6-algorithm-tools>=5.0.0,<6",
+    "numpy",
+    "pandas",
+]
+keywords = ["vantage6", "federated", "bic", "model-selection"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["v6-bic-py"]
+
+[dependency-groups]
+dev = ["pytest"]

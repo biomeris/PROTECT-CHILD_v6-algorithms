@@ -1,0 +1,99 @@
+{
+  "name": "v6-bic-py",
+  "image": "ghcr.io/andrewcesc/v6-bic-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/AndrewCesc/PROTECT-CHILD_v6-algorithms/tree/bic-andrea-v5/v6-bic-py",
+  "documentation_url": "https://github.com/AndrewCesc/PROTECT-CHILD_v6-algorithms/tree/bic-andrea-v5/v6-bic-py#readme",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central_function",
+      "description": "Compute federated BIC from log-likelihood of a previously fitted global model. Does not fit model.",
+      "step_type": "central_compute",
+      "arguments": [
+        {
+          "name": "n_parameters",
+          "type": "int",
+          "description": "Number of free parameters estimated by the global model"
+        },
+        {
+          "name": "input_mode",
+          "type": "str",
+          "description": "contributions, aggregated, or binary"
+        },
+        {
+          "name": "log_likelihood_column",
+          "type": "str",
+          "description": "Column of individual/aggregated log-likelihood"
+        },
+        {
+          "name": "count_column",
+          "type": "str",
+          "description": "Positive counts in aggregated mode"
+        },
+        {
+          "name": "label_column",
+          "type": "str",
+          "description": "0/1 label column in binary mode"
+        },
+        {
+          "name": "probability_column",
+          "type": "str",
+          "description": "Global fitted-model P(y=1) in binary mode"
+        },
+        {
+          "name": "model_id_column",
+          "type": "str",
+          "description": "Optional model identifier column"
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "list[int]",
+          "description": "Optional list of participant organization IDs"
+        }
+      ]
+    },
+    {
+      "name": "federated_function",
+      "description": "Compute node-local log-likelihood sum and observation count, without sending patient-level data",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "input_mode",
+          "type": "str",
+          "description": "contributions, aggregated, or binary"
+        },
+        {
+          "name": "log_likelihood_column",
+          "type": "str",
+          "description": "Log-likelihood column for contributions or aggregated modes"
+        },
+        {
+          "name": "count_column",
+          "type": "str",
+          "description": "Observation counts column in aggregated mode"
+        },
+        {
+          "name": "label_column",
+          "type": "str",
+          "description": "Binary outcome column"
+        },
+        {
+          "name": "probability_column",
+          "type": "str",
+          "description": "Binary predicted probabilities column"
+        },
+        {
+          "name": "model_id_column",
+          "type": "str",
+          "description": "Optional model ID column"
+        }
+      ]
+    }
+  ]
+}
