@@ -1,0 +1,33 @@
+{
+  "name": "v6-spearman-py",
+  "image": "ghcr.io/vantage6/algorithm/v6-spearman-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/AndrewCesc/PROTECT-CHILD_v6-algorithms/tree/spearman-andrea-v5/v6-spearman-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central_function",
+      "description": "Approximate federated Spearman rank correlation using global histogram midranks.",
+      "step_type": "central_compute",
+      "arguments": [
+        {"name": "columns", "type": "list[str]", "description": "Numeric columns to analyze."},
+        {"name": "n_bins", "type": "int", "description": "Number of bins used to approximate global ranks."},
+        {"name": "approx_pvalues", "type": "bool", "description": "Whether to compute approximate asymptotic p-values."},
+        {"name": "organizations_to_include", "type": "list[int]", "description": "Optional organization IDs to include."}
+      ]
+    },
+    {
+      "name": "federated_function",
+      "description": "Compute local summaries, histograms, or pairwise approximate-rank sufficient statistics.",
+      "step_type": "federated_compute",
+      "databases": [{"name": "Database 1"}],
+      "arguments": [
+        {"name": "mode", "type": "str", "description": "One of summary, histogram, or pair_stats."},
+        {"name": "columns", "type": "list[str]", "description": "Numeric columns to analyze."},
+        {"name": "bin_edges", "type": "dict", "description": "Global bin edges for histogram mode."},
+        {"name": "rank_maps", "type": "dict", "description": "Global approximate rank maps for pair_stats mode."}
+      ]
+    }
+  ]
+}
