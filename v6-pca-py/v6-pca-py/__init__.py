@@ -1,2 +1,2 @@
-from .central import *
-from .partial import *
+from .central import central_function
+from .federated import federated_function
