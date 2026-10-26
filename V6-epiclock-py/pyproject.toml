@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "epiclock-v5"
-version = "1.0.0"
+version = "1.1.0"
 description = "estimation of DNAm age"
 readme = "README.md"
 requires-python = ">=3.13"

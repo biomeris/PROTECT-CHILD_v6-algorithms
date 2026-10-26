@@ -19,8 +19,15 @@ Each node's data must be a long-format table with one row per (sample, probe):
 | `sample_label` | Sample identifier |
 | `beta` | Beta value |
 | *cohort column* | Cohort of the sample (name set by `cohort_column`, default `cohort`) |
+| *age column* (optional) | Chronological age of the sample (name set by `age_column`, default `age`, as added by `v6-extractionIDAT-py` with `sample_columns=["Age"]`) |
 
-If the cohort column is missing, the node raises an error.
+If the cohort column is missing, the node raises an error. Without an age column
+the chronological age comparison is skipped.
+
+Only the CpGs of the requested clocks are used: each node keeps the probes that one
+of the clocks needs (read from the clock models) before converting and pivoting
+the data, which leaves the ages unchanged and saves most of the memory and time on
+EPIC v2 tables of ~870k probes.
 
 ### Arguments
 
@@ -32,6 +39,7 @@ If the cohort column is missing, the node raises an error.
 | `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample |
 | `min_samples` | integer (>= 2) | `3` | Minimum number of samples a cohort needs on a node to be included |
 | `coverage_threshold` | float (0-1) | `0.9` | Minimum coverage for a result to be flagged `coverage_ok`; only sets the flag, never removes results |
+| `age_column` | string | `"age"` | Column with the chronological age; used to report the age acceleration (predicted minus chronological age). `null` skips it |
 
 ### EPIC v2 data
 
@@ -102,6 +110,9 @@ writes the converted data if an output path is given.
   result.
 - The default `min_samples` is 3 because with 2 samples the mean and standard
   deviation reveal both individual ages.
+- The chronological age comparison follows the same threshold: if fewer than
+  `min_samples` samples of a (cohort, clock) have an age, its age fields are empty
+  (the row is kept; `n_with_age` says how many samples had an age).
 
 ### Output
 
@@ -109,7 +120,9 @@ writes the converted data if an output path is given.
 "legacy_loci_mapping": true/false}`,
 with one result record per (cohort, clock): `cohort`, `clock`, `n_samples`,
 `mean_age`, `sd_age` (sample standard deviation), `coverage` (share of the clock's
-CpGs present on this node, 0-1) and `coverage_ok` (`coverage >= coverage_threshold`).
+CpGs present on this node, 0-1), `coverage_ok` (`coverage >= coverage_threshold`),
+`n_with_age`, `mean_chronological_age`, `mean_age_acceleration` and
+`sd_age_acceleration` (acceleration = predicted minus chronological age).
 In `clock_coverage`, a clock that failed to compute has the value `null`.
 
 `central_function` returns `{"results": [...], "clock_coverage": [...],
@@ -129,6 +142,10 @@ clock failed to compute). `results` has one record per (cohort, clock):
 | `coverage_min` | Lowest clock coverage over the nodes that contributed to this cohort and clock |
 | `coverage_max` | Highest clock coverage over those nodes |
 | `coverage_ok` | `true` only if every contributing node meets `coverage_threshold` |
+| `n_with_age_total` | Samples with a predicted and a chronological age, over the nodes that reported the comparison |
+| `mean_chronological_age_global` | Mean chronological age of those samples |
+| `mean_age_acceleration_global` | Mean of predicted minus chronological age, pooled exactly like the ages |
+| `sd_age_acceleration_global` | Standard deviation of the age acceleration |
 
 The pooled mean and SD do not depend on `coverage_threshold`.
 

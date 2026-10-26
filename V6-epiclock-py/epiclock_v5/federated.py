@@ -15,14 +15,37 @@ from vantage6.algorithm.tools.util import info, warn, error
 from vantage6.algorithm.decorator.action import federated
 from vantage6.algorithm.decorator.data import dataframe
 
-from .epicv2 import adapt_long, default_legacy_map
+from .clock_bundle import clock_cpgs
+from .epicv2 import adapt_long, default_legacy_map, to_clock_ids
 
 # Clocks calculated when the user does not choose any (pyaging clock names)
 DEFAULT_CLOCKS = ["horvath2013", "hannum", "pcphenoage", "pedbe"]
 
 NODE_RESULT_COLUMNS = [
     "cohort", "clock", "n_samples", "mean_age", "sd_age", "coverage", "coverage_ok",
+    "n_with_age", "mean_chronological_age", "mean_age_acceleration", "sd_age_acceleration",
 ]
+
+
+def keep_clock_cpgs(df_long: pd.DataFrame, lista_relojes: List[str], legacy_map) -> pd.DataFrame:
+    """Keep only the rows of probes that one of the clocks uses.
+
+    An EPIC v2 table has ~870k probes per sample while the clocks use a few thousand
+    CpGs; converting and pivoting only those saves most of the memory and time. If a
+    clock's CpG list cannot be read, nothing is removed (that clock will then also
+    fail to compute and be reported as failed).
+    """
+    needed: set[str] = set()
+    for reloj in lista_relojes:
+        try:
+            needed |= clock_cpgs(reloj)
+        except Exception as e:
+            warn(f"Could not read the CpGs of clock '{reloj}' ({e}); using all probes")
+            return df_long
+    probe_ids = pd.Index(df_long["probe_id"].unique())
+    keep = probe_ids[to_clock_ids(probe_ids, legacy_map).isin(needed).to_numpy()]
+    info(f"Keeping {len(keep):,} of {len(probe_ids):,} probes: the CpGs of the requested clocks")
+    return df_long[df_long["probe_id"].isin(keep)]
 
 
 def predict_sample_ages(df_long: pd.DataFrame, lista_relojes: List[str]) -> pd.DataFrame:
@@ -53,9 +76,8 @@ def predict_sample_ages(df_long: pd.DataFrame, lista_relojes: List[str]) -> pd.D
         info(f"Renamed EPIC v2 CpGs: {source}; only EPIC v2 suffixes are stripped")
     else:
         info(f"Renamed EPIC v2 CpGs: mapping {len(legacy_map)} to 450K/EPIC v1 identifiers ({source})")
-    data = adapt_long(
-        df_long[["probe_id", "sample_label", "beta"]], value_columns=("beta",), legacy_map=legacy_map
-    )
+    data = keep_clock_cpgs(df_long[["probe_id", "sample_label", "beta"]], lista_relojes, legacy_map)
+    data = adapt_long(data, value_columns=("beta",), legacy_map=legacy_map)
 
     # pyaging expects samples as rows, CpGs as columns
     matrix = data.pivot(index="sample_label", columns="probe_id", values="beta")
@@ -87,6 +109,7 @@ def federated_impl(
     cohort_column: str = "cohort",
     min_samples: int = 3,
     coverage_threshold: float = 0.9,
+    age_column: str | None = "age",
 ) -> pd.DataFrame:
     """
     Calculate per-cohort epigenetic age statistics on this node.
@@ -112,12 +135,20 @@ def federated_impl(
         for a result to be flagged ``coverage_ok``. pyaging fills missing CpGs with
         reference values or 0, which can bias the age. It only sets the flag; no
         result is removed.
+    age_column : str | None
+        Column with each sample's chronological age (e.g. 'age' from the IDAT
+        extraction's sample_columns). If present, the result also compares the
+        predicted with the chronological age. None or a missing column skips this.
 
     Returns:
     --------
     pd.DataFrame : Columns cohort, clock, n_samples, mean_age, sd_age (sample
         standard deviation, ddof=1), coverage and coverage_ok, one row per
-        (cohort, clock). ``.attrs["clock_coverage"]`` holds the coverage of each
+        (cohort, clock), plus n_with_age (samples with a predicted and a
+        chronological age), mean_chronological_age, mean_age_acceleration and
+        sd_age_acceleration (acceleration = predicted minus chronological age).
+        The age fields are empty when fewer than ``min_samples`` samples have an
+        age; the row is kept. ``.attrs["clock_coverage"]`` holds the coverage of each
         clock on this node (None if the clock failed to compute; failed clocks have
         no rows).
     """
@@ -152,6 +183,16 @@ def federated_impl(
     if missing:
         error(f"Input data missing required columns: {sorted(missing)}")
         raise ValueError(f"Input data missing required columns: {sorted(missing)}")
+
+    chronological = None
+    if age_column and age_column in df1.columns:
+        chronological = pd.to_numeric(
+            df1.groupby("sample_label")[age_column].first(), errors="coerce"
+        )
+        info(f"Comparing with chronological age ('{age_column}'): "
+             f"{int(chronological.notna().sum())} sample(s) have an age")
+    elif age_column:
+        info(f"No '{age_column}' column; the chronological age comparison is skipped")
 
     data = df1[["probe_id", "sample_label", "beta", cohort_column]].rename(
         columns={cohort_column: "cohort"}
@@ -203,7 +244,7 @@ def federated_impl(
                     f"min_samples={min_samples} samples with a predicted age"
                 )
                 continue
-            rows.append({
+            row = {
                 "cohort": cohort,
                 "clock": clk,
                 "n_samples": int(len(valid)),
@@ -211,7 +252,23 @@ def federated_impl(
                 "sd_age": float(valid.std(ddof=1)),
                 "coverage": float(coverage[clk]),
                 "coverage_ok": bool(coverage[clk] >= coverage_threshold),
-            })
+                "n_with_age": 0,
+                "mean_chronological_age": None,
+                "mean_age_acceleration": None,
+                "sd_age_acceleration": None,
+            }
+            if chronological is not None:
+                real = chronological.reindex(valid.index).dropna()
+                row["n_with_age"] = int(len(real))
+                # Same privacy threshold as the ages: too few samples with an age -> empty
+                if len(real) >= min_samples:
+                    acceleration = valid.loc[real.index] - real
+                    row.update({
+                        "mean_chronological_age": float(real.mean()),
+                        "mean_age_acceleration": float(acceleration.mean()),
+                        "sd_age_acceleration": float(acceleration.std(ddof=1)),
+                    })
+            rows.append(row)
 
     summary = pd.DataFrame(rows, columns=NODE_RESULT_COLUMNS)
     summary.attrs["clock_coverage"] = coverage
@@ -228,19 +285,21 @@ def federated_function(
     cohort_column: str = "cohort",
     min_samples: int = 3,
     coverage_threshold: float = 0.9,
+    age_column: str | None = "age",
 ) -> Any:
     """
     Calculate per-cohort epigenetic age statistics on this node.
 
     Returns ``{"results": [records with cohort, clock, n_samples, mean_age,
-    sd_age, coverage, coverage_ok], "clock_coverage": {clock: share of its CpGs
+    sd_age, coverage, coverage_ok, n_with_age, mean_chronological_age,
+    mean_age_acceleration, sd_age_acceleration], "clock_coverage": {clock: share of its CpGs
     present, or None if the clock failed}, "legacy_loci_mapping": whether renamed
     EPIC v2 CpGs were mapped}``.
     See ``federated_impl`` for details.
     """
     summary = federated_impl(
         df1, lista_relojes, cohort_column=cohort_column, min_samples=min_samples,
-        coverage_threshold=coverage_threshold,
+        coverage_threshold=coverage_threshold, age_column=age_column,
     )
     return {
         "results": summary.to_dict(orient="records"),

@@ -26,6 +26,7 @@ import json
 import os
 import re
 import time
+from functools import lru_cache
 from pathlib import Path
 
 BUNDLE_ENV = "EPICLOCK_CLOCK_BUNDLE"
@@ -52,13 +53,25 @@ def bundle_clock_names(catalogue: dict) -> list[str]:
     )
 
 
-def _download_and_describe(clock: str) -> dict:
-    """Download one clock into the HF cache, load it and describe it."""
+def _load_clock(clock: str):
+    """(path, model) of a clock: from the HF cache (the bundle) or downloaded by pyaging."""
     from pyaging.utils._hf import download_clock_weights
     import torch
 
     path = download_clock_weights(clock)
-    model = torch.load(path, weights_only=False, map_location="cpu")
+    return path, torch.load(path, weights_only=False, map_location="cpu")
+
+
+@lru_cache(maxsize=None)
+def clock_cpgs(clock: str) -> frozenset[str]:
+    """The CpG identifiers a clock uses (its features without non-CpG inputs such as age)."""
+    _, model = _load_clock(clock)
+    return frozenset(str(f) for f in model.features if CPG_PATTERN.match(str(f)))
+
+
+def _download_and_describe(clock: str) -> dict:
+    """Download one clock into the HF cache, load it and describe it."""
+    path, model = _load_clock(clock)
     features = list(model.features)
     extra = [f for f in features if not CPG_PATTERN.match(str(f))]
     revision = Path(path).parent.name  # .../snapshots/<commit>/<clock>.pt

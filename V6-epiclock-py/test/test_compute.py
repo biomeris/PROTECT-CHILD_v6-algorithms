@@ -176,7 +176,14 @@ check(
 )
 
 merged = global_summary.merge(reference, on=["cohort", "clock"], how="outer", validate="1:1")
-check(not merged.isna().any().any(), "every (cohort, clock) appears in both the global result and the reference")
+check(
+    not merged[["mean_age_global", "mean_ref"]].isna().any().any(),
+    "every (cohort, clock) appears in both the global result and the reference",
+)
+check(
+    (merged["n_with_age_total"] == 0).all() and merged["mean_age_acceleration_global"].isna().all(),
+    "without an age column the age comparison is empty and nothing else changes",
+)
 check(
     (merged["n_samples_total"] == merged["n_ref"]).all(),
     "n_samples_total per cohort is {'cohort_A': 8, 'cohort_B': 11, 'cohort_C': 11}",
@@ -591,6 +598,107 @@ check(
 check(
     pd.DataFrame(bundled_output[0]["results"]).equals(pd.DataFrame(results[0]["results"])),
     "the bundle does not change any result",
+)
+
+# ---------------------------------------------------------------------------
+# 8. Real vantage6 client, CpG filtering and chronological age
+# ---------------------------------------------------------------------------
+print("\n[8] Real client signature, clock CpG filtering, chronological age")
+import ast  # noqa: E402
+import inspect  # noqa: E402
+
+from vantage6.algorithm.client import AlgorithmClient  # noqa: E402
+
+from epiclock_v5.central import pooled_mean_sd  # noqa: E402
+
+# The package re-exports vantage6's `federated` decorator, which shadows the module
+# name, so take the module itself from sys.modules
+federated_module = sys.modules["epiclock_v5.federated"]
+
+# The mock client accepts arguments the real one does not (e.g. 'databases'): check
+# every client.task.create call in central.py against the real signature
+real_params = set(inspect.signature(AlgorithmClient.Task.create).parameters) - {"self"}
+tree = ast.parse((current_path.parent / "epiclock_v5" / "central.py").read_text())
+calls = [
+    node for node in ast.walk(tree)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    and node.func.attr == "create" and ast.unparse(node.func.value) == "client.task"
+]
+used = {kw.arg for call in calls for kw in call.keywords}
+check(
+    calls and used <= real_params,
+    f"central.py calls client.task.create only with arguments of the real vantage6 client {sorted(used)}",
+)
+
+# Keeping only the clocks' CpGs must not change any predicted age
+node = nodes[2]
+all_probes = federated_module.keep_clock_cpgs
+federated_module.keep_clock_cpgs = lambda df, *_: df
+unfiltered, _ = quiet(federated_module.predict_sample_ages, node, CLOCKS)
+federated_module.keep_clock_cpgs = all_probes
+filtered, log = quiet(federated_module.predict_sample_ages, node, CLOCKS)
+check(
+    np.allclose(filtered[CLOCKS], unfiltered.loc[filtered.index, CLOCKS], equal_nan=True)
+    and filtered.attrs["clock_coverage"] == unfiltered.attrs["clock_coverage"],
+    "keeping only the requested clocks' CpGs gives the same ages and coverage",
+)
+check("of the requested clocks" in log, "the node logs how many probes it keeps")
+
+# Chronological age: known ages per sample; node results pooled centrally must equal
+# the per-sample reference (predicted minus chronological age)
+rng = np.random.default_rng(8)
+aged_nodes = []
+for df in nodes:
+    samples = df["sample_label"].unique()
+    ages = pd.Series(rng.uniform(20, 70, len(samples)).round(1), index=samples)
+    aged_nodes.append(df.assign(age=df["sample_label"].map(ages)))
+# On node 3 one cohort_B sample has no age: n_with_age is one lower there
+missing_sample = aged_nodes[2].query("cohort == 'cohort_B'")["sample_label"].iloc[0]
+aged_nodes[2].loc[aged_nodes[2]["sample_label"] == missing_sample, "age"] = np.nan
+
+node_aged = [quiet(federated_impl, df, CLOCKS, min_samples=MIN_SAMPLES)[0] for df in aged_nodes]
+pooled = aggregate_cohort_results([s.to_dict(orient="records") for s in node_aged])
+
+per_sample = []
+for df in aged_nodes:
+    predicted = quiet(reference_sample_ages, df, CLOCKS)[0]
+    real = df.groupby("sample_label")["age"].first()
+    long = predicted.melt(id_vars="cohort", var_name="clock", value_name="predicted", ignore_index=False)
+    long["real"] = real.reindex(long.index).to_numpy()
+    per_sample.append(long.dropna())
+per_sample = pd.concat(per_sample)
+per_sample["acceleration"] = per_sample["predicted"] - per_sample["real"]
+age_ref = per_sample.groupby(["cohort", "clock"]).agg(
+    n_ref=("real", "size"), real_ref=("real", "mean"),
+    accel_ref=("acceleration", "mean"), accel_sd_ref=("acceleration", lambda a: a.std(ddof=1)),
+).reset_index()
+age_merged = pooled.merge(age_ref, on=["cohort", "clock"], validate="1:1")
+check(
+    len(age_merged) == len(pooled)
+    and (age_merged["n_with_age_total"] == age_merged["n_ref"]).all()
+    and np.allclose(age_merged["mean_chronological_age_global"], age_merged["real_ref"])
+    and np.allclose(age_merged["mean_age_acceleration_global"], age_merged["accel_ref"])
+    and np.allclose(age_merged["sd_age_acceleration_global"], age_merged["accel_sd_ref"]),
+    "pooled chronological age and age acceleration (mean, SD) equal the per-sample reference",
+)
+cohort_b3 = node_aged[2].query("cohort == 'cohort_B'")
+check(
+    (cohort_b3["n_with_age"] == cohort_b3["n_samples"] - 1).all(),
+    "a sample without age counts for the predicted age but not for the comparison",
+)
+
+# Fewer than min_samples samples with an age: the age fields are empty, the row is kept
+few_ages = aged_nodes[0].copy()
+few_ages.loc[few_ages["sample_label"] != few_ages["sample_label"].iloc[0], "age"] = np.nan
+few = quiet(federated_impl, few_ages, CLOCKS, min_samples=MIN_SAMPLES)[0]
+check(
+    len(few) == len(node_aged[0]) and (few["n_with_age"] == 1).all()
+    and few["mean_age_acceleration"].isna().all() and few["mean_chronological_age"].isna().all(),
+    "with fewer than min_samples ages the comparison is empty but every row is kept",
+)
+check(
+    pooled_mean_sd(np.array([1.0]), np.array([5.0]), np.array([np.nan])) == (5.0, None),
+    "a pooled SD over a single sample is empty, not an error",
 )
 
 print("\nAll checks passed.")

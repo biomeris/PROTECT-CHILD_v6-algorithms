@@ -2,10 +2,6 @@
 # basic python3 image as base
 FROM ghcr.io/vantage6/infrastructure/algorithm-base:5.0
 
-# This is a placeholder that should be overloaded by invoking
-# docker build with '--build-arg PKG_NAME=...'
-ARG PKG_NAME="epiclock-v5"
-
 # install federated algorithm. PyTorch (needed by pyaging) is installed from the
 # CPU-only index first: the default Linux wheel pulls several GB of CUDA libraries
 # that the nodes do not use.
@@ -28,8 +24,10 @@ RUN --mount=type=secret,id=hf_token,required=false \
 ENV HF_HUB_OFFLINE=1 \
     EPICLOCK_CLOCK_BUNDLE=/opt/clock_bundle/clocks.json
 
-# Set environment variable to make name of the package available within the
-# docker image.
+# Name of the Python module that vantage6's wrapper imports: the module folder
+# (epiclock_v5), not the pip package name (epiclock-v5). Declared here, after the
+# slow steps, so changing it does not rebuild PyTorch and the clock bundle.
+ARG PKG_NAME="epiclock_v5"
 ENV PKG_NAME=${PKG_NAME}
 
 # Tell docker to execute `wrap_algorithm()` when the image is run. This function

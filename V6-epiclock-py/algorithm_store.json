@@ -56,6 +56,15 @@
           "default_value": 0.9,
           "has_default_value": true,
           "is_frontend_only": false
+        },
+        {
+          "name": "age_column",
+          "type": "column",
+          "display_name": "Age column",
+          "description": "Column with the chronological age of each sample (e.g. 'age' from the IDAT extraction). Used to report the age acceleration, predicted minus chronological age; leave empty to skip.",
+          "default_value": "age",
+          "has_default_value": true,
+          "is_frontend_only": false
         }
       ]
     },
@@ -107,6 +116,15 @@
           "display_name": "Coverage threshold",
           "description": "Minimum coverage (share of a clock's CpGs present in a node's data, 0-1) for a result to be flagged coverage_ok. EPIC v2 lacks some clock CpGs and pyaging fills them with reference values or 0, which can bias the age. It only sets the flag; no clock or result is removed.",
           "default_value": 0.9,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "age_column",
+          "type": "column",
+          "display_name": "Age column",
+          "description": "Column with the chronological age of each sample (e.g. 'age' from the IDAT extraction). Used to report the age acceleration, predicted minus chronological age; leave empty to skip.",
+          "default_value": "age",
           "has_default_value": true,
           "is_frontend_only": false
         }

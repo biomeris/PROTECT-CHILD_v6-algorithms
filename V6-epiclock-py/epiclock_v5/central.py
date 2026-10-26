@@ -27,7 +27,50 @@ GLOBAL_RESULT_COLUMNS = [
     "coverage_min",
     "coverage_max",
     "coverage_ok",
+    "n_with_age_total",
+    "mean_chronological_age_global",
+    "mean_age_acceleration_global",
+    "sd_age_acceleration_global",
 ]
+
+
+def pooled_mean_sd(n: np.ndarray, means: np.ndarray, sds: np.ndarray) -> tuple[float, float | None]:
+    """Mean and sample standard deviation of all samples, from per-node n, mean and SD."""
+    total_n = n.sum()
+    mean = float((n * means).sum() / total_n)
+    if total_n < 2:
+        return mean, None
+    sum_squares = ((n - 1) * np.nan_to_num(sds) ** 2 + n * (means - mean) ** 2).sum()
+    return mean, float(np.sqrt(sum_squares / (total_n - 1)))
+
+
+def pooled_age_comparison(group: pd.DataFrame) -> dict:
+    """Pool the chronological age and age acceleration of one (cohort, clock) over
+    the nodes that reported them (weighted by n_with_age)."""
+    fields = {
+        "n_with_age_total": 0,
+        "mean_chronological_age_global": None,
+        "mean_age_acceleration_global": None,
+        "sd_age_acceleration_global": None,
+    }
+    reported = group[pd.to_numeric(group["mean_age_acceleration"], errors="coerce").notna()]
+    if reported.empty:
+        return fields
+    n = reported["n_with_age"].to_numpy(dtype=float)
+    real_mean, _ = pooled_mean_sd(
+        n, reported["mean_chronological_age"].to_numpy(dtype=float), np.zeros(len(n))
+    )
+    accel_mean, accel_sd = pooled_mean_sd(
+        n, reported["mean_age_acceleration"].to_numpy(dtype=float),
+        reported["sd_age_acceleration"].to_numpy(dtype=float),
+    )
+    fields.update({
+        "n_with_age_total": int(n.sum()),
+        "mean_chronological_age_global": real_mean,
+        "mean_age_acceleration_global": accel_mean,
+        "sd_age_acceleration_global": accel_sd,
+    })
+    return fields
 
 
 def aggregate_cohort_results(results: list) -> pd.DataFrame:
@@ -40,6 +83,8 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
         sd_age_global   = sqrt(sum((n_i - 1) * sd_i^2 + n_i * (mean_i - mean_age_global)^2)
                                / (n_samples_total - 1))
     which equals the mean and sample standard deviation of all the cohort's samples.
+    The age acceleration (predicted minus chronological age) is pooled the same way,
+    weighted by n_with_age, over the nodes that reported it.
 
     Parameters:
     -----------
@@ -52,8 +97,10 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
     --------
     pd.DataFrame : Columns cohort, clock, mean_age_global, sd_age_global,
         n_samples_total, n_nodes, coverage_min, coverage_max (clock coverage over
-        the nodes that contributed) and coverage_ok (True only if every
-        contributing node meets the coverage threshold)
+        the nodes that contributed), coverage_ok (True only if every
+        contributing node meets the coverage threshold), and n_with_age_total,
+        mean_chronological_age_global, mean_age_acceleration_global and
+        sd_age_acceleration_global (empty if no node reported ages)
     """
     node_dfs = []
     for r in results:
@@ -79,9 +126,7 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
         sds = group["sd_age"].to_numpy(dtype=float)
 
         total_n = n.sum()
-        mean_global = float((n * means).sum() / total_n)
-        sum_squares = ((n - 1) * sds ** 2 + n * (means - mean_global) ** 2).sum()
-        sd_global = float(np.sqrt(sum_squares / (total_n - 1)))
+        mean_global, sd_global = pooled_mean_sd(n, means, sds)
 
         rows.append({
             "cohort": cohort,
@@ -93,6 +138,7 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
             "coverage_min": float(group["coverage"].min()),
             "coverage_max": float(group["coverage"].max()),
             "coverage_ok": bool(group["coverage_ok"].astype(bool).all()),
+            **pooled_age_comparison(group),
         })
 
     return pd.DataFrame(rows, columns=GLOBAL_RESULT_COLUMNS)
@@ -157,6 +203,7 @@ def central_function(
     cohort_column: str = "cohort",
     min_samples: int = 3,
     coverage_threshold: float = 0.9,
+    age_column: str | None = "age",
 ) -> Any:
     """
     Central aggregation of epigenetic age predictions per cohort.
@@ -183,12 +230,18 @@ def central_function(
         results to be flagged ``coverage_ok`` (default: 0.9). EPIC v2 lacks some clock
         CpGs and pyaging fills them with reference values or 0, which can bias the
         age. It only sets the flag; no clock or result is removed.
+    age_column : str, optional
+        Column in each node's data with the chronological age of each sample
+        (default: "age", added by the IDAT extraction's sample_columns). Nodes that
+        have it also report the age acceleration (predicted minus chronological
+        age); None skips the comparison.
 
     Returns:
     --------
     dict : ``{"results": [one record per (cohort, clock) with mean_age_global,
-        sd_age_global, n_samples_total, n_nodes, coverage_min, coverage_max and
-        coverage_ok], "clock_coverage": [one record per clock with coverage_min,
+        sd_age_global, n_samples_total, n_nodes, coverage_min, coverage_max,
+        coverage_ok, n_with_age_total, mean_chronological_age_global,
+        mean_age_acceleration_global and sd_age_acceleration_global], "clock_coverage": [one record per clock with coverage_min,
         coverage_max, n_nodes_reported, n_nodes_coverage_ok and n_nodes_failed],
         "n_nodes_legacy_loci_mapping": nodes that mapped renamed EPIC v2 CpGs (packaged
         mapping or $MANIFEST_PATH)}``
@@ -214,8 +267,8 @@ def central_function(
             "cohort_column": cohort_column,
             "min_samples": min_samples,
             "coverage_threshold": coverage_threshold,
+            "age_column": age_column,
         },
-        databases=[{"label": "default"}],
     )
 
     info(f"Waiting for aggregated results from {len(org_ids)} organizations")
