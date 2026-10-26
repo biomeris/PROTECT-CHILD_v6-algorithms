@@ -1,0 +1,16 @@
+y_true,p_positive,model_id
+1,0.90,global_model_demo
+0,0.15,global_model_demo
+1,0.70,global_model_demo
+0,0.20,global_model_demo
+1,0.85,global_model_demo
+0,0.30,global_model_demo
+0,0.45,global_model_demo
+1,0.62,global_model_demo
+1,0.75,global_model_demo
+0,0.12,global_model_demo
+1,0.66,global_model_demo
+0,0.44,global_model_demo
+0,0.25,global_model_demo
+1,0.80,global_model_demo
+0,0.35,global_model_demo
