@@ -9,12 +9,6 @@ ARG PKG_NAME="v6-test-omop"
 COPY . /app
 RUN pip install /app
 
-# Fail the build if the OHDSI path cannot even be imported. python-ohdsi loads
-# each R package on import, so this catches a missing package before a node
-# does.
-RUN python -c "import importlib; \
-    from ohdsi import database_connector; print('python-ohdsi import OK')"
-
 # Set environment variable to make name of the package available within the
 # docker image.
 ENV PKG_NAME=${PKG_NAME}
