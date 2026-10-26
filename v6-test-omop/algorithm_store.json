@@ -1,0 +1,26 @@
+{
+    "reviews": [],
+    "vantage6_version": "5.0",
+    "image": "biomerisdocker/v6-test-omop",
+    "partitioning": "horizontal",
+    "functions": [
+        {
+            "databases": [
+                {
+                    "description": "The OMOP database",
+                    "name": "database"
+                }
+            ],
+            "display_name": "Extract data from OMOP PERSON table",
+            "step_type": "data_extraction",
+            "description": "Extract first 100 rows of the PERSON table",
+            "standalone": true,
+            "name": "data_extraction_function",
+            "ui_visualizations": []
+        }
+    ],
+    "description": "This algorithm extracts the first 100 rows of the PERSON table from the OMOP database.",
+    "name": "v6-test-omop",
+    "documentation_url": "",
+    "code_url": "https://mygitrepo.org"
+}
