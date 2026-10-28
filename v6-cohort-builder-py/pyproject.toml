@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-cohort-builder-py"
+version = "1.0.0"
+description = "SQL or ATLAS JSON based cohort generator"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0a43",
+  "pandas",
+  # The rpy2 that loads against the R 4.2 of the algorithm-ohdsi-base image
+  # (see Dockerfile); the same pins as the other PROTECT-CHILD OMOP algorithms.
+  "rpy2==3.6.6",
+  "rpy2-rinterface==3.6.5",
+  "rpy2-robjects==3.6.4",
+  "ohdsi-common>=0.4.1,<0.5.0",
+  "ohdsi-sqlrender>=0.4.1,<0.5.0",
+  "ohdsi-circe>=0.4.1,<0.5.0",
+  "ohdsi-database-connector>=0.4.1,<0.5.0",
+  "ohdsi-feature-extraction>=0.4.1,<0.5.0",
+  "ohdsi-cohort-generator>=0.4.1,<0.5.0",
+  "ohdsi-cohort-diagnostics>=0.4.1,<0.5.0",
+]
+authors = [
+    { name = "Rubén Sánchez-Corcuera" },
+    { name = "Unai Zulaika Zurimendi" },
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+# TODO add urls
+
+[tool.hatch.build.targets.wheel]
+packages = ["v6-cohort-builder-py"]
+
+[dependency-groups]
+dev = [
+  "pytest",
+]

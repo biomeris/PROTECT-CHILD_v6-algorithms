@@ -1,0 +1,111 @@
+{
+  "name": "v6-cohort-builder-py",
+  "description": "Generates a cohort from an ATLAS cohort definition (Circe JSON) or OHDSI SQL in each node's OMOP CDM database and returns the subject count per node. Run generate_cohort (data extraction), then central_function (or cohort_count) on the dataframe it leaves in the session. Counts below a node's minimum are withheld.",
+  "image": "ghcr.io/rubensancor/v6_cohort_builder",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/rubensancor/v6_cohort_builder",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "generate_cohort",
+      "display_name": "Generate cohort",
+      "standalone": true,
+      "description": "Generate a cohort in this node's OMOP database and leave its subject count in the session.",
+      "step_type": "data_extraction",
+      "ui_visualizations": [],
+      "arguments": [
+        {
+          "name": "cohort_name",
+          "display_name": "Cohort name",
+          "description": "Human-readable cohort name.",
+          "type": "string",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "sql",
+          "display_name": "SQL",
+          "description": "OHDSI CohortGenerator SQL. Provide exactly one of sql or atlas_json. Only nodes that set COHORT_BUILDER_ALLOW_SQL: true accept it.",
+          "type": "string",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "atlas_json",
+          "display_name": "ATLAS JSON",
+          "description": "ATLAS cohort expression (Circe JSON). Provide exactly one of sql or atlas_json.",
+          "type": "json",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "cohort_id",
+          "display_name": "Cohort id",
+          "description": "Positive cohort identifier. Generated from the current time if omitted; use the same id at every node.",
+          "type": "integer",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "overwrite",
+          "display_name": "Overwrite",
+          "description": "Replace an existing cohort with the same id instead of failing.",
+          "type": "boolean",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": false
+        }
+      ],
+      "databases": [
+        {
+          "name": "omop",
+          "description": "The node's OMOP CDM database. Its env settings must give DBMS, USER, PASSWORD, CDM_DATABASE, CDM_SCHEMA and RESULTS_SCHEMA."
+        }
+      ]
+    },
+    {
+      "name": "central_function",
+      "display_name": "Total cohort count",
+      "standalone": true,
+      "description": "Add up the cohort counts generate_cohort recorded at each node, with a range when a node withheld a count below its minimum.",
+      "step_type": "central_compute",
+      "ui_visualizations": [],
+      "arguments": [
+        {
+          "name": "organizations_to_include",
+          "display_name": "Organizations to include",
+          "description": "Organizations to ask. Defaults to every organization in the collaboration.",
+          "type": "organization_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        }
+      ],
+      "databases": [
+        {
+          "name": "cohort",
+          "description": "The dataframe generate_cohort left in the session; the node subtasks read it."
+        }
+      ]
+    },
+    {
+      "name": "cohort_count",
+      "display_name": "Cohort count",
+      "standalone": true,
+      "description": "Return the cohort outcome generate_cohort recorded at this node: status, cohort id and subject count, or below_minimum when the count is withheld.",
+      "step_type": "federated_compute",
+      "ui_visualizations": [],
+      "arguments": [],
+      "databases": [
+        {
+          "name": "cohort",
+          "description": "The one-row dataframe generate_cohort left in the session."
+        }
+      ]
+    }
+  ]
+}
