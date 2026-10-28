@@ -11,10 +11,12 @@ access.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, TypeVar
 
 from vantage6.algorithm.client import AlgorithmClient
 from vantage6.algorithm.tools.util import info
+from vantage6.common.enum import RunStatus
 
 from .cohort import aggregate_central_results
 
@@ -35,9 +37,22 @@ except ValueError as exc:
         return func
 
 
+def _wait_for_every_run(
+    client: AlgorithmClient, task_id: int, poll_interval: float
+) -> None:
+    # HQ marks a task finished as soon as one of its runs fails, while the
+    # other nodes may still be running; their rows would be missed.
+    while True:
+        runs = client.run.from_task(task_id)
+        if runs and all(RunStatus.has_finished(run["status"]) for run in runs):
+            return
+        time.sleep(poll_interval)
+
+
 def _run_central_function(
     client: AlgorithmClient,
     organizations_to_include: list[int] | None = None,
+    poll_interval: float = 1.0,
 ) -> dict[str, Any]:
     available = [organization["id"] for organization in client.organization.list()]
     if organizations_to_include is None:
@@ -66,7 +81,8 @@ def _run_central_function(
             "status": "error",
             "message": f"HQ did not create the cohort_count subtasks: {reason}",
         }
-    results = client.wait_for_results(task_id=task["id"])
+    _wait_for_every_run(client, task["id"], poll_interval)
+    results = client.result.from_task(task_id=task["id"])
 
     return aggregate_central_results(expected_org_ids=org_ids, raw_results=results)
 

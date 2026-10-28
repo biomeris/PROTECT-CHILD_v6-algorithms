@@ -20,15 +20,68 @@ class FakeTasks:
         return {"id": 99}
 
 
+class FakeHQ:
+    """The cohort_count runs as HQ reports them: one list of statuses per poll.
+
+    As at HQ, a run's result is readable once that run has completed, and the
+    task counts as finished as soon as one run fails, even while others are
+    still running.
+    """
+
+    def __init__(self, results, snapshots=None):
+        self.results = results
+        self.snapshots = snapshots or [["completed"] * len(results)]
+        self.polls = 0
+
+    def statuses(self):
+        return self.snapshots[min(self.polls, len(self.snapshots)) - 1]
+
+    def poll(self):
+        self.polls += 1
+        return self.statuses()
+
+    def readable_results(self):
+        return [
+            result
+            for result, status in zip(self.results, self.statuses())
+            if status == "completed"
+        ]
+
+
+class FakeRuns:
+    def __init__(self, hq):
+        self._hq = hq
+
+    def from_task(self, task_id):
+        assert task_id == 99
+        return [{"status": status} for status in self._hq.poll()]
+
+
+class FakeResults:
+    def __init__(self, hq):
+        self._hq = hq
+
+    def from_task(self, task_id):
+        assert task_id == 99
+        return self._hq.readable_results()
+
+
 class FakeClient:
-    def __init__(self, results):
+    def __init__(self, results, snapshots=None):
+        self.hq = FakeHQ(results, snapshots)
         self.organization = FakeOrganizations()
         self.task = FakeTasks()
-        self._results = results
+        self.run = FakeRuns(self.hq)
+        self.result = FakeResults(self.hq)
 
     def wait_for_results(self, task_id):
         assert task_id == 99
-        return self._results
+        while True:
+            statuses = self.hq.poll()
+            if "failed" in statuses or "crashed" in statuses or all(
+                status == "completed" for status in statuses
+            ):
+                return self.hq.readable_results()
 
 
 def test_package_root_exposes_central_function_for_vantage6_wrapper():
@@ -128,3 +181,31 @@ def test_central_explains_why_hq_refused_the_subtasks():
 
     assert result["status"] == "error"
     assert "not present for the following organizations: 3" in result["message"]
+
+
+def test_central_waits_for_the_other_nodes_when_one_count_crashes():
+    # HQ marks the task failed when organization 2 crashes, while
+    # organization 1 is still running; its row arrives a poll later.
+    client = FakeClient(
+        [
+            {"organization_id": 1, "status": "success", "cohort_id": 55, "count": 7},
+            None,
+        ],
+        snapshots=[
+            ["active", "crashed"],
+            ["completed", "crashed"],
+        ],
+    )
+
+    result = central._run_central_function(client, poll_interval=0)
+
+    assert result["nodes"] == [
+        {"organization_id": 1, "status": "success", "count": 7, "cohort_id": 55}
+    ]
+    assert result["errors"] == [
+        {
+            "organization_id": 2,
+            "status": "error",
+            "message": "No result returned by organization 2",
+        }
+    ]
