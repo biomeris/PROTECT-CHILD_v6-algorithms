@@ -11,18 +11,18 @@ Developed by Universidad de Deusto (Rubén Sánchez-Corcuera, Unai Zulaika) for 
 |---|---|---|
 | `generate_cohort` | data extraction | Turns the definition into SQL (CirceR), writes the cohort to the node's `results.cohort` table (CohortGenerator) and leaves a one-row dataframe with the outcome in the session |
 | `cohort_count` | federated | Returns each node's row (`status`, `cohort_id`, `count`, `below_minimum`, `minimum_count` and, on failure, `message`) |
-| `central_function` | central | Asks each node's `cohort_count`, optionally only for `organizations_to_include`, and returns every row, the errors and the total |
+| `central_function` | central | Asks each node's `cohort_count`, optionally only for `organizations_to_include`, and returns every row (with the node's `organization_id` and `cohort_id`), the errors and the total |
 
 A client runs them in order in one session.
 
-1. `generate_cohort` on each node's `omop` database, with `cohort_name` and exactly one of `atlas_json` or `sql`, plus optional `cohort_id` and `overwrite`.
+1. `generate_cohort` on each node's `omop` database, with `cohort_name`, `cohort_id` and exactly one of `atlas_json` or `sql`, plus optional `overwrite`.
 2. `central_function` for the total, or `cohort_count` for each node's row.
 
 The cohort is built in a data-extraction step because vantage6 5 gives a task the database credentials only when its action is `data_extraction`. Federated and central steps run without database access.
 
 `central_function` returns `total_count` when the total is exact, and `total_range`, the lowest and highest possible total, when some node withheld its count.
 
-Pass the same `cohort_id` to every node. When it is omitted, each node makes one up from the current time. If a node already holds rows for that cohort id, generation fails unless `overwrite` is true.
+Pass the same `cohort_id` to every node: it names the cohort, and each node stores its own patients under it in its `results.cohort` table, where later steps such as `v6-omop-data-extraction` read them. The algorithm store marks it as required. A client that calls the function without it still works, but each node then makes one up from its own clock, so the ids can differ between nodes; `central_function` shows the id each node used. If a node already holds rows for that cohort id, generation fails unless `overwrite` is true.
 
 ## Privacy
 

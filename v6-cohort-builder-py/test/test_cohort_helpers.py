@@ -265,6 +265,20 @@ def test_aggregate_results_reports_the_cohort_id_the_nodes_share():
     )["cohort_id"] is None
 
 
+def test_aggregate_results_shows_the_cohort_id_each_node_used():
+    response = cohort.aggregate_central_results(
+        expected_org_ids=[1, 2],
+        raw_results=[
+            {"organization_id": 1, "status": "success", "cohort_id": 55, "count": 10},
+            {"organization_id": 2, "status": "success", "cohort_id": 56, "count": 12},
+        ],
+    )
+
+    assert [
+        (node["organization_id"], node["cohort_id"]) for node in response["nodes"]
+    ] == [(1, 55), (2, 56)]
+
+
 def test_aggregate_results_keeps_partial_success_and_null_total():
     response = cohort.aggregate_central_results(
         expected_org_ids=[1, 2, 3],

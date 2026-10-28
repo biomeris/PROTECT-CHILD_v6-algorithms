@@ -530,7 +530,8 @@ def aggregate_central_results(
                 "count": int(count) if count is not None else None,
             }
             for key in (
-                "database", "cdm_schema", "results_schema", "below_minimum", "minimum_count",
+                "cohort_id", "database", "cdm_schema", "results_schema",
+                "below_minimum", "minimum_count",
             ):
                 if key in result:
                     node[key] = result[key]

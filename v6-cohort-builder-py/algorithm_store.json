@@ -44,11 +44,10 @@
         {
           "name": "cohort_id",
           "display_name": "Cohort id",
-          "description": "Positive cohort identifier. Generated from the current time if omitted; use the same id at every node.",
+          "description": "Positive cohort identifier, the same at every node. Each node stores its patients in results.cohort under this id.",
           "type": "integer",
-          "has_default_value": true,
-          "is_frontend_only": false,
-          "default_value": null
+          "has_default_value": false,
+          "is_frontend_only": false
         },
         {
           "name": "overwrite",
