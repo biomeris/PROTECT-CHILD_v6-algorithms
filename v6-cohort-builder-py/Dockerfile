@@ -34,4 +34,10 @@ ENV PKG_NAME=${PKG_NAME}
 
 # Tell docker to execute `wrap_algorithm()` when the image is run. This function
 # will ensure that the algorithm method is called properly.
-CMD ["python", "-c", "from vantage6.algorithm.tools.wrap import wrap_algorithm; wrap_algorithm()"]
+#
+# Then leave with os._exit(0), skipping the R and JVM teardown. On vantage6
+# nodes the process now and then dies at exit with a SIGSEGV in libR.so, after
+# the output is written; the node then marks the run crashed and drops that
+# output. os._exit(0) is reached only when wrap_algorithm returns: on any error
+# it calls sys.exit(1), which still exits non-zero.
+CMD ["python", "-c", "import os, sys; from vantage6.algorithm.tools.wrap import wrap_algorithm; wrap_algorithm(); sys.stdout.flush(); sys.stderr.flush(); os._exit(0)"]
