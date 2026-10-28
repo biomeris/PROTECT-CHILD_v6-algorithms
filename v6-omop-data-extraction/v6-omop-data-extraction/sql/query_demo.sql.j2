@@ -1,0 +1,133 @@
+WITH 
+	patient_ids AS (
+		SELECT c.subject_id AS person_id
+		FROM {{ results_schema }}.cohort c
+		WHERE c.cohort_definition_id = {{ cohort_id }}
+		
+	), 
+	person AS (
+		SELECT 
+		    pid.person_id, -- e.g. 12345
+		    gender_concept.concept_name AS sex, -- e.g. "FEMALE" or "MALE"
+		    person.year_of_birth/*, -- e.g. 1990
+		    person.month_of_birth -- e.g. 11*/
+		FROM
+		    patient_ids pid
+		LEFT JOIN
+			{{ cdm_schema }}.person person 
+			ON pid.person_id = person.person_id
+		LEFT JOIN
+			{{ cdm_schema }}.concept gender_concept 
+			ON person.gender_concept_id = gender_concept.concept_id
+	),
+	concomitant_disease_all AS (
+		SELECT 
+			pid.person_id,
+			c.concept_name,
+			ROW_NUMBER() OVER (
+                PARTITION BY pid.person_id
+                ORDER BY co.condition_start_date
+            ) AS concomitant_disease_number
+		FROM 
+			patient_ids pid
+		LEFT JOIN
+			{{ cdm_schema }}.condition_occurrence co  
+			ON pid.person_id = co.person_id
+		LEFT JOIN
+			{{ cdm_schema }}.concept c 
+			ON co.condition_concept_id = c.concept_id
+		WHERE co.condition_concept_id IN (200219,45757063,376961,200528,195856,434621,192963,201820,196523,433595,4096682,4304943,4223659,437663,40480518,4150016,378253,4223098,4029488,4245975,197676,4159144,196455,134718,376965,316866,4120314,45766189,4302654,137977,37167217,4184746,315085,75004,4272240,31967,4306451,4094986,4290672,44789813,140214,377091,4083797,200527,138455,4261202,4318546,374034,441408,4134010,2000000028,2000000037,2000000033)
+	),
+	concomitant_disease_wide as (
+		SELECT
+			cda.person_id,
+			MAX(CASE WHEN cda.concomitant_disease_number = 1 THEN cda.concept_name END) AS concomitant_disease_1,
+			MAX(CASE WHEN cda.concomitant_disease_number = 2 THEN cda.concept_name END) AS concomitant_disease_2,
+			MAX(CASE WHEN cda.concomitant_disease_number = 3 THEN cda.concept_name END) AS concomitant_disease_3,
+			MAX(CASE WHEN cda.concomitant_disease_number = 4 THEN cda.concept_name END) AS concomitant_disease_4,
+			MAX(CASE WHEN cda.concomitant_disease_number = 5 THEN cda.concept_name END) AS concomitant_disease_5
+		FROM 
+			concomitant_disease_all cda
+		GROUP BY
+            cda.person_id
+	),
+	concomitant_disease_yn AS (
+		SELECT 
+			pid.person_id,
+			MAX(
+                CASE WHEN co.condition_concept_id IN (200219,45757063,376961,200528,195856,434621,192963,201820,196523,433595,4096682,4304943,4223659,437663,40480518,4150016,378253,4223098,4029488,4245975,197676,4159144,196455,134718,376965,316866,4120314,45766189,4302654,137977,37167217,4184746,315085,75004,4272240,31967,4306451,4094986,4290672,44789813,140214,377091,4083797,200527,138455,4261202,4318546,374034,441408,4134010,2000000028,2000000037,2000000033)
+                THEN 1 ELSE 0 END) as concomitant_disease_yn
+		FROM 
+			patient_ids pid
+		LEFT JOIN
+			{{ cdm_schema }}.condition_occurrence co  
+			ON pid.person_id = co.person_id
+		GROUP BY
+            pid.person_id
+	),
+	clinical_event_all AS (
+		SELECT 
+			pid.person_id,
+			c.concept_name,
+			ROW_NUMBER() OVER (
+                PARTITION BY pid.person_id
+                ORDER BY co.condition_start_date
+            ) AS clinical_event_number
+		FROM 
+			patient_ids pid
+		LEFT JOIN
+			{{ cdm_schema }}.condition_occurrence co  
+			ON pid.person_id = co.person_id
+		LEFT JOIN
+			{{ cdm_schema }}.concept c 
+			ON co.condition_concept_id = c.concept_id
+		WHERE co.condition_concept_id IN (2000000029,4043343,37017585,4340390,4198610,198185,440032,4138908,201820,4151240,316866,4192056,4128369,2000000023,4326594,4341657,321876,4306655,2000000015,2000000014,42872891,435514,2000000024,45765696,44809014,197444)
+	),
+	clinical_event_wide as (
+		SELECT
+			cea.person_id,
+			MAX(CASE WHEN cea.clinical_event_number = 1 THEN cea.concept_name END) AS clinical_event
+		FROM 
+			clinical_event_all cea
+		GROUP BY
+            cea.person_id
+	),
+	clinical_event_yn AS (
+		SELECT 
+			pid.person_id,
+			MAX(
+                CASE WHEN co.condition_concept_id IN (2000000029,4043343,37017585,4340390,4198610,198185,440032,4138908,201820,4151240,316866,4192056,4128369,2000000023,4326594,4341657,321876,4306655,2000000015,2000000014,42872891,435514,2000000024,45765696,44809014,197444)
+                THEN 1 ELSE 0 END) as clinical_event_yn
+		FROM 
+			patient_ids pid
+		LEFT JOIN
+			{{ cdm_schema }}.condition_occurrence co  
+			ON pid.person_id = co.person_id
+		GROUP BY
+            pid.person_id
+	)
+SELECT 
+	person.*,
+	concomitant_disease_wide.concomitant_disease_1,
+	concomitant_disease_wide.concomitant_disease_2,
+	concomitant_disease_wide.concomitant_disease_3,
+	concomitant_disease_wide.concomitant_disease_4,
+	concomitant_disease_wide.concomitant_disease_5,
+	concomitant_disease_yn.concomitant_disease_yn,
+	clinical_event_wide.clinical_event,
+	clinical_event_yn.clinical_event_yn
+FROM 
+	person
+LEFT JOIN 
+	concomitant_disease_wide
+	ON person.person_id = concomitant_disease_wide.person_id
+LEFT JOIN 
+	concomitant_disease_yn
+	ON person.person_id = concomitant_disease_yn.person_id
+LEFT JOIN 
+	clinical_event_wide
+	ON person.person_id = clinical_event_wide.person_id
+LEFT JOIN 
+	clinical_event_yn
+	ON person.person_id = clinical_event_yn.person_id
+;
