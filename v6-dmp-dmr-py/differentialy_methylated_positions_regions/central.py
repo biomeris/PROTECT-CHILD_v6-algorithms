@@ -13,18 +13,25 @@ not hold enough samples of both cohorts are skipped and reported.
 
 DMPs (per probe, matched by probe_id across hospitals)
 ------------------------------------------------------
-Fixed-effect inverse-variance meta-analysis of the per-hospital estimates
-(cohort_b - cohort_a). The estimate is on the scale the model was fitted on
-(``estimate_scale``: M-value by default, beta if use_m_values=False); an M-value
-difference is not a beta difference. ``delta_beta`` gives the difference of the
-pooled mean beta values for reading the effect on the beta scale.
-  * weight_i         = 1 / std_err_i^2
+Each hospital moderates its per-probe variances with limma's empirical Bayes
+method (``moderate_variance``, see moderation.py), so that a variance that is near
+zero by chance in a small cohort does not give a near-zero standard error and an
+overwhelming weight. The central function then combines the per-hospital
+estimates (cohort_b - cohort_a) with an inverse-variance meta-analysis, random
+effects by default (``meta_model="random"``, DerSimonian-Laird) or fixed effect.
+The estimate is on the scale the model was fitted on (``estimate_scale``: M-value
+by default, beta if use_m_values=False); an M-value difference is not a beta
+difference. ``delta_beta`` gives the difference of the pooled mean beta values for
+reading the effect on the beta scale.
+  * weight_i         = 1 / (std_err_i^2 + tau2)   (tau2 = 0 for fixed effect)
+  * tau2             = DerSimonian-Laird between-hospital variance
   * estimate         = sum(weight_i * estimate_i) / sum(weight_i)
   * std_err          = sqrt(1 / sum(weight_i))
   * z, p_value       = estimate / std_err, two-sided normal p-value
   * adj_p_value      = Benjamini-Hochberg over all probes
-  * heterogeneity_p_value = Cochran's Q test; None when only one hospital
-                         contributed to the probe (it cannot be assessed)
+  * heterogeneity_p_value = Cochran's Q test, i2 = share of variation due to
+                         differences between hospitals; None when only one
+                         hospital contributed to the probe (it cannot be assessed)
 
 If only one hospital takes part, the results equal that hospital's own analysis
 (with a normal instead of a t approximation) and the output says so in
@@ -57,12 +64,26 @@ from vantage6.algorithm.decorator import algorithm_client
 from vantage6.algorithm.decorator import central as central_step
 from vantage6.algorithm.tools.util import info, warn
 
-from .federated import NODE_RESULT_COLUMNS
+from .annotation import annotate
+from .federated import NODE_RESULT_COLUMNS, decode_table
+
+# Results are capped: an EPIC v2 analysis tests ~870k probes, far more than vantage6
+# can store as one result (1 GB) or the UI can show. The correction for multiple
+# testing and the DMRs still use every probe; only what is returned is limited.
+MAX_RESULT_ROWS = 10_000
+DEFAULT_TOP_N = 1000
+
+
+def _validate_top_n(top_n: int) -> None:
+    if not isinstance(top_n, int) or isinstance(top_n, bool) or not 1 <= top_n <= MAX_RESULT_ROWS:
+        raise ValueError(
+            f"top_n must be an integer between 1 and {MAX_RESULT_ROWS:,}, got {top_n!r}"
+        )
 
 DMP_COLUMNS = [
     "probe_id", "chromosome", "position", "genes",
     "estimate", "std_err", "estimate_scale", "z", "p_value", "adj_p_value",
-    "heterogeneity_p_value", "mean_beta_a", "mean_beta_b", "delta_beta",
+    "heterogeneity_p_value", "i2", "tau2", "mean_beta_a", "mean_beta_b", "delta_beta",
     "n_nodes", "n_samples_a", "n_samples_b",
 ]
 DMR_COLUMNS = [
@@ -77,14 +98,28 @@ def _json_records(df: pd.DataFrame) -> list[dict]:
     return df.astype(object).where(df.notna(), None).to_dict(orient="records")
 
 
-def _meta_analyse_dmps(node_dmps: pd.DataFrame, scale: str) -> pd.DataFrame:
-    """Inverse-variance fixed-effect meta-analysis per probe."""
+META_MODELS = ("random", "fixed")
+
+
+def _meta_analyse_dmps(node_dmps: pd.DataFrame, scale: str, meta_model: str = "random") -> pd.DataFrame:
+    """Inverse-variance meta-analysis per probe: random effects (DerSimonian-Laird,
+    default) or fixed effect.
+
+    Fixed effect: weight_i = 1 / se_i^2. Random effects add the between-hospital
+    variance tau^2 = max(0, (Q - (k - 1)) / (sum w - sum w^2 / sum w)) to every
+    hospital's variance, weight_i = 1 / (se_i^2 + tau^2), so hospitals that
+    disagree widen the confidence interval instead of being averaged away. With one
+    hospital, or when the hospitals agree (Q <= k - 1), both models are identical.
+    """
+    if meta_model not in META_MODELS:
+        raise ValueError(f"meta_model must be one of {META_MODELS}, got {meta_model!r}")
     d = node_dmps.copy()
     for col in ["estimate", "std_err", "n_a", "n_b", "mean_beta_a", "mean_beta_b"]:
         d[col] = pd.to_numeric(d[col], errors="coerce")
     d = d[np.isfinite(d["estimate"]) & np.isfinite(d["std_err"]) & (d["std_err"] > 0)]
 
     d["w"] = 1.0 / d["std_err"] ** 2
+    d["w2"] = d["w"] ** 2
     d["w_est"] = d["w"] * d["estimate"]
     d["w_est2"] = d["w"] * d["estimate"] ** 2
     d["sum_beta_a"] = d["n_a"] * d["mean_beta_a"]
@@ -92,6 +127,7 @@ def _meta_analyse_dmps(node_dmps: pd.DataFrame, scale: str) -> pd.DataFrame:
 
     g = d.groupby("probe_id").agg(
         w=("w", "sum"),
+        w2=("w2", "sum"),
         w_est=("w_est", "sum"),
         w_est2=("w_est2", "sum"),
         n_nodes=("w", "size"),
@@ -99,24 +135,35 @@ def _meta_analyse_dmps(node_dmps: pd.DataFrame, scale: str) -> pd.DataFrame:
         n_samples_b=("n_b", "sum"),
         sum_beta_a=("sum_beta_a", "sum"),
         sum_beta_b=("sum_beta_b", "sum"),
-        chromosome=("chromosome", "first"),
-        position=("position", "first"),
-        genes=("genes", "first"),
     )
 
-    g["estimate"] = g["w_est"] / g["w"]
-    g["std_err"] = np.sqrt(1.0 / g["w"])
+    # Cochran's Q, I^2 and the DerSimonian-Laird between-hospital variance
+    k = g["n_nodes"]
+    q = (g["w_est2"] - g["w_est"] ** 2 / g["w"]).clip(lower=0)
+    g["heterogeneity_p_value"] = np.where(k > 1, chi2.sf(q, (k - 1).clip(lower=1)), np.nan)
+    g["i2"] = np.where((k > 1) & (q > 0), ((q - (k - 1)) / q.where(q > 0)).clip(lower=0), np.nan)
+    c = g["w"] - g["w2"] / g["w"]
+    g["tau2"] = np.where(k > 1, ((q - (k - 1)) / c.where(c > 0)).clip(lower=0), 0.0)
+    g["tau2"] = g["tau2"].fillna(0.0)
+
+    if meta_model == "random":
+        d["w_re"] = 1.0 / (d["std_err"] ** 2 + d["probe_id"].map(g["tau2"]))
+        d["w_re_est"] = d["w_re"] * d["estimate"]
+        re = d.groupby("probe_id")[["w_re", "w_re_est"]].sum()
+        g["estimate"] = re["w_re_est"] / re["w_re"]
+        g["std_err"] = np.sqrt(1.0 / re["w_re"])
+    else:
+        g["estimate"] = g["w_est"] / g["w"]
+        g["std_err"] = np.sqrt(1.0 / g["w"])
     g["z"] = g["estimate"] / g["std_err"]
     g["p_value"] = 2 * norm.sf(np.abs(g["z"]))
-    q = (g["w_est2"] - g["w_est"] ** 2 / g["w"]).clip(lower=0)
-    g["heterogeneity_p_value"] = np.where(
-        g["n_nodes"] > 1, chi2.sf(q, (g["n_nodes"] - 1).clip(lower=1)), np.nan
-    )
     g["adj_p_value"] = multipletests(g["p_value"], method="fdr_bh")[1] if len(g) else []
     g["mean_beta_a"] = g["sum_beta_a"] / g["n_samples_a"]
     g["mean_beta_b"] = g["sum_beta_b"] / g["n_samples_b"]
     g["delta_beta"] = g["mean_beta_b"] - g["mean_beta_a"]
     g["estimate_scale"] = scale
+    # Genomic location and genes from the packaged EPIC v2 manifest (IlmnID / Name)
+    g = g.join(annotate(g.index))
 
     g = g.reset_index().sort_values(["p_value", "probe_id"]).reset_index(drop=True)
     g["n_nodes"] = g["n_nodes"].astype(int)
@@ -206,12 +253,23 @@ def aggregate_results(
     dmr_fdr: float = 0.05,
     dmr_min_probes: int = 2,
     heatmap_top: int = 50,
+    top_n: int = DEFAULT_TOP_N,
+    meta_model: str = "random",
 ) -> dict:
-    """Pure meta-analysis of the node results, importable from tests."""
-    node_dmps, skipped = [], []
+    """Pure meta-analysis of the node results, importable from tests.
+
+    The meta-analysis, the Benjamini-Hochberg correction and the DMRs use every
+    probe; the output holds the ``top_n`` DMPs with the smallest p-value and at most
+    MAX_RESULT_ROWS DMRs, plus counts over all probes in ``summary``.
+    """
+    _validate_top_n(top_n)
+    if meta_model not in META_MODELS:
+        raise ValueError(f"meta_model must be one of {META_MODELS}, got {meta_model!r}")
+    node_dmps, skipped, priors = [], [], []
     for res in results_list:
         if isinstance(res, dict) and res.get("status") == "ok":
-            node_dmps.append(pd.DataFrame(res["dmps"], columns=NODE_RESULT_COLUMNS))
+            node_dmps.append(decode_table(res["dmps"], NODE_RESULT_COLUMNS))
+            priors.append({k: res.get(k) for k in ("moderated", "prior_df", "prior_var")})
         elif isinstance(res, dict) and res.get("status") == "skipped":
             skipped.append(res.get("reason", "skipped"))
         else:
@@ -225,10 +283,13 @@ def aggregate_results(
             "cohort_b": cohort_b,
             "estimate": f"{cohort_b} - {cohort_a}",
             "estimate_scale": scale,
+            "meta_model": meta_model,
+            "variance_moderation": priors,
         },
         "n_nodes_used": len(node_dmps),
         "skipped_nodes": skipped,
         "warnings": [],
+        "summary": {},
         "global_dmps": [],
         "global_dmrs": [],
         "heatmap_data": [],
@@ -250,7 +311,7 @@ def aggregate_results(
         output["warnings"].append(message)
 
     info(f"Meta-analysing DMPs from {len(node_dmps)} node(s)...")
-    dmps = _meta_analyse_dmps(pd.concat(node_dmps, ignore_index=True), scale)
+    dmps = _meta_analyse_dmps(pd.concat(node_dmps, ignore_index=True), scale, meta_model)
 
     info("Deriving DMRs from the federated DMPs...")
     dmrs = find_dmrs(dmps, max_gap=dmr_max_gap, fdr=dmr_fdr, min_probes=dmr_min_probes)
@@ -259,10 +320,27 @@ def aggregate_results(
         columns={"mean_beta_a": f"mean_beta_{cohort_a}", "mean_beta_b": f"mean_beta_{cohort_b}"}
     )
 
-    output["global_dmps"] = _json_records(dmps[DMP_COLUMNS])
-    output["global_dmrs"] = _json_records(dmrs)
+    output["summary"] = {
+        "n_probes_tested": int(len(dmps)),
+        "n_probes_annotated": int(dmps["chromosome"].notna().sum()),
+        "n_significant_fdr_0.05": int((dmps["adj_p_value"] < 0.05).sum()),
+        f"n_significant_dmr_fdr_{dmr_fdr:g}": int((dmps["adj_p_value"] < dmr_fdr).sum()),
+        "n_dmrs": int(len(dmrs)),
+        "n_dmps_returned": int(min(top_n, len(dmps))),
+        "n_dmrs_returned": int(min(MAX_RESULT_ROWS, len(dmrs))),
+    }
+    if len(dmrs) > MAX_RESULT_ROWS:
+        output["warnings"].append(
+            f"{len(dmrs):,} DMRs found; only the {MAX_RESULT_ROWS:,} best ranked are returned"
+        )
+    output["global_dmps"] = _json_records(dmps.head(top_n)[DMP_COLUMNS])
+    output["global_dmrs"] = _json_records(dmrs.head(MAX_RESULT_ROWS))
     output["heatmap_data"] = _json_records(heatmap)
-    info(f"Federated analysis completed: {len(dmps)} probes, {len(dmrs)} DMRs")
+    info(
+        f"Federated analysis completed: {len(dmps):,} probes tested, "
+        f"{output['summary']['n_significant_fdr_0.05']:,} significant (FDR 0.05), {len(dmrs):,} DMRs; "
+        f"returning the top {output['summary']['n_dmps_returned']:,} DMPs"
+    )
     return output
 
 
@@ -274,10 +352,13 @@ def central_methylation_analysis(
     cohort_b: str,
     cohort_column: str = "cohort",
     use_m_values: bool = True,
-    min_samples: int = 10,
+    min_samples: int = 2,
     dmr_max_gap: int = 1000,
     dmr_fdr: float = 0.05,
     dmr_min_probes: int = 2,
+    top_n: int = DEFAULT_TOP_N,
+    moderate_variance: bool = True,
+    meta_model: str = "random",
 ) -> Any:
     """Federated DMP/DMR analysis of cohort_b vs cohort_a.
 
@@ -292,15 +373,27 @@ def central_methylation_analysis(
         Fit the per-probe models on M-values (default) or beta values.
     min_samples : int
         Minimum samples per cohort a hospital needs to take part (at least 2,
-        default 10). Hospitals share per-probe means and standard errors per
-        cohort, so small values reveal a lot about individual patients.
+        default 2). Hospitals share per-probe means and standard errors per
+        cohort, so small values reveal more about individual patients.
     dmr_max_gap : int
         Maximum distance in bp between neighbouring probes of a DMR.
     dmr_fdr : float
         Probe adj_p_value threshold for DMR probes.
     dmr_min_probes : int
         Minimum number of probes in a DMR.
+    top_n : int
+        Number of DMPs (smallest p-value first) to return, 1 to 10,000 (default
+        1,000). All probes are still tested and corrected for multiple testing.
+    moderate_variance : bool
+        Each hospital moderates its per-probe variances with limma's empirical
+        Bayes method (default True); recommended with small cohorts.
+    meta_model : str
+        "random" (DerSimonian-Laird random effects, default) or "fixed" (fixed
+        effect) meta-analysis across hospitals.
     """
+    _validate_top_n(top_n)
+    if meta_model not in META_MODELS:
+        raise ValueError(f"meta_model must be one of {META_MODELS}, got {meta_model!r}")
     info(f"Federated DMP/DMR analysis: {cohort_b} vs {cohort_a}")
     organizations = client.organization.list()
     org_ids = [org.get("id") for org in organizations]
@@ -314,6 +407,7 @@ def central_methylation_analysis(
             "cohort_column": cohort_column,
             "use_m_values": use_m_values,
             "min_samples": min_samples,
+            "moderate_variance": moderate_variance,
         },
     )
 
@@ -324,4 +418,5 @@ def central_methylation_analysis(
     return aggregate_results(
         results, cohort_a, cohort_b, use_m_values,
         dmr_max_gap=dmr_max_gap, dmr_fdr=dmr_fdr, dmr_min_probes=dmr_min_probes,
+        top_n=top_n, meta_model=meta_model,
     )

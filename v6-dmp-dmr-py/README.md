@@ -5,18 +5,26 @@ Federated differentially methylated positions (DMPs) and regions (DMRs) between
 two cohorts.
 
 Each hospital compares the two cohorts **within its own patients** (a per-probe
-linear model with pylluminator) and shares only per-probe summary statistics. The
-central function combines the hospitals with a meta-analysis. Because cohorts are
+linear model with pylluminator, with variances moderated by limma's empirical
+Bayes method) and shares only per-probe summary statistics. The central function
+combines the hospitals with a random-effects meta-analysis, corrects for multiple
+testing over all probes and returns the top DMPs and the DMRs. Because cohorts are
 compared within each hospital, differences between hospitals (batch, scanner,
 protocol) do not end up in the cohort effect. A hospital that does not hold at
 least `min_samples` patients of both cohorts is skipped and reported.
 
 ### Input data
 
-Each node's data is the output of `v6-preprocessIDAT-py`: one row per
+Each node's data is the output of `v6-extractionIDAT-py`: one row per
 (sample, probe) with `probe_id`, `sample_label`, `beta`, `m_value` and a cohort
-column (default `cohort`). Probe positions and genes come from the EPIC v2
-manifest at `MANIFEST_PATH` (default `test/EPIC-8v2-0_A2.csv`).
+column (default `cohort`). Probe IDs may be EPIC v2 identifiers with their suffix
+(`cg25324105_BC11`, as produced from IDATs) or plain CpG names (`cg25324105`).
+
+Probe positions and genes come from the EPIC v2 manifest. The algorithm ships the
+needed columns as `differentialy_methylated_positions_regions/data/epicv2_annotation.parquet`
+(14 MB, built from `test/EPIC-8v2-0_A2.csv` with `python make_annotation.py
+test/EPIC-8v2-0_A2.csv`); probes are matched on the manifest's `IlmnID`, then on
+`Name`. `MANIFEST_PATH` can point to another manifest CSV or Parquet file.
 
 ### Arguments (`central_methylation_analysis`)
 
@@ -26,24 +34,48 @@ manifest at `MANIFEST_PATH` (default `test/EPIC-8v2-0_A2.csv`).
 | `cohort_b` | required | Compared cohort label; estimates are `cohort_b - cohort_a` |
 | `cohort_column` | `"cohort"` | Column that holds the cohort of each sample |
 | `use_m_values` | `true` | Model M-values (default) or beta values |
-| `min_samples` | `10` | Minimum patients of each cohort a hospital needs to take part (>= 2). See Privacy |
+| `min_samples` | `2` | Minimum patients of each cohort a hospital needs to take part (>= 2). See Privacy |
 | `dmr_max_gap` | `1000` | Maximum bp between neighbouring probes of a DMR |
 | `dmr_fdr` | `0.05` | Probe `adj_p_value` threshold for DMR probes |
 | `dmr_min_probes` | `2` | Minimum probes per DMR |
+| `top_n` | `1000` | Number of DMPs returned (smallest p-value first), 1 to 10,000. All probes are still tested and corrected |
+| `moderate_variance` | `true` | Moderate each hospital's per-probe variances (limma empirical Bayes); see Statistics |
+| `meta_model` | `"random"` | `"random"` (DerSimonian-Laird random effects) or `"fixed"` (fixed effect) |
 
 ### What each hospital shares
 
-Per probe: `estimate` (cohort_b - cohort_a), `std_err`, raw `p_value`, the number
-of patients per cohort and the mean beta per cohort, plus the probe's position and
-genes. Probes with fewer than `min_samples` values in a cohort are dropped. No
-patient-level values are shared.
+Per probe: `estimate` (cohort_b - cohort_a), `std_err`, `df` and `p_value`
+(moderated), the number of patients per cohort and the mean beta per cohort, plus
+the hospital's prior (`prior_df`, `prior_var`). Probes with fewer than
+`min_samples` values in a cohort are dropped. No patient-level values are shared.
+The table is sent as compressed Parquet in base64 (~40 MB for ~870k EPIC v2
+probes, instead of ~240 MB as JSON records); the annotation is added centrally.
+
+### Statistics
+
+- **Moderated variances.** With few patients per cohort a probe's variance can be
+  near zero by chance, which gives a near-zero standard error and, in an
+  inverse-variance meta-analysis, an overwhelming weight. On real EPIC v2 data
+  (3 vs 3 patients at one hospital) this made probes with almost no difference
+  "significant" (15,950 probes at FDR 0.05). Each hospital therefore estimates a
+  prior for the variances from all its probes (Smyth 2004, as in limma) and
+  shrinks every probe's variance towards it; the moderated t-statistic has
+  `d + d0` degrees of freedom.
+- **Random effects.** Hospitals can disagree (different patients, batch). The
+  DerSimonian-Laird model adds the between-hospital variance `tau2` to every
+  hospital's variance, so disagreement widens the confidence interval instead of
+  being averaged away. With one hospital, or when hospitals agree, it equals the
+  fixed-effect model.
+- With both, the same data gave 219 significant probes and 6 DMRs, with the top
+  probes consistent across hospitals.
 
 ### Privacy
 
 Each hospital shares, for every probe, the mean and standard error per cohort.
-With few patients per cohort these reveal a lot about individuals, so the default
-`min_samples` is 10. Do not lower it for real data; the test script uses 3 only
-because the mock hospitals are small.
+With few patients per cohort these reveal more about individuals: with 2 patients
+the mean is close to each patient's own value, over ~870k probes. The default
+`min_samples` is 2; choose a higher value when the data protection rules of the
+hospitals require it.
 
 ### Output
 
@@ -53,13 +85,20 @@ because the mock hospitals are small.
 - `warnings`: e.g. when only one hospital contributed. The results then equal that
   hospital's own analysis, there is no replication across hospitals and
   `heterogeneity_p_value` is empty.
-- `global_dmps`: per probe, a fixed-effect inverse-variance meta-analysis:
-  `estimate`, `std_err`, `estimate_scale`, `z`, `p_value`, `adj_p_value`
-  (Benjamini-Hochberg over all probes), `heterogeneity_p_value` (Cochran's Q; empty
-  when only one hospital contributed to the probe), `mean_beta_a`, `mean_beta_b`,
-  `delta_beta`, `n_nodes`, `n_samples_a`, `n_samples_b`, `chromosome`, `position`,
-  `genes`. Sorted by `p_value`.
-- `global_dmrs`: runs of neighbouring mapped probes (at most `dmr_max_gap` bp
+- `summary`: counts over all probes: `n_probes_tested`, `n_probes_annotated`,
+  `n_significant_fdr_0.05`, the number significant at `dmr_fdr`, `n_dmrs`, and how
+  many DMPs and DMRs are returned.
+- `comparison` also states `meta_model` and each hospital's variance moderation
+  (`moderated`, `prior_df`, `prior_var`).
+- `global_dmps`: the `top_n` probes with the smallest p-value (default 1,000,
+  at most 10,000) of the meta-analysis: `estimate`, `std_err`, `estimate_scale`,
+  `z`, `p_value`, `adj_p_value` (Benjamini-Hochberg over **all** probes, not only
+  those returned), `heterogeneity_p_value` (Cochran's Q; empty when only one
+  hospital contributed to the probe), `i2` (share of the variation due to
+  differences between hospitals), `tau2` (between-hospital variance),
+  `mean_beta_a`, `mean_beta_b`, `delta_beta`, `n_nodes`, `n_samples_a`,
+  `n_samples_b`, `chromosome`, `position`, `genes`. Sorted by `p_value`.
+- `global_dmrs` (at most 10,000; built from all significant probes): runs of neighbouring mapped probes (at most `dmr_max_gap` bp
   apart) that all have `adj_p_value < dmr_fdr` and the same direction, with at
   least `dmr_min_probes` probes. Ranked by `max_probe_adj_p_value` (the least
   significant probe in the region), then `n_probes` and absolute `mean_estimate`.

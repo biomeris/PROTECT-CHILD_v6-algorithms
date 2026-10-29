@@ -18,8 +18,9 @@ These 108 probes are too far apart to form DMRs, so section [7] generates data f
 clusters of neighbouring EPIC v2 probes (taken from the manifest) to check the
 DMP -> DMR hand-off end to end.
 
-The tests use min_samples=3 because the mock hospitals are small; real tasks
-should use the default (10) or higher.
+The tests use min_samples=3; the default is 2. Section [9] onwards checks the
+EPIC v2 probe identifiers of real data, the capped result and the compact node
+payload, and that the code only uses what a real vantage6 node accepts.
 """
 import json
 import os
@@ -41,8 +42,14 @@ os.chdir(current_path.parent)
 
 from vantage6.algorithm.mock.network import MockNetwork  # noqa: E402
 
-from differentialy_methylated_positions_regions.central import aggregate_results, find_dmrs  # noqa: E402
-from differentialy_methylated_positions_regions.federated import compute_methylation_impl  # noqa: E402
+from differentialy_methylated_positions_regions.annotation import load_annotation  # noqa: E402
+from differentialy_methylated_positions_regions.central import (  # noqa: E402
+    MAX_RESULT_ROWS, _meta_analyse_dmps, aggregate_results, find_dmrs,
+)
+from differentialy_methylated_positions_regions.moderation import fit_prior  # noqa: E402
+from differentialy_methylated_positions_regions.federated import (  # noqa: E402
+    NODE_RESULT_COLUMNS, compute_methylation_impl, decode_table,
+)
 
 DATABASE_LABEL = "default"
 A, B = "cohort_A", "cohort_B"
@@ -122,11 +129,12 @@ def reference_node(df: pd.DataFrame) -> pd.DataFrame:
 # 1. Per-hospital comparison
 # ---------------------------------------------------------------------------
 print("\n[1] Per-hospital DMPs")
-node_results = {}
+node_results, plain_results = {}, {}
 for name, df in raw.items():
-    result = compute_methylation_impl(df, A, B, min_samples=MIN_SAMPLES)
-    node_results[name] = result
-    dmps = pd.DataFrame(result["dmps"]).set_index("probe_id")
+    result = compute_methylation_impl(df, A, B, min_samples=MIN_SAMPLES, moderate_variance=False)
+    plain_results[name] = result
+    node_results[name] = compute_methylation_impl(df, A, B, min_samples=MIN_SAMPLES)
+    dmps = decode_table(result["dmps"]).set_index("probe_id")
     ref = reference_node(df).loc[dmps.index]
     print(f"\n{name}: {result['n_a']} x {A}, {result['n_b']} x {B}\n{dmps.head(3)}")
 
@@ -136,9 +144,13 @@ for name, df in raw.items():
         np.allclose(dmps["estimate"].astype(float), ref["estimate"])
         and np.allclose(dmps["std_err"].astype(float), ref["std_err"])
         and np.allclose(dmps["p_value"].astype(float), ref["p_value"]),
-        f"{name}: estimate, std_err and raw p-value equal a two-sample t-test ({B} - {A})",
+        f"{name}: without moderation, estimate, std_err and p-value equal a two-sample t-test ({B} - {A})",
     )
-    check(dmps[["chromosome", "position", "genes"]].notna().all().all(), f"{name}: every probe annotated from the manifest")
+    check(
+        result["dmps"].get("format") == "parquet+base64"
+        and list(decode_table(result["dmps"]).columns) == NODE_RESULT_COLUMNS,
+        f"{name}: the node sends a compact table of statistics only (no annotation)",
+    )
 
 # ---------------------------------------------------------------------------
 # 2. End-to-end run on the mock network vs an independent meta-analysis
@@ -152,14 +164,15 @@ client = network.user_client
 org_ids = [org["id"] for org in client.organization.list()]
 task = client.task.create(
     method="central_methylation_analysis",
-    arguments={"cohort_a": A, "cohort_b": B, "min_samples": MIN_SAMPLES},
+    arguments={"cohort_a": A, "cohort_b": B, "min_samples": MIN_SAMPLES,
+               "moderate_variance": False, "meta_model": "fixed"},
     organizations=[org_ids[0]],
     databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
 )
 output = client.wait_for_results(task.get("id"))[0]
 json.dumps(output)  # must be JSON-serialisable for the vantage6 server
 global_dmps = pd.DataFrame(output["global_dmps"]).set_index("probe_id")
-print_results(output, "Hospital A + Hospital B")
+print_results(output, "Hospital A + Hospital B (plain statistics, fixed effect)")
 
 refs = [reference_node(df) for df in raw.values()]
 w = sum(1 / r["std_err"] ** 2 for r in refs)
@@ -195,6 +208,12 @@ check(
     f"each probe pools 8 {A} and 10 {B} samples from 2 hospitals",
 )
 check(list(global_dmps["p_value"]) == sorted(global_dmps["p_value"]), "DMPs are sorted by p-value")
+check(global_dmps[["chromosome", "position", "genes"]].notna().all().all(), "every DMP is annotated centrally from the packaged manifest")
+check(
+    output["summary"]["n_probes_tested"] == 108 and output["summary"]["n_dmps_returned"] == 108
+    and output["summary"]["n_probes_annotated"] == 108,
+    "summary: 108 probes tested and annotated; all returned (fewer than top_n)",
+)
 
 heatmap = pd.DataFrame(output["heatmap_data"]).set_index("probe_id")
 pooled = pd.concat(raw.values()).groupby(["probe_id", "cohort"])["beta"].mean().unstack()
@@ -238,7 +257,11 @@ check(
 print("\n[4] Other cohorts at a hospital are ignored")
 extra = raw["Hospital B"].assign(cohort="cohort_C", sample_label=lambda d: "C" + d["sample_label"])
 with_c = compute_methylation_impl(pd.concat([raw["Hospital A"], extra]), A, B, min_samples=MIN_SAMPLES)
-check(with_c == node_results["Hospital A"], "adding cohort_C patients to Hospital A does not change its result")
+check(
+    decode_table(with_c["dmps"]).equals(decode_table(node_results["Hospital A"]["dmps"]))
+    and (with_c["n_a"], with_c["n_b"]) == (node_results["Hospital A"]["n_a"], node_results["Hospital A"]["n_b"]),
+    "adding cohort_C patients to Hospital A does not change its result",
+)
 
 # ---------------------------------------------------------------------------
 # 5. DMR construction on a hand-made DMP table
@@ -299,10 +322,8 @@ for kwargs, text in [
 # 7. DMRs end to end: clusters of neighbouring probes from the manifest
 # ---------------------------------------------------------------------------
 print("\n[7] DMRs end to end on clustered probes")
-manifest = pd.read_csv(
-    os.environ.get("MANIFEST_PATH", "test/EPIC-8v2-0_A2.csv"),
-    skiprows=7, usecols=["Name", "CHR", "MAPINFO"], dtype={"Name": str, "CHR": str},
-).dropna()
+manifest = load_annotation().rename(columns={"name": "Name", "chromosome": "CHR", "position": "MAPINFO"})
+manifest = manifest[["Name", "CHR", "MAPINFO"]].dropna()
 manifest = manifest[manifest["Name"].str.startswith("cg") & ~manifest["Name"].duplicated(keep=False)]
 manifest = manifest[manifest["CHR"].str.fullmatch(r"(chr)?[1-9]\d*")]
 manifest = manifest.assign(MAPINFO=manifest["MAPINFO"].astype(int))
@@ -369,7 +390,7 @@ check(
 print("\n[8] Only one hospital contributes")
 single = aggregate_results([node_results["Hospital A"], skipped], A, B)
 single_dmps = pd.DataFrame(single["global_dmps"]).set_index("probe_id")
-node_a = pd.DataFrame(node_results["Hospital A"]["dmps"]).set_index("probe_id").loc[single_dmps.index]
+node_a = decode_table(node_results["Hospital A"]["dmps"]).set_index("probe_id").loc[single_dmps.index]
 print(single["warnings"])
 check(single["n_nodes_used"] == 1 and len(single["warnings"]) == 1 and "Only 1 hospital" in single["warnings"][0],
       "a warning says only one hospital contributed")
@@ -382,5 +403,172 @@ check(single_dmps["heterogeneity_p_value"].isna().all(), "heterogeneity_p_value 
 
 none_left = aggregate_results([skipped], A, B)
 check(none_left["global_dmps"] == [] and "No hospital" in none_left["warnings"][0], "no contributing hospital -> empty results and a warning")
+
+# ---------------------------------------------------------------------------
+# 9. Real EPIC v2 identifiers (IlmnID with suffix) are annotated
+# ---------------------------------------------------------------------------
+print("\n[9] EPIC v2 identifiers from the IDAT extraction")
+table = load_annotation()
+to_ilmn = table.drop_duplicates("name").set_index("name")["ilmn_id"]
+epic_ids = {name: df.assign(probe_id=df["probe_id"].map(to_ilmn)) for name, df in raw.items()}
+check(
+    all(df["probe_id"].str.contains(r"_[TB][CO]\d+$").all() for df in epic_ids.values()),
+    "the mock probes renamed to their EPIC v2 IlmnID (e.g. cg..._BC21)",
+)
+epic_output = aggregate_results(
+    [compute_methylation_impl(df, A, B, min_samples=MIN_SAMPLES) for df in epic_ids.values()], A, B
+)
+epic_dmps = pd.DataFrame(epic_output["global_dmps"])
+check(
+    epic_dmps[["chromosome", "position", "genes"]].notna().all().all()
+    and epic_output["summary"]["n_probes_annotated"] == 108,
+    "EPIC v2 IlmnIDs are annotated (matched on IlmnID, not on Name)",
+)
+default_dmps = pd.DataFrame(aggregate_results(list(node_results.values()), A, B)["global_dmps"]).set_index("probe_id")
+plain = default_dmps.reset_index().assign(probe_id=lambda d: d["probe_id"].map(to_ilmn)).set_index("probe_id")
+check(
+    np.allclose(epic_dmps.set_index("probe_id")["estimate"].astype(float), plain.loc[epic_dmps["probe_id"], "estimate"].astype(float))
+    and (epic_dmps.set_index("probe_id")["chromosome"] == plain.loc[epic_dmps["probe_id"], "chromosome"]).all(),
+    "results are identical whether probes are named by IlmnID or by Name",
+)
+
+# ---------------------------------------------------------------------------
+# 10. Capped result: correction and DMRs over all probes, top_n returned
+# ---------------------------------------------------------------------------
+print("\n[10] Capped result")
+capped = aggregate_results(list(node_results.values()), A, B, top_n=10)
+capped_dmps = pd.DataFrame(capped["global_dmps"]).set_index("probe_id")
+check(len(capped_dmps) == 10 and capped["summary"]["n_dmps_returned"] == 10, "top_n=10 returns 10 DMPs")
+check(
+    list(capped_dmps.index) == list(default_dmps.index[:10])
+    and np.allclose(capped_dmps["adj_p_value"].astype(float), default_dmps["adj_p_value"].iloc[:10].astype(float)),
+    "they are the 10 smallest p-values, with adj_p_value corrected over all 108 probes (not over 10)",
+)
+check(capped["summary"]["n_probes_tested"] == 108, "summary counts every probe tested, not only those returned")
+for bad in (0, MAX_RESULT_ROWS + 1):
+    try:
+        aggregate_results(list(node_results.values()), A, B, top_n=bad)
+    except ValueError as exc:
+        check("top_n must be an integer between 1 and 10,000" in str(exc), f"top_n={bad} is rejected: {exc}")
+    else:
+        raise AssertionError(f"top_n={bad} was accepted")
+check(
+    pd.DataFrame(aggregate_results(cluster_results := [
+        compute_methylation_impl(df, A, B, min_samples=MIN_SAMPLES) for df in cluster_data
+    ], A, B, top_n=1)["global_dmrs"])["probe_ids"].tolist() == cluster_dmrs["probe_ids"].tolist(),
+    "DMRs are found from all significant probes, even when only 1 DMP is returned",
+)
+
+# ---------------------------------------------------------------------------
+# 11. Only what a real vantage6 node accepts
+# ---------------------------------------------------------------------------
+print("\n[11] Real vantage6 client and Docker image")
+import ast  # noqa: E402
+import importlib  # noqa: E402
+import inspect  # noqa: E402
+import re  # noqa: E402
+
+from vantage6.algorithm.client import AlgorithmClient  # noqa: E402
+
+real_params = set(inspect.signature(AlgorithmClient.Task.create).parameters) - {"self"}
+tree = ast.parse((current_path.parent / "differentialy_methylated_positions_regions" / "central.py").read_text())
+calls = [
+    node for node in ast.walk(tree)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    and node.func.attr == "create" and ast.unparse(node.func.value) == "client.task"
+]
+used = {kw.arg for call in calls for kw in call.keywords}
+check(calls and used <= real_params, f"client.task.create only uses arguments of the real vantage6 client {sorted(used)}")
+pkg_name = re.search(r'ARG PKG_NAME="([^"]+)"', (current_path.parent / "Dockerfile").read_text()).group(1)
+module = importlib.import_module(pkg_name)
+check(
+    all(hasattr(module, f) for f in ("central_methylation_analysis", "rpc_compute_methylation")),
+    f"the Dockerfile's PKG_NAME ('{pkg_name}') is the importable module with both functions",
+)
+
+# ---------------------------------------------------------------------------
+# 12. Moderated variances (empirical Bayes) and random-effects meta-analysis
+# ---------------------------------------------------------------------------
+print("\n[12] Moderated variances and random effects")
+from scipy.stats import t as student_t  # noqa: E402
+
+for name in raw:
+    plain_node = decode_table(plain_results[name]["dmps"]).set_index("probe_id")
+    moderated = decode_table(node_results[name]["dmps"]).set_index("probe_id").loc[plain_node.index]
+    scale = 1 / plain_node["n_a"] + 1 / plain_node["n_b"]
+    s2 = plain_node["std_err"] ** 2 / scale
+    d = plain_node["n_a"] + plain_node["n_b"] - 2
+    d0, s0_2 = fit_prior(s2.to_numpy(), d.to_numpy())
+    if np.isfinite(d0):
+        expected_se, expected_df = np.sqrt((d0 * s0_2 + d * s2) / (d0 + d) * scale), d + d0
+        reported_d0 = np.isclose(node_results[name]["prior_df"], d0)
+    else:  # variances vary no more than chance: every probe gets the prior variance
+        expected_se, expected_df = np.sqrt(s0_2 * scale), d + 1e6
+        reported_d0 = node_results[name]["prior_df"] is None
+    check(
+        node_results[name]["moderated"] and reported_d0
+        and np.allclose(moderated["std_err"], expected_se) and np.allclose(moderated["df"], expected_df),
+        f"{name}: std_err = sqrt((d0*s0^2 + d*s^2)/(d0 + d) * (1/n_a + 1/n_b)) with d0={d0:.2f}, df = d + d0",
+    )
+    check(
+        np.allclose(moderated["p_value"], 2 * student_t.sf(np.abs(moderated["estimate"] / moderated["std_err"]), expected_df))
+        and np.allclose(moderated["estimate"], plain_node["estimate"]),
+        f"{name}: moderated t-test p-values; the estimates are unchanged",
+    )
+
+# Random effects (DerSimonian-Laird) by hand from the hospitals' moderated results
+tables = [decode_table(r["dmps"]).set_index("probe_id") for r in node_results.values()]
+probes = tables[0].index.intersection(tables[1].index)
+est = np.column_stack([tb.loc[probes, "estimate"] for tb in tables])
+var = np.column_stack([tb.loc[probes, "std_err"] ** 2 for tb in tables])
+w = 1 / var
+fe = (w * est).sum(1) / w.sum(1)
+q = (w * (est - fe[:, None]) ** 2).sum(1)
+tau2 = np.clip((q - 1) / (w.sum(1) - (w ** 2).sum(1) / w.sum(1)), 0, None)
+w_re = 1 / (var + tau2[:, None])
+re_est = (w_re * est).sum(1) / w_re.sum(1)
+re_se = np.sqrt(1 / w_re.sum(1))
+re = default_dmps.loc[probes]
+check(
+    np.allclose(re["estimate"].astype(float), re_est) and np.allclose(re["std_err"].astype(float), re_se)
+    and np.allclose(re["tau2"].astype(float), tau2),
+    "random-effects estimate, std_err and tau2 equal DerSimonian-Laird computed by hand",
+)
+check(
+    (re["std_err"].astype(float) >= np.sqrt(1 / w.sum(1)) - 1e-12).all() and (tau2 > 0).any(),
+    "random-effects standard errors are never smaller than fixed-effect ones (wider where hospitals disagree)",
+)
+
+# The artefact seen on real EPIC v2 data: a hospital with 3 + 3 samples whose
+# variance is near zero by chance, pointing the other way than the other hospital
+rng = np.random.default_rng(12)
+artefact_probes = [f"cg{i:08d}" for i in range(300)]
+artefact = []
+for h, (n, sd) in enumerate([(6, 0.3), (3, 0.3)]):
+    rows = []
+    for cohort, shift in ((A, 0.0), (B, -0.2 if h == 0 else 0.8)):
+        for i in range(n):
+            m = rng.normal(0, sd, len(artefact_probes))
+            m[0] = shift + rng.normal(0, 0.3 if h == 0 else 0.005)  # probe 0: tiny spread at hospital 2
+            rows.append(pd.DataFrame({"probe_id": artefact_probes, "sample_label": f"H{h}{cohort}{i}", "cohort": cohort,
+                                      "m_value": m, "beta": 1 / (1 + 2.0 ** -m)}))
+    artefact.append(pd.concat(rows, ignore_index=True))
+naive = aggregate_results([compute_methylation_impl(df, A, B, moderate_variance=False) for df in artefact],
+                          A, B, meta_model="fixed")
+robust = aggregate_results([compute_methylation_impl(df, A, B) for df in artefact], A, B)
+p_naive = pd.DataFrame(naive["global_dmps"]).set_index("probe_id").loc["cg00000000", "adj_p_value"]
+p_robust = pd.DataFrame(robust["global_dmps"]).set_index("probe_id").loc["cg00000000", "adj_p_value"]
+check(
+    p_naive < 1e-3 and p_robust > 0.05,
+    f"a probe driven by one hospital's chance near-zero variance: adj p {p_naive:.1e} with plain fixed effect, "
+    f"{p_robust:.2f} with moderation + random effects",
+)
+for bad in ("mixed", ""):
+    try:
+        aggregate_results(list(node_results.values()), A, B, meta_model=bad)
+    except ValueError as exc:
+        check("meta_model must be one of" in str(exc), f"meta_model={bad!r} is rejected")
+    else:
+        raise AssertionError(f"meta_model={bad!r} was accepted")
 
 print("\nAll checks passed.")

@@ -1,0 +1,8 @@
+# The full EPIC v2 manifest (~930 MB) is only needed to rebuild the packaged
+# annotation (make_annotation.py), not in the image
+test/EPIC-8v2-0_A2.csv
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.git/

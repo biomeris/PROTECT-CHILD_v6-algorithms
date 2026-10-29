@@ -54,8 +54,8 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples per cohort",
-          "description": "Minimum samples of each cohort a hospital needs to take part (at least 2); otherwise it is skipped. Hospitals share per-probe means and standard errors per cohort, so small values reveal a lot about individual patients.",
-          "default_value": 10,
+          "description": "Minimum patients of each cohort a hospital needs to take part (at least 2, default 2). Hospitals share per-probe means and standard errors per cohort; larger values protect patients better.",
+          "default_value": 2,
           "has_default_value": true,
           "is_frontend_only": false
         },
@@ -83,6 +83,33 @@
           "display_name": "DMR minimum probes",
           "description": "Minimum number of probes in a DMR.",
           "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "moderate_variance",
+          "type": "boolean",
+          "display_name": "Moderate variances",
+          "description": "Moderate each hospital's per-probe variances with limma's empirical Bayes method (recommended with small cohorts).",
+          "default_value": true,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "top_n",
+          "type": "integer",
+          "display_name": "Number of DMPs returned",
+          "description": "DMPs with the smallest p-value to return, 1 to 10,000. All probes are still tested and corrected for multiple testing.",
+          "default_value": 1000,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "meta_model",
+          "type": "string",
+          "display_name": "Meta-analysis model",
+          "description": "'random' (DerSimonian-Laird random effects, default) or 'fixed' (fixed effect).",
+          "default_value": "random",
           "has_default_value": true,
           "is_frontend_only": false
         }
@@ -136,8 +163,17 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples per cohort",
-          "description": "Minimum samples of each cohort a hospital needs to take part (at least 2); otherwise it is skipped. Hospitals share per-probe means and standard errors per cohort, so small values reveal a lot about individual patients.",
-          "default_value": 10,
+          "description": "Minimum patients of each cohort a hospital needs to take part (at least 2, default 2). Hospitals share per-probe means and standard errors per cohort; larger values protect patients better.",
+          "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "moderate_variance",
+          "type": "boolean",
+          "display_name": "Moderate variances",
+          "description": "Moderate each hospital's per-probe variances with limma's empirical Bayes method (recommended with small cohorts).",
+          "default_value": true,
           "has_default_value": true,
           "is_frontend_only": false
         }
