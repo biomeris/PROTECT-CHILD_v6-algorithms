@@ -48,7 +48,7 @@ from differentialy_methylated_positions_regions.central import (  # noqa: E402
 )
 from differentialy_methylated_positions_regions.moderation import fit_prior  # noqa: E402
 from differentialy_methylated_positions_regions.federated import (  # noqa: E402
-    NODE_RESULT_COLUMNS, compute_methylation_impl, decode_table,
+    NODE_RESULT_COLUMNS, compute_methylation_impl, decode_table, encode_table,
 )
 
 DATABASE_LABEL = "default"
@@ -570,5 +570,43 @@ for bad in ("mixed", ""):
         check("meta_model must be one of" in str(exc), f"meta_model={bad!r} is rejected")
     else:
         raise AssertionError(f"meta_model={bad!r} was accepted")
+
+# ---------------------------------------------------------------------------
+# 13. Universe export: every mapped tested probe, for enrichment of the DMRs
+# ---------------------------------------------------------------------------
+print("\n[13] Universe export")
+from differentialy_methylated_positions_regions.central import UNIVERSE_COLUMNS  # noqa: E402
+
+default_output = aggregate_results(list(node_results.values()), A, B)
+universe = decode_table(default_output["universe"])
+tested = pd.DataFrame(default_output["global_dmps"])
+check(
+    list(universe.columns) == UNIVERSE_COLUMNS and len(universe) == 108
+    and default_output["summary"]["n_universe"] == 108
+    and set(universe["probe_id"]) == set(pd.concat([decode_table(r["dmps"]) for r in node_results.values()])["probe_id"]),
+    "the universe holds every tested probe (union over hospitals) with chromosome and position",
+)
+capped_universe = decode_table(aggregate_results(list(node_results.values()), A, B, top_n=5)["universe"])
+check(capped_universe.equals(universe), "the universe does not depend on top_n (it is not capped)")
+check(
+    universe.equals(universe.sort_values(["chromosome", "position", "probe_id"]).reset_index(drop=True)),
+    "the universe is sorted by chromosome and position",
+)
+cluster_out = aggregate_results(cluster_results, A, B)
+cluster_universe = set(decode_table(cluster_out["universe"])["probe_id"])
+dmr_probes = {p for r in cluster_out["global_dmrs"] for p in r["probe_ids"].split(";")}
+check(dmr_probes and dmr_probes <= cluster_universe, f"every DMR probe ({len(dmr_probes)}) is in the universe")
+
+# A probe without a genomic location can never be in a DMR: it is not in the universe
+unknown = node_results["Hospital A"].copy()
+table = decode_table(unknown["dmps"])
+table.loc[0, "probe_id"] = "cgNOTINMANIFEST"
+unknown["dmps"] = encode_table(table)
+with_unknown = aggregate_results([unknown, node_results["Hospital B"]], A, B)
+check(
+    "cgNOTINMANIFEST" not in set(decode_table(with_unknown["universe"])["probe_id"])
+    and with_unknown["summary"]["n_probes_tested"] == with_unknown["summary"]["n_universe"] + 1,
+    "probes without a genomic location are tested but left out of the universe",
+)
 
 print("\nAll checks passed.")

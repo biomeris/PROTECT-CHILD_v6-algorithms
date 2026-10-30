@@ -65,13 +65,17 @@ from vantage6.algorithm.decorator import central as central_step
 from vantage6.algorithm.tools.util import info, warn
 
 from .annotation import annotate
-from .federated import NODE_RESULT_COLUMNS, decode_table
+from .federated import NODE_RESULT_COLUMNS, decode_table, encode_table
 
 # Results are capped: an EPIC v2 analysis tests ~870k probes, far more than vantage6
 # can store as one result (1 GB) or the UI can show. The correction for multiple
 # testing and the DMRs still use every probe; only what is returned is limited.
 MAX_RESULT_ROWS = 10_000
 DEFAULT_TOP_N = 1000
+# The universe of a DMP/DMR run: every tested probe with an hg38 location (the probes
+# that could have been in a DMR), the background that enrichment analyses of the
+# DMRs (e.g. LOLA) need
+UNIVERSE_COLUMNS = ["probe_id", "chromosome", "position"]
 
 
 def _validate_top_n(top_n: int) -> None:
@@ -172,6 +176,14 @@ def _meta_analyse_dmps(node_dmps: pd.DataFrame, scale: str, meta_model: str = "r
     return g
 
 
+def is_unmapped(d: pd.DataFrame) -> pd.Series:
+    """Probes without a genomic location: chromosome 0 / position 0 in the manifest,
+    or not in the annotation at all."""
+    position = pd.to_numeric(d["position"], errors="coerce")
+    return (position.isna() | (position <= 0)
+            | d["chromosome"].astype(str).str.lower().isin(["0", "chr0", "nan", "none", "<na>", ""]))
+
+
 def find_dmrs(
     dmps: pd.DataFrame,
     max_gap: int = 1000,
@@ -181,11 +193,8 @@ def find_dmrs(
     """Group significant, same-direction neighbouring DMPs into regions."""
     d = dmps.dropna(subset=["chromosome", "position"]).copy()
     d["position"] = pd.to_numeric(d["position"], errors="coerce")
-    # Unmapped probes have chromosome 0 / position 0 in the manifest; they have no
-    # genomic location and must not be grouped into regions
-    unmapped = (d["position"].isna() | (d["position"] <= 0)
-                | d["chromosome"].astype(str).str.lower().isin(["0", "chr0", "nan", "none", ""]))
-    d = d[~unmapped]
+    # Unmapped probes have no genomic location and must not be grouped into regions
+    d = d[~is_unmapped(d)]
     if d.empty:
         return pd.DataFrame(columns=DMR_COLUMNS)
     d["position"] = d["position"].astype(int)
@@ -259,7 +268,8 @@ def aggregate_results(
     """Pure meta-analysis of the node results, importable from tests.
 
     The meta-analysis, the Benjamini-Hochberg correction and the DMRs use every
-    probe; the output holds the ``top_n`` DMPs with the smallest p-value and at most
+    probe; ``universe`` holds every tested probe with its location (encode_table form)
+    for enrichment analyses; the output holds the ``top_n`` DMPs with the smallest p-value and at most
     MAX_RESULT_ROWS DMRs, plus counts over all probes in ``summary``.
     """
     _validate_top_n(top_n)
@@ -293,6 +303,7 @@ def aggregate_results(
         "global_dmps": [],
         "global_dmrs": [],
         "heatmap_data": [],
+        "universe": None,
     }
     if skipped:
         info(f"{len(skipped)} node(s) skipped")
@@ -328,6 +339,7 @@ def aggregate_results(
         "n_dmrs": int(len(dmrs)),
         "n_dmps_returned": int(min(top_n, len(dmps))),
         "n_dmrs_returned": int(min(MAX_RESULT_ROWS, len(dmrs))),
+        "n_universe": int((~is_unmapped(dmps)).sum()),
     }
     if len(dmrs) > MAX_RESULT_ROWS:
         output["warnings"].append(
@@ -336,6 +348,10 @@ def aggregate_results(
     output["global_dmps"] = _json_records(dmps.head(top_n)[DMP_COLUMNS])
     output["global_dmrs"] = _json_records(dmrs.head(MAX_RESULT_ROWS))
     output["heatmap_data"] = _json_records(heatmap)
+    # Every mapped probe the meta-analysis tested (the union over hospitals), so that
+    # an enrichment analysis of the DMRs uses exactly the probes that could have been one
+    universe = dmps.loc[~is_unmapped(dmps), UNIVERSE_COLUMNS].sort_values(["chromosome", "position", "probe_id"])
+    output["universe"] = encode_table(universe.astype({"position": "Int64"}).reset_index(drop=True))
     info(
         f"Federated analysis completed: {len(dmps):,} probes tested, "
         f"{output['summary']['n_significant_fdr_0.05']:,} significant (FDR 0.05), {len(dmrs):,} DMRs; "

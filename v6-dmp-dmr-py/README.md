@@ -106,6 +106,12 @@ hospitals require it.
   as if the probes were independent; neighbouring CpGs are correlated, so it is far
   too small (e.g. 1e-190 for 4 probes). It is descriptive only and is not adjusted:
   use `max_probe_adj_p_value`, `n_probes` and the effect size to judge regions.
+- `universe`: every tested probe with a genomic location (the union over
+  hospitals), with `probe_id`, `chromosome` and `position` (hg38), sorted by
+  location, as compressed Parquet in base64 (`{"format": "parquet+base64",
+  "data": ...}`; ~8 MB for EPIC v2). It is the background for enrichment analyses
+  of the DMRs (e.g. LOLA): the probes that could have been in a DMR. Probes without
+  a location are tested but not included; `summary.n_universe` gives its size.
 - `heatmap_data`: the top 50 DMPs with the mean beta per cohort, pooled over all
   hospitals.
 
