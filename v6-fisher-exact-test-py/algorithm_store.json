@@ -1,6 +1,6 @@
 {
   "name": "Fisher's exact test",
-  "image": "vramella/v6-fisher-exact-test-py",
+  "image": "biomerisdocker/v6-fisher-exact-test-py",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-fisher-exact-test-py",
   "documentation_url": "",
