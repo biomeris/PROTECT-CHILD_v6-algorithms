@@ -32,7 +32,7 @@
         }
     ],
     "description": "Algorithm for extracting patient-level data from an OMOP Common Data Model database based on a specified cohort definition.",
-    "name": "v6-omop-data-extraction",
+    "name": "OMOP data extraction",
     "documentation_url": "",
     "code_url": "https://mygitrepo.org"
 }

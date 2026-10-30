@@ -26,7 +26,47 @@ def compute_fisher_exact_test(
     organizations_to_include: list[int] | None = None,
     alternative: Literal["two-sided", "less", "greater"] = "two-sided",
 ) -> Any:
-    """Central part of the algorithm"""
+    """
+    Compute Fisher's exact test on a contingency table built from the specified
+    group and outcome variables across the selected organizations.
+
+    This function orchestrates the federated computation of a contingency table,
+    aggregating counts from participating nodes and performing Fisher's exact test
+    on the resulting table. The test evaluates the association between the group
+    and outcome variables and returns the estimated odds ratio together with the
+    corresponding p-value.
+
+    Parameters
+    ----------
+    group_column : str
+        The column defining the two groups whose outcome distributions are compared.
+    outcome_column : str
+        The column containing the binary outcome variable used to compute event counts.
+    organizations_to_include : list[int] | None, optional
+        The identifiers of the organizations to include in the analysis. If None,
+        all available organizations are included.
+    alternative : {"two-sided", "less", "greater"}, default="two-sided"
+        Defines the alternative hypothesis for 2×2 contingency tables.
+
+    Returns
+    -------
+    dict
+        A dictionary containing:
+        - "oddsratio": estimated odds ratio
+        - "p_value": p-value of Fisher's exact test
+        - "contingency_table": contingency table used for the test
+        - "group_values": values of the grouping variable
+        - "outcome_values": values of the outcome variable
+    """
+
+    # Check if the provided 'alternative' value is valid
+    alternative_allowed = {"two-sided", "less", "greater"}
+
+    if alternative not in alternative_allowed:
+        raise ValueError(
+            f"Invalid alternative: {alternative}. "
+            f"Allowed values are: {', '.join(alternative_allowed)}"
+        )
 
     # If organization_to_include is None, get all organizations
     if organizations_to_include is None:
@@ -121,10 +161,13 @@ def compute_fisher_exact_test(
     info("Running Fisher's exact test")
     oddsratio, p_value = fisher_exact(contingency_table, alternative=alternative)
 
+    contingency_table_output = aggregated_table.loc[groups, outcomes].reset_index(
+        names="group"
+    )
+
     fisher_results = {
-        "oddsratio": float(oddsratio),
-        "p_value": float(p_value),
-        "contingency_table": contingency_table,
+        "fisher": {"odds ratio": float(oddsratio), "P-value": float(p_value)},
+        "contingency_table": contingency_table_output.to_dict(orient="records"),
         "group_values": groups,
         "outcome_values": outcomes,
     }

@@ -1,62 +1,69 @@
 {
-  "name": "v6-fisher-exact-test-py",
-  "image": "v6-fisher-exact-test-py",
+  "name": "Fisher's exact test",
+  "image": "vramella/v6-fisher-exact-test-py",
   "vantage6_version": "5.0",
-  "code_url": "https://mygitrepo.org",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-fisher-exact-test-py",
   "documentation_url": "",
   "partitioning": "horizontal",
+  "description": "Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2x2 contingency table",
   "functions": [
     {
-      "name": "central_function",
-      "description": "Fisher's exact test to evaluate the significance of associations between two categorical variables in a 2\u00d72 contingency table",
+      "name": "compute_fisher_exact_test",
+      "display_name": "Fisher's exact test",
+      "standalone": true,
+      "description": "Run the Fisher's exact test and obtain results combined for all nodes",
       "step_type": "central_compute",
+      "ui_visualizations": [
+        {
+          "type": "table",
+          "description": "Odds ratio and p-value from Fisher's exact test",
+          "name": "Fisher's exact test results",
+          "schema": {
+            "location": ["fisher"],
+            "columns": []
+          }
+        }
+      ],
       "databases": [
         {
-          "name": "Central database 1"
+          "name": "Database",
+          "description": "Database containing the data to be included in the Fisher's exact test."
         }
       ],
       "arguments": [
         {
-          "name": "organizations_to_include",
-          "type": "",
-          "description": ""
-        },
-        {
           "name": "group_column",
-          "type": "",
-          "description": ""
+          "display_name": "Group column",
+          "description": "The column defining the two groups whose outcome distributions are compared.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
         },
         {
           "name": "outcome_column",
-          "type": "",
-          "description": ""
+          "display_name": "Outcome column",
+          "description": "The column containing the binary outcome variable used to compute event counts.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
         },
         {
           "name": "alternative",
-          "type": "",
-          "description": ""
-        }
-      ]
-    },
-    {
-      "name": "federated_function",
-      "description": "",
-      "step_type": "federated_compute",
-      "databases": [
-        {
-          "name": "Database 1"
-        }
-      ],
-      "arguments": [
-        {
-          "name": "group_column",
-          "type": "",
-          "description": ""
+          "display_name": "Alternative",
+          "description": "Alternative hypothesis ('two-sided', 'less', or 'greater') for 2×2 tables. Default: 'two-sided'.",
+          "type": "string",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": "two-sided"
         },
         {
-          "name": "outcome_column",
-          "type": "",
-          "description": ""
+          "name": "organizations_to_include",
+          "display_name": "Organizations to include",
+          "description": "The organizations to include in the task. If not given, all organizations in the collaboration are included.",
+          "type": "organization_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
         }
       ]
     }
