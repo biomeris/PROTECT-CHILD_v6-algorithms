@@ -1,16 +1,14 @@
 # basic python3 image as base
 FROM ghcr.io/vantage6/infrastructure/algorithm-base:5.0
 
-# This is a placeholder that should be overloaded by invoking
-# docker build with '--build-arg PKG_NAME=...'
-ARG PKG_NAME="SVM_TEST"
-
 # install federated algorithm
 COPY . /app
 RUN pip install /app
 
-# Set environment variable to make name of the package available within the
-# docker image.
+# Name of the Python module that vantage6's wrapper imports: the module folder,
+# not the project name. Declared here, after the slow steps, so changing it keeps
+# the build cache.
+ARG PKG_NAME="federated_svm"
 ENV PKG_NAME=${PKG_NAME}
 
 # Tell docker to execute `wrap_algorithm()` when the image is run. This function

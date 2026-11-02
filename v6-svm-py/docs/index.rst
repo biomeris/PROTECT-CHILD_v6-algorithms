@@ -1,4 +1,4 @@
-SVM_TEST
+federated_svm
 ==================
 
 Description
@@ -31,8 +31,8 @@ Contents
 .. toctree::
     :maxdepth: 2
 
-    SVM_TEST/implementation
-    SVM_TEST/usage
-    SVM_TEST/privacy
-    SVM_TEST/validation
-    SVM_TEST/references
+    federated_svm/implementation
+    federated_svm/usage
+    federated_svm/privacy
+    federated_svm/validation
+    federated_svm/references

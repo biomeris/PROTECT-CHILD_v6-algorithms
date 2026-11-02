@@ -55,7 +55,7 @@ from sklearn.svm import LinearSVC
 
 from vantage6.algorithm.mock.network import MockNetwork
 
-from SVM_TEST.federated import _make_stratified_folds
+from federated_svm.federated import _make_stratified_folds
 
 
 # =====================================================================
@@ -154,10 +154,10 @@ def run_federated(datasets, cpgs, reference_cohort):
         with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
 
             # IMPORTANT:
-            # "SVM_TEST" must match the algorithm package name
+            # "federated_svm" must match the algorithm package name
             # (see pyproject.toml and PKG_NAME in the Dockerfile).
             network = MockNetwork(
-                module_name="SVM_TEST",
+                module_name="federated_svm",
                 datasets=[
                     {DATABASE_LABEL: {"database": dataframe}}
                     for dataframe in datasets
@@ -506,7 +506,7 @@ def print_summary(result):
     """
 
     print("\n" + "=" * 70)
-    print("SUMMARY OF THE DISCOVERED PATTERNS")
+    print("SUMMARY OF THE PATTERNS")
     print("=" * 70)
 
     for block in result["evidence_summary"]:

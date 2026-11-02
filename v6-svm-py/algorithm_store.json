@@ -1,104 +1,473 @@
 {
-  "name": "SVM_TEST",
-  "image": "ghcr.io/vantage6/algorithm/svm_test",
+  "name": "Federated linear SVM",
+  "image": "localhost:32000/protect-child/svm:1.2.1",
   "vantage6_version": "5.0",
-  "code_url": "https://mygitrepo.org",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
   "partitioning": "horizontal",
   "functions": [
     {
       "name": "central",
-      "description": "svm algorithm for episignature discovery",
+      "display_name": "Federated linear SVM",
+      "description": "Discovery and characterization of cohort-specific DNA methylation patterns: federated linear SVM (squared hinge, exact Newton), C selected by cross-validation, leave-one-hospital-out validation and CpG stability.",
       "step_type": "central_compute",
       "databases": [
         {
-          "name": "Central database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
-        { "name": "features", "type": "", "description": "" },
-        { "name": "outcome_column", "type": "", "description": "" },
-        { "name": "classes", "type": "", "description": "" },
-        { "name": "reference_cohort", "type": "", "description": "" },
-        { "name": "C_grid", "type": "", "description": "" },
-        { "name": "n_folds", "type": "", "description": "" },
-        { "name": "max_rounds", "type": "", "description": "" },
-        { "name": "tolerance", "type": "", "description": "" },
-        { "name": "random_seed", "type": "", "description": "" },
-        { "name": "min_samples", "type": "", "description": "" },
-        { "name": "run_loho", "type": "", "description": "" },
-        { "name": "stability_top_k", "type": "", "description": "" }
+        {
+          "name": "features",
+          "type": "string_list",
+          "display_name": "CpGs",
+          "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the predefined cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "classes",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to compare; two give one hyperplane, more give one-vs-rest. Empty: all cohorts with at least min_samples samples",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "reference_cohort",
+          "type": "string",
+          "display_name": "Reference cohort",
+          "description": "Optional reference group (e.g. controls)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "C_grid",
+          "type": "json",
+          "display_name": "C grid",
+          "description": "Candidate regularization values",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "n_folds",
+          "type": "integer",
+          "display_name": "Folds",
+          "description": "Number of local stratified cross-validation folds",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "max_rounds",
+          "type": "integer",
+          "display_name": "Maximum Newton iterations",
+          "description": "Per model",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 50
+        },
+        {
+          "name": "tolerance",
+          "type": "float",
+          "display_name": "Tolerance",
+          "description": "Convergence tolerance on the gradient norm, relative to the initial one",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 1e-09
+        },
+        {
+          "name": "random_seed",
+          "type": "integer",
+          "display_name": "Random seed",
+          "description": "Seed for the local fold assignment",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 42
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a node pools before returning any aggregate",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "run_loho",
+          "type": "boolean",
+          "display_name": "Leave-one-hospital-out",
+          "description": "Validate on hospitals not used for training",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": true
+        },
+        {
+          "name": "stability_top_k",
+          "type": "integer",
+          "display_name": "Stability top-k",
+          "description": "Size of the top-ranked CpG set in the stability analysis",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 10
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long data)",
+          "description": "Sample column when the data has one row per sample and probe (v6-extractionIDAT-py)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long data)",
+          "description": "beta or m_value, when the data has one row per sample and probe",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        },
+        {
+          "name": "features_selected_on_same_samples",
+          "type": "boolean",
+          "display_name": "CpGs selected on these samples",
+          "description": "Whether the CpGs were selected on these same samples (e.g. by Elastic Net); only changes the summary text: the accuracies are then optimistic",
+          "has_default_value": true,
+          "default_value": null,
+          "is_frontend_only": false
+        }
       ]
     },
     {
       "name": "partial_cohorts",
-      "description": "",
+      "display_name": "SVM cohort detection",
+      "description": "Cohorts and complete samples at the node",
       "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
-        { "name": "features", "type": "", "description": "" },
-        { "name": "outcome_column", "type": "", "description": "" }
+        {
+          "name": "features",
+          "type": "string_list",
+          "display_name": "CpGs",
+          "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the predefined cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long data)",
+          "description": "Sample column when the data has one row per sample and probe (v6-extractionIDAT-py)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long data)",
+          "description": "beta or m_value, when the data has one row per sample and probe",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        }
       ]
     },
     {
       "name": "partial_summary",
-      "description": "",
+      "display_name": "SVM summary statistics",
+      "description": "Sums, sums of squares and class counts per partition",
       "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
-        { "name": "features", "type": "", "description": "" },
-        { "name": "outcome_column", "type": "", "description": "" },
-        { "name": "classes", "type": "", "description": "" },
-        { "name": "n_folds", "type": "", "description": "" },
-        { "name": "random_seed", "type": "", "description": "" },
-        { "name": "min_samples", "type": "", "description": "" }
+        {
+          "name": "features",
+          "type": "string_list",
+          "display_name": "CpGs",
+          "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the predefined cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "n_folds",
+          "type": "integer",
+          "display_name": "Folds",
+          "description": "Number of local stratified cross-validation folds",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "random_seed",
+          "type": "integer",
+          "display_name": "Random seed",
+          "description": "Seed for the local fold assignment",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 42
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a node pools before returning any aggregate",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "classes",
+          "type": "json",
+          "display_name": "Cohorts",
+          "description": "Analysed cohorts",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long data)",
+          "description": "Sample column when the data has one row per sample and probe (v6-extractionIDAT-py)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long data)",
+          "description": "beta or m_value, when the data has one row per sample and probe",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        }
       ]
     },
     {
       "name": "partial_svm",
-      "description": "",
+      "display_name": "SVM Newton statistics",
+      "description": "Loss, gradient and Hessian sums of the SVM objective for a batch of models",
       "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
-        { "name": "features", "type": "", "description": "" },
-        { "name": "outcome_column", "type": "", "description": "" },
-        { "name": "classes", "type": "", "description": "" },
-        { "name": "jobs", "type": "", "description": "" },
-        { "name": "n_folds", "type": "", "description": "" },
-        { "name": "random_seed", "type": "", "description": "" },
-        { "name": "min_samples", "type": "", "description": "" }
+        {
+          "name": "features",
+          "type": "string_list",
+          "display_name": "CpGs",
+          "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the predefined cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "classes",
+          "type": "json",
+          "display_name": "Cohorts",
+          "description": "Analysed cohorts",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "jobs",
+          "type": "json",
+          "display_name": "Jobs",
+          "description": "Models to evaluate",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "n_folds",
+          "type": "integer",
+          "display_name": "Folds",
+          "description": "Number of local stratified cross-validation folds",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "random_seed",
+          "type": "integer",
+          "display_name": "Random seed",
+          "description": "Seed for the local fold assignment",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 42
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a node pools before returning any aggregate",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long data)",
+          "description": "Sample column when the data has one row per sample and probe (v6-extractionIDAT-py)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long data)",
+          "description": "beta or m_value, when the data has one row per sample and probe",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        }
       ]
     },
     {
       "name": "partial_evaluate",
-      "description": "",
+      "display_name": "SVM evaluation",
+      "description": "Pooled confusion matrices and score histograms",
       "step_type": "federated_compute",
       "databases": [
         {
-          "name": "Database 1"
+          "name": "Beta/M values"
         }
       ],
       "arguments": [
-        { "name": "features", "type": "", "description": "" },
-        { "name": "outcome_column", "type": "", "description": "" },
-        { "name": "classes", "type": "", "description": "" },
-        { "name": "jobs", "type": "", "description": "" },
-        { "name": "n_folds", "type": "", "description": "" },
-        { "name": "random_seed", "type": "", "description": "" },
-        { "name": "min_samples", "type": "", "description": "" },
-        { "name": "score_bins", "type": "", "description": "" }
+        {
+          "name": "features",
+          "type": "string_list",
+          "display_name": "CpGs",
+          "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the predefined cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "classes",
+          "type": "json",
+          "display_name": "Cohorts",
+          "description": "Analysed cohorts",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "jobs",
+          "type": "json",
+          "display_name": "Jobs",
+          "description": "Models to evaluate",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "n_folds",
+          "type": "integer",
+          "display_name": "Folds",
+          "description": "Number of local stratified cross-validation folds",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "random_seed",
+          "type": "integer",
+          "display_name": "Random seed",
+          "description": "Seed for the local fold assignment",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 42
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a node pools before returning any aggregate",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "score_bins",
+          "type": "json",
+          "display_name": "Score bins",
+          "description": "Edges of the decision-score histograms",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long data)",
+          "description": "Sample column when the data has one row per sample and probe (v6-extractionIDAT-py)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long data)",
+          "description": "beta or m_value, when the data has one row per sample and probe",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        }
       ]
     }
   ]

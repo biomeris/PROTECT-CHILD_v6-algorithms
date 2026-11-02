@@ -52,7 +52,7 @@ first, especially the part about the
   my_task = client.task.create(
       collaboration=collaboration_id,
       organizations=organization_ids,
-      name="SVM_TEST",
+      name="federated_svm",
       description="svm algorithm for episignature discovery",
       image="ghcr.io/vantage6/algorithm/svm_test",
       input_=input_,

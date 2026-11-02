@@ -24,11 +24,24 @@ Important:
       pooled over at least ``min_samples`` samples.
     - Per-cohort methylation summaries are suppressed when a cohort has fewer
       than ``min_samples`` samples at the node.
+
+Input layout: either wide (one row per sample, one column per CpG) or long,
+as produced by v6-extractionIDAT-py (one row per sample and probe, with
+``probe_id``, ``sample_column`` and ``value_column``). Long data are pivoted
+at the node, for the requested CpGs only.
+
+Jobs may carry ``organizations``: the hospitals whose data the job uses
+(e.g. the training hospitals of a leave-one-hospital-out model). A node that
+is not listed skips the job, so models of different hospital subsets can be
+fitted in the same federated rounds.
 """
+
+import os
 
 import numpy as np
 
 from vantage6.algorithm.tools.util import warn
+from vantage6.common.globals import ContainerEnvNames
 from vantage6.algorithm.decorator.action import federated
 from vantage6.algorithm.decorator.data import dataframe
 
@@ -37,7 +50,104 @@ from vantage6.algorithm.decorator.data import dataframe
 # DATA PREPARATION
 # ---------------------------------------------------------------------
 
-def _prepare(df, features, outcome_column, classes, min_samples):
+def _organization_id():
+    """
+    Organization of this node (set by vantage6 in the algorithm's
+    environment), or None if unknown.
+    """
+
+    value = os.environ.get(ContainerEnvNames.ORGANIZATION_ID.value)
+
+    return int(value) if value not in (None, "") else None
+
+
+def _job_applies(job, organization_id):
+    """
+    Whether this node takes part in a job (all nodes if the job does not
+    list its ``organizations``).
+    """
+
+    organizations = job.get("organizations")
+
+    if organizations is None:
+        return True
+
+    if organization_id is None:
+        raise RuntimeError(
+            "The node's organization id is not available, so jobs for a "
+            "subset of hospitals cannot be assigned."
+        )
+
+    return organization_id in organizations
+
+
+def _local_frame(df, features, outcome_column, sample_column, value_column):
+    """
+    One row per sample with the requested CpGs and the cohort label.
+
+    Long data (a ``probe_id`` column) are pivoted for the requested CpGs
+    only. Returns the frame or an error dictionary.
+    """
+
+    if "probe_id" in df.columns:
+
+        missing = [
+            column
+            for column in [sample_column, value_column, outcome_column]
+            if column not in df.columns
+        ]
+
+        if missing:
+            warn(f"Missing columns: {missing}")
+            return {
+                "error": f"missing columns: {missing}"
+            }
+
+        long = df[df["probe_id"].isin(features)]
+
+        wide = long.pivot(
+            index=sample_column,
+            columns="probe_id",
+            values=value_column,
+        )
+
+        labels = df[[sample_column, outcome_column]].drop_duplicates()
+
+        if labels[sample_column].duplicated().any():
+            return {
+                "error": "a sample has more than one cohort label"
+            }
+
+        df = wide.join(labels.set_index(sample_column), how="left")
+
+    if outcome_column not in df.columns:
+        warn(f"Missing columns: {[outcome_column]}")
+        return {
+            "error": f"missing columns: {[outcome_column]}"
+        }
+
+    # After quality control a hospital may lack some probes. The SVM needs
+    # every CpG, so the hospital is left out, with the reason.
+    missing = [
+        feature
+        for feature in features
+        if feature not in df.columns or df[feature].isna().all()
+    ]
+
+    if missing:
+        warn(f"{len(missing)} CpG(s) not available at this node")
+        return {
+            "error": (
+                f"{len(missing)} of the {len(features)} CpGs are not "
+                f"available at this node (e.g. {missing[:5]})"
+            )
+        }
+
+    return df[list(features) + [outcome_column]]
+
+
+def _prepare(df, features, outcome_column, classes, min_samples,
+             sample_column="sample_label", value_column="beta"):
     """
     Validate the local dataframe and keep only complete observations that
     belong to one of the analysed cohorts.
@@ -45,19 +155,18 @@ def _prepare(df, features, outcome_column, classes, min_samples):
     Returns ``(X, labels)`` or an error dictionary.
     """
 
-    missing = [
-        column
-        for column in list(features) + [outcome_column]
-        if column not in df.columns
-    ]
+    frame = _local_frame(
+        df,
+        features,
+        outcome_column,
+        sample_column,
+        value_column,
+    )
 
-    if missing:
-        warn(f"Missing columns: {missing}")
-        return {
-            "error": f"missing columns: {missing}"
-        }
+    if isinstance(frame, dict):
+        return frame
 
-    sub = df[list(features) + [outcome_column]].dropna()
+    sub = frame.dropna()
 
     # Samples from cohorts that are not part of this comparison (e.g. an
     # "other" cohort stored at the same hospital) must not be used as
@@ -155,6 +264,8 @@ def partial_cohorts(
     df1,
     features,
     outcome_column,
+    sample_column="sample_label",
+    value_column="beta",
 ):
     """
     Return the cohort labels present at this node and the number of
@@ -164,19 +275,18 @@ def partial_cohorts(
     and therefore which pipeline (binary or one-vs-rest) to run.
     """
 
-    missing = [
-        column
-        for column in list(features) + [outcome_column]
-        if column not in df1.columns
-    ]
+    frame = _local_frame(
+        df1,
+        features,
+        outcome_column,
+        sample_column,
+        value_column,
+    )
 
-    if missing:
-        warn(f"Missing columns: {missing}")
-        return {
-            "error": f"missing columns: {missing}"
-        }
+    if isinstance(frame, dict):
+        return {**frame, "organization_id": _organization_id()}
 
-    sub = df1[list(features) + [outcome_column]].dropna()
+    sub = frame.dropna()
 
     labels, counts = np.unique(
         sub[outcome_column].to_numpy(),
@@ -207,6 +317,8 @@ def partial_summary(
     n_folds=5,
     random_seed=42,
     min_samples=5,
+    sample_column="sample_label",
+    value_column="beta",
 ):
     """
     Return the local aggregates needed before training.
@@ -226,10 +338,12 @@ def partial_summary(
         outcome_column,
         classes,
         min_samples,
+        sample_column,
+        value_column,
     )
 
     if isinstance(prepared, dict):
-        return prepared
+        return {**prepared, "organization_id": _organization_id()}
 
     X, labels = prepared
 
@@ -286,6 +400,7 @@ def partial_summary(
         }
 
     return {
+        "organization_id": _organization_id(),
         "partitions": partitions,
         "cohorts": cohorts,
     }
@@ -306,6 +421,8 @@ def partial_svm(
     n_folds=5,
     random_seed=42,
     min_samples=5,
+    sample_column="sample_label",
+    value_column="beta",
 ):
     """
     Compute the local contribution to the L2-regularized squared-hinge
@@ -321,7 +438,8 @@ def partial_svm(
     Hessian with respect to (w, b). The central function adds the
     regularization term and C, and takes a Newton step.
 
-    Each job contains: ``id``, ``fold`` (None = all data), ``target``
+    Each job contains: ``id``, ``organizations`` (optional: the hospitals
+    that train it), ``fold`` (None = all data), ``target``
     (cohort coded as +1), ``mean``/``std`` (global standardization),
     ``positive_weight``/``negative_weight`` (global class weights) and the
     current parameters ``w``/``b``.
@@ -335,10 +453,12 @@ def partial_svm(
         outcome_column,
         classes,
         min_samples,
+        sample_column,
+        value_column,
     )
 
     if isinstance(prepared, dict):
-        return prepared
+        return {**prepared, "organization_id": _organization_id()}
 
     X, labels = prepared
 
@@ -348,9 +468,14 @@ def partial_svm(
         random_seed,
     )
 
+    organization_id = _organization_id()
+
     results = {}
 
     for job in jobs:
+
+        if not _job_applies(job, organization_id):
+            continue
 
         mask = _training_mask(fold_ids, job["fold"])
 
@@ -433,11 +558,14 @@ def partial_evaluate(
     random_seed=42,
     min_samples=5,
     score_bins=None,
+    sample_column="sample_label",
+    value_column="beta",
 ):
     """
     Evaluate models locally and return only pooled aggregates.
 
-    Each job contains ``id`` and a list of ``models``. Every model has a
+    Each job contains ``id``, ``organizations`` (optional: the hospitals
+    that evaluate it) and a list of ``models``. Every model has a
     ``fold`` (None = all samples at this node), ``weights`` (one row per
     comparison), ``biases``, ``mean`` and ``std``. For cross-validation a
     job contains one model per fold, each applied to its own validation
@@ -462,10 +590,12 @@ def partial_evaluate(
         outcome_column,
         classes,
         min_samples,
+        sample_column,
+        value_column,
     )
 
     if isinstance(prepared, dict):
-        return prepared
+        return {**prepared, "organization_id": _organization_id()}
 
     X, labels = prepared
 
@@ -487,9 +617,14 @@ def partial_evaluate(
     if score_bins is not None:
         bin_edges = np.asarray(score_bins, dtype=float)
 
+    organization_id = _organization_id()
+
     results = {}
 
     for job in jobs:
+
+        if not _job_applies(job, organization_id):
+            continue
 
         confusion = np.zeros((len(classes), len(classes)), dtype=int)
 

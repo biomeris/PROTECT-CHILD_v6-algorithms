@@ -1,4 +1,4 @@
-# Documentation of SVM_TEST
+# Documentation of federated_svm
 
 ### How to run this documentation locally
 

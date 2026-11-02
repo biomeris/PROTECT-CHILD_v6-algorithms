@@ -15,7 +15,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "SVM_TEST"
+project = "federated_svm"
 copyright = ""
 author = "jaime"
 

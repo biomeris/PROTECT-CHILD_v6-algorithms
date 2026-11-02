@@ -19,7 +19,7 @@ Responsibilities:
 2. Train SVMs for each candidate C with federated Newton optimization of the
    exact (centralized) squared-hinge SVM objective.
 3. Perform federated cross-validation and select C by balanced accuracy.
-4. Train the final model on all available data (the discovered pattern).
+4. Train the final model on all available data (the fitted pattern).
 5. Assess the pattern: pooled cross-validation, leave-one-hospital-out (LOHO)
    generalization and stability of the CpG ranking.
 6. Report one comparison per cohort contrast (binary: one hyperplane read in
@@ -66,9 +66,11 @@ LOHO_SCOPE = (
 # TASK HELPER
 # ---------------------------------------------------------------------
 
-def _run_task(client, method, org_ids, arguments, name):
+def _run_task(client, method, org_ids, arguments, name, errors=None):
     """
     Create a subtask, wait for it and return the results without errors.
+
+    If ``errors`` is a list, the nodes' errors are added to it.
     """
 
     task = client.task.create(
@@ -84,6 +86,14 @@ def _run_task(client, method, org_ids, arguments, name):
 
         if isinstance(result, dict) and "error" in result:
             warn(f"{method}: {result['error']}")
+            if errors is not None:
+                errors.append(
+                    {
+                        "organization_id": result.get("organization_id"),
+                        "step": method,
+                        "reason": result["error"],
+                    }
+                )
             continue
 
         results.append(result)
@@ -96,7 +106,7 @@ def _run_task(client, method, org_ids, arguments, name):
 # ---------------------------------------------------------------------
 
 def _detect_cohorts(client, org_ids, features, outcome_column, classes,
-                    reference_cohort, min_samples):
+                    reference_cohort, min_samples, layout_args, errors):
     """
     Detect the cohort labels present across all hospitals and decide which
     cohorts enter the analysis.
@@ -117,8 +127,10 @@ def _detect_cohorts(client, org_ids, features, outcome_column, classes,
         {
             "features": features,
             "outcome_column": outcome_column,
+            **layout_args,
         },
         "SVM cohort detection",
+        errors,
     )
 
     detected = {}
@@ -209,19 +221,11 @@ def _detect_cohorts(client, org_ids, features, outcome_column, classes,
 # FEDERATED SUMMARY STATISTICS
 # ---------------------------------------------------------------------
 
-def _get_summary(client, org_ids, base_args):
+def _aggregate_summary(results, base_args):
     """
-    Aggregate per-partition moments and class counts, and per-cohort
-    methylation profiles.
+    Aggregate the per-partition moments and class counts, and per-cohort
+    methylation profiles, of the given nodes' ``partial_summary`` results.
     """
-
-    results = _run_task(
-        client,
-        "partial_summary",
-        org_ids,
-        base_args,
-        "SVM summary statistics",
-    )
 
     if not results:
         return None
@@ -504,6 +508,7 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
             jobs = [
                 {
                     "id": state["spec"]["id"],
+                    "organizations": state["spec"].get("organizations"),
                     "fold": state["spec"]["fold"],
                     "target": state["spec"]["target"],
                     "mean": state["spec"]["mean"],
@@ -665,6 +670,48 @@ def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None):
 # METRICS
 # ---------------------------------------------------------------------
 
+def _balanced_accuracy_interval(correct, totals, level=0.95,
+                                draws=200_000, seed=0):
+    """
+    Interval for a balanced accuracy (Brodersen et al., 2010).
+
+    The accuracy within each class (correct / total) gets a Beta(correct + 1,
+    wrong + 1) posterior (uniform prior); the balanced accuracy is their
+    mean. Its central ``level`` interval is estimated from ``draws`` Monte
+    Carlo samples with a fixed seed, so it is reproducible. Unlike a normal
+    approximation it stays within [0, 1] and is informative at 1.0 or with
+    few samples.
+
+    The pooled cross-validation predictions are not fully independent
+    (folds share training data), so the interval is approximate.
+    """
+
+    correct = np.asarray(correct, dtype=float)
+    totals = np.asarray(totals, dtype=float)
+
+    keep = totals > 0
+
+    if not keep.any():
+        return None
+
+    rng = np.random.default_rng(seed)
+
+    samples = np.mean(
+        [
+            rng.beta(c + 1.0, t - c + 1.0, size=draws)
+            for c, t in zip(correct[keep], totals[keep])
+        ],
+        axis=0,
+    )
+
+    tail = (1.0 - level) / 2.0
+
+    return [
+        float(np.quantile(samples, tail)),
+        float(np.quantile(samples, 1.0 - tail)),
+    ]
+
+
 def _calculate_metrics(confusion):
     """
     Multiclass metrics from a confusion matrix (rows = true cohort).
@@ -713,6 +760,10 @@ def _calculate_metrics(confusion):
         "n": int(total),
         "accuracy": float(true_positives.sum() / total),
         "balanced_accuracy": float(np.mean(sensitivity)),
+        "balanced_accuracy_interval": _balanced_accuracy_interval(
+            true_positives[present],
+            support[present],
+        ),
         "macro_f1": float(np.mean(f1)),
         "macro_sensitivity": float(np.mean(sensitivity)),
         "macro_specificity": (
@@ -773,6 +824,10 @@ def _comparison_metrics(confusion):
         "balanced_accuracy": (
             float(np.mean(available)) if available else None
         ),
+        "balanced_accuracy_interval": _balanced_accuracy_interval(
+            [target_target, rest_rest],
+            [target_target + target_rest, rest_target + rest_rest],
+        ),
         "sensitivity": _optional_float(sensitivity),
         "specificity": _optional_float(specificity),
         "precision": _optional_float(precision),
@@ -789,19 +844,23 @@ def _optional_float(value):
 # ---------------------------------------------------------------------
 # DISCOVERY: CROSS-VALIDATION AND FINAL MODEL
 # ---------------------------------------------------------------------
+#
+# A run consists of "experiments": the discovery on all hospitals and, for
+# leave-one-hospital-out validation, one discovery per held-out hospital on
+# the remaining hospitals. Each experiment is computed exactly as on its own,
+# but the experiments share the federated rounds: their models are fitted
+# and evaluated in the same tasks, and every job lists the hospitals whose
+# data it uses. The number of tasks therefore depends on the number of
+# Newton iterations, not on the number of experiments.
 
-def _cross_validate(client, org_ids, base_args, summary, settings, label):
+def _cv_specs(summary, base_args, settings, prefix, organizations):
     """
-    Pooled federated cross-validation over the C grid.
-
-    All C values, folds and comparisons are optimized together. Each node
-    evaluates every fold model on its own validation fold and returns the
-    confusion matrices pooled over its folds.
+    Model specifications for cross-validation over the C grid
+    (all C values, folds and comparisons of one experiment).
     """
 
     classes = base_args["classes"]
     targets = _targets(classes)
-    C_grid = settings["C_grid"]
 
     folds = [
         fold
@@ -809,12 +868,9 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
         if str(fold) in summary["partitions"]
     ]
 
-    if not folds:
-        return None
-
     specs = []
 
-    for c_index, C in enumerate(C_grid):
+    for c_index, C in enumerate(settings["C_grid"]):
         for fold in folds:
 
             partition = summary["partitions"][str(fold)]
@@ -828,7 +884,8 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
             for model_index, target in enumerate(targets):
                 specs.append(
                     {
-                        "id": f"c{c_index}_f{fold}_m{model_index}",
+                        "id": f"{prefix}/c{c_index}_f{fold}_m{model_index}",
+                        "organizations": organizations,
                         "C": float(C),
                         "fold": fold,
                         "target": target,
@@ -839,27 +896,28 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
                     }
                 )
 
-    fits = _fit_models(
-        client,
-        org_ids,
-        base_args,
-        specs,
-        settings["max_rounds"],
-        settings["tolerance"],
-        f"{label}: cross-validation",
-    )
+    return specs, folds
+
+
+def _cv_jobs(fits, summary, base_args, settings, prefix, folds,
+             organizations):
+    """
+    Evaluation jobs (one per C) with the fold models of one experiment.
+    """
+
+    targets = _targets(base_args["classes"])
 
     jobs = []
     fold_models = {}
 
-    for c_index in range(len(C_grid)):
+    for c_index in range(len(settings["C_grid"])):
 
         models = []
 
         for fold in folds:
 
             ids = [
-                f"c{c_index}_f{fold}_m{model_index}"
+                f"{prefix}/c{c_index}_f{fold}_m{model_index}"
                 for model_index in range(len(targets))
             ]
 
@@ -879,22 +937,29 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
             )
 
         if models:
-            jobs.append({"id": f"c{c_index}", "models": models})
+            jobs.append(
+                {
+                    "id": f"{prefix}/c{c_index}",
+                    "organizations": organizations,
+                    "models": models,
+                }
+            )
             fold_models[c_index] = models
 
-    evaluation = _evaluate(
-        client,
-        org_ids,
-        base_args,
-        jobs,
-        f"{label}: cross-validation",
-    )
+    return jobs, fold_models
+
+
+def _cv_select(fits, evaluation, settings, prefix, fold_models):
+    """
+    Pooled cross-validation metrics per C and the selected C of one
+    experiment (highest balanced accuracy; ties go to the smaller C).
+    """
 
     candidates = []
 
-    for c_index, C in enumerate(C_grid):
+    for c_index, C in enumerate(settings["C_grid"]):
 
-        result = evaluation.get(f"c{c_index}")
+        result = evaluation.get(f"{prefix}/c{c_index}")
 
         if result is None:
             continue
@@ -902,7 +967,7 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
         model_fits = [
             fit
             for model_id, fit in fits.items()
-            if model_id.startswith(f"c{c_index}_") and fit is not None
+            if model_id.startswith(f"{prefix}/c{c_index}_") and fit is not None
         ]
 
         candidates.append(
@@ -932,8 +997,6 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
     if not candidates:
         return None
 
-    # Highest balanced accuracy; ties go to the smaller C (stronger
-    # regularization).
     best_score = max(
         candidate["metrics"]["balanced_accuracy"]
         for candidate in candidates
@@ -955,18 +1018,16 @@ def _cross_validate(client, org_ids, base_args, summary, settings, label):
     }
 
 
-def _fit_final(client, org_ids, base_args, summary, C, settings, label):
+def _final_specs(summary, base_args, C, prefix, organizations):
     """
-    Train the final model(s) on all data of the given hospitals.
+    Specifications of the final model(s) of one experiment, trained on all
+    data of its hospitals.
     """
 
     classes = base_args["classes"]
     targets = _targets(classes)
 
-    partition = summary["partitions"].get("all")
-
-    if partition is None:
-        return None
+    partition = summary["partitions"]["all"]
 
     positive_weights, negative_weights = _class_weights(
         partition["class_counts"],
@@ -974,9 +1035,10 @@ def _fit_final(client, org_ids, base_args, summary, C, settings, label):
         targets,
     )
 
-    specs = [
+    return [
         {
-            "id": f"final_m{model_index}",
+            "id": f"{prefix}/final_m{model_index}",
+            "organizations": organizations,
             "C": float(C),
             "fold": None,
             "target": target,
@@ -988,15 +1050,11 @@ def _fit_final(client, org_ids, base_args, summary, C, settings, label):
         for model_index, target in enumerate(targets)
     ]
 
-    fits = _fit_models(
-        client,
-        org_ids,
-        base_args,
-        specs,
-        settings["max_rounds"],
-        settings["tolerance"],
-        f"{label}: final model",
-    )
+
+def _final_model(fits, specs):
+    """
+    The final model of one experiment from its fitted specifications.
+    """
 
     ordered = [fits[spec["id"]] for spec in specs]
 
@@ -1004,83 +1062,258 @@ def _fit_final(client, org_ids, base_args, summary, C, settings, label):
         return None
 
     return {
-        "C": float(C),
+        "C": specs[0]["C"],
         "weights": [fit["w"] for fit in ordered],
         "biases": [fit["b"] for fit in ordered],
         "fits": ordered,
-        "mean": partition["mean"].tolist(),
-        "std": partition["std"].tolist(),
-        "positive_weights": positive_weights,
-        "negative_weights": negative_weights,
+        "mean": specs[0]["mean"],
+        "std": specs[0]["std"],
+        "positive_weights": [spec["positive_weight"] for spec in specs],
+        "negative_weights": [spec["negative_weight"] for spec in specs],
     }
 
 
-def _run_discovery(client, org_ids, base_args, settings, label):
+def _run_experiments(client, org_ids, base_args, settings, experiments,
+                     errors):
     """
-    Summary statistics, cross-validated C selection and final training on
-    the given hospitals.
+    Summary statistics, cross-validated C selection, final training and
+    evaluation of all experiments, sharing the federated rounds.
+
+    Every experiment has a ``key``, its training hospitals ``train`` and,
+    for leave-one-hospital-out, the ``held_out`` hospital. Returns, per key,
+    either an error or the experiment's summary, cross-validation, final
+    model and evaluation (on all its hospitals for the discovery, on the
+    held-out hospital for LOHO).
     """
 
-    summary = _get_summary(client, org_ids, base_args)
+    results = _run_task(
+        client,
+        "partial_summary",
+        org_ids,
+        base_args,
+        "SVM summary statistics",
+        errors,
+    )
 
-    if summary is None or "all" not in summary["partitions"]:
-        return {"error": "No hospital returned usable summary statistics."}
+    if any(result["organization_id"] is None for result in results) and (
+        len(experiments) > 1
+    ):
+        raise RuntimeError(
+            "The nodes did not report their organization id, which "
+            "leave-one-hospital-out validation needs."
+        )
 
-    cross_validation = _cross_validate(
+    outcome = {}
+    active = []
+
+    for experiment in experiments:
+
+        key = experiment["key"]
+
+        summary = _aggregate_summary(
+            [
+                result
+                for result in results
+                if experiment["held_out"] is None
+                or result["organization_id"] in experiment["train"]
+            ],
+            base_args,
+        )
+
+        if summary is None or "all" not in summary["partitions"]:
+            outcome[key] = {
+                "error": "No hospital returned usable summary statistics."
+            }
+            continue
+
+        organizations = (
+            None if experiment["held_out"] is None else experiment["train"]
+        )
+
+        specs, folds = _cv_specs(
+            summary,
+            base_args,
+            settings,
+            key,
+            organizations,
+        )
+
+        if not folds:
+            outcome[key] = {
+                "error": "No valid SVM candidate could be evaluated."
+            }
+            continue
+
+        active.append(
+            {
+                **experiment,
+                "summary": summary,
+                "organizations": organizations,
+                "specs": specs,
+                "folds": folds,
+            }
+        )
+
+    # Cross-validation: all models of all experiments together.
+    fits = _fit_models(
         client,
         org_ids,
         base_args,
-        summary,
-        settings,
-        label,
+        [spec for experiment in active for spec in experiment["specs"]],
+        settings["max_rounds"],
+        settings["tolerance"],
+        "cross-validation",
     )
 
-    if cross_validation is None:
-        return {"error": "No valid SVM candidate could be evaluated."}
+    jobs = []
 
-    final = _fit_final(
+    for experiment in active:
+        experiment["jobs"], experiment["fold_models"] = _cv_jobs(
+            fits,
+            experiment["summary"],
+            base_args,
+            settings,
+            experiment["key"],
+            experiment["folds"],
+            experiment["organizations"],
+        )
+        jobs.extend(experiment["jobs"])
+
+    evaluation = _evaluate(
         client,
         org_ids,
         base_args,
-        summary,
-        cross_validation["best"]["C"],
-        settings,
-        label,
+        jobs,
+        "cross-validation",
     )
 
-    if final is None:
-        return {"error": "Final federated SVM training failed."}
+    selected = []
 
-    return {
-        "summary": summary,
-        "cross_validation": cross_validation,
-        "final": final,
-    }
+    for experiment in active:
+
+        cross_validation = _cv_select(
+            fits,
+            evaluation,
+            settings,
+            experiment["key"],
+            experiment["fold_models"],
+        )
+
+        if cross_validation is None:
+            outcome[experiment["key"]] = {
+                "error": "No valid SVM candidate could be evaluated."
+            }
+            continue
+
+        experiment["cross_validation"] = cross_validation
+        experiment["final_specs"] = _final_specs(
+            experiment["summary"],
+            base_args,
+            cross_validation["best"]["C"],
+            experiment["key"],
+            experiment["organizations"],
+        )
+        selected.append(experiment)
+
+    # Final models of all experiments together.
+    fits = _fit_models(
+        client,
+        org_ids,
+        base_args,
+        [spec for experiment in selected for spec in experiment["final_specs"]],
+        settings["max_rounds"],
+        settings["tolerance"],
+        "final models",
+    )
+
+    jobs = []
+    finished = []
+
+    for experiment in selected:
+
+        final = _final_model(fits, experiment["final_specs"])
+
+        if final is None:
+            outcome[experiment["key"]] = {
+                "error": "Final federated SVM training failed."
+            }
+            continue
+
+        experiment["final"] = final
+        finished.append(experiment)
+
+        # The discovery model is scored on all hospitals; a LOHO model on
+        # its held-out hospital only.
+        jobs.append(
+            {
+                "id": experiment["key"],
+                "organizations": (
+                    None
+                    if experiment["held_out"] is None
+                    else [experiment["held_out"]]
+                ),
+                "models": [
+                    {
+                        "fold": None,
+                        "weights": final["weights"],
+                        "biases": final["biases"],
+                        "mean": final["mean"],
+                        "std": final["std"],
+                    }
+                ],
+            }
+        )
+
+    evaluation = _evaluate(
+        client,
+        org_ids,
+        base_args,
+        jobs,
+        "final models",
+        score_bins=SCORE_BINS,
+    )
+
+    for experiment in finished:
+        outcome[experiment["key"]] = {
+            "summary": experiment["summary"],
+            "cross_validation": experiment["cross_validation"],
+            "final": experiment["final"],
+            "evaluation": evaluation.get(experiment["key"]),
+        }
+
+    return outcome
 
 
 # ---------------------------------------------------------------------
 # LEAVE-ONE-HOSPITAL-OUT VALIDATION
 # ---------------------------------------------------------------------
 
-def _run_loho(client, org_ids, base_args, settings):
+def _loho_experiments(org_ids):
+    """
+    One experiment per held-out hospital, trained on the others.
+    """
+
+    return [
+        {
+            "key": f"loho_{held_out}",
+            "train": [org_id for org_id in org_ids if org_id != held_out],
+            "held_out": held_out,
+        }
+        for held_out in org_ids
+    ]
+
+
+def _loho_report(org_ids, classes, outcome):
     """
     Strict leave-one-hospital-out validation.
 
     For every held-out hospital the complete SVM discovery (standardization,
-    class weights, C selection and final training) is repeated on the
-    remaining hospitals, and the resulting model is evaluated once on the
-    held-out hospital. The held-out patients keep their cohort labels.
+    class weights, C selection and final training) was run on the remaining
+    hospitals, and the resulting model evaluated once on the held-out
+    hospital. The held-out patients keep their cohort labels.
     """
 
-    classes = base_args["classes"]
     n_targets = len(_targets(classes))
-
-    if len(org_ids) < 2:
-        return {
-            "available": False,
-            "reason": "LOHO requires at least two organizations.",
-            "results": [],
-        }
 
     results = []
     final_models = []
@@ -1092,23 +1325,11 @@ def _run_loho(client, org_ids, base_args, settings):
         dtype=int,
     )
 
-    for held_out in org_ids:
+    for experiment in _loho_experiments(org_ids):
 
-        train_org_ids = [
-            org_id
-            for org_id in org_ids
-            if org_id != held_out
-        ]
-
-        info(f"LOHO: holding out organization {held_out}")
-
-        discovery = _run_discovery(
-            client,
-            train_org_ids,
-            base_args,
-            settings,
-            f"LOHO without {held_out}",
-        )
+        held_out = experiment["held_out"]
+        train_org_ids = experiment["train"]
+        discovery = outcome[experiment["key"]]
 
         if "error" in discovery:
             results.append(
@@ -1121,28 +1342,7 @@ def _run_loho(client, org_ids, base_args, settings):
             continue
 
         final = discovery["final"]
-
-        evaluation = _evaluate(
-            client,
-            [held_out],
-            base_args,
-            [
-                {
-                    "id": "held_out",
-                    "models": [
-                        {
-                            "fold": None,
-                            "weights": final["weights"],
-                            "biases": final["biases"],
-                            "mean": final["mean"],
-                            "std": final["std"],
-                        }
-                    ],
-                }
-            ],
-            f"LOHO held-out {held_out}",
-            score_bins=SCORE_BINS,
-        ).get("held_out")
+        evaluation = discovery["evaluation"]
 
         if evaluation is None:
             results.append(
@@ -1384,15 +1584,18 @@ def _reference_profile(cohorts, reference_classes):
     return {"n": n, "mean": mean}
 
 
-def _summary(comparisons, n_top=5):
+def _summary(comparisons, n_top=5, features_selected_on_same_samples=None,
+             C=None, C_grid=None):
     """
-    Human-readable description of each discovered methylation pattern.
+    Human-readable description of each fitted methylation pattern.
 
-    For every comparison the text explains, in this order: what pattern was
-    discovered, which CpGs contribute most to it (with their observed
-    methylation direction), the quantitative evidence, and what the result
-    does not mean. It only reports values already computed by the
-    algorithm; it is a description, not a decision.
+    For every comparison the text explains, in this order: which cohorts the
+    pattern separates, which CpGs contribute most to it (with their observed
+    methylation direction), the quantitative evidence (with 95% intervals;
+    0.5 is chance level), and what the result does not mean, including how
+    the CpGs were chosen (``features_selected_on_same_samples``). It only
+    reports values already computed by the algorithm; it is a description,
+    not a decision, and applies no accuracy threshold.
 
     Two directions are kept apart on purpose:
 
@@ -1407,6 +1610,37 @@ def _summary(comparisons, n_top=5):
 
     def value(number):
         return "not available" if number is None else f"{number:.3f}"
+
+    def with_interval(metrics):
+        """Balanced accuracy with its 95% interval, e.g. '0.967 (95% CI 0.88-1.00)'."""
+        if metrics is None or metrics.get("balanced_accuracy") is None:
+            return "not available"
+        interval = metrics.get("balanced_accuracy_interval")
+        if interval is None:
+            return value(metrics["balanced_accuracy"])
+        return (
+            f"{metrics['balanced_accuracy']:.3f} "
+            f"(95% CI {interval[0]:.2f}-{interval[1]:.2f})"
+        )
+
+    if features_selected_on_same_samples is True:
+        selection_caveat = (
+            " The CpGs were selected on these same samples (e.g. by Elastic "
+            "Net), so these accuracies are optimistic: they show how well "
+            "the pattern separates these samples, not that it generalizes. "
+            "That needs samples left out of the CpG selection as well, e.g. "
+            "an independent cohort."
+        )
+    elif features_selected_on_same_samples is False:
+        selection_caveat = (
+            " The CpGs were selected independently of these samples."
+        )
+    else:
+        selection_caveat = (
+            " How the CpGs were selected was not specified: if they were "
+            "selected on these same samples, these accuracies are "
+            "optimistic."
+        )
 
     lines_per_comparison = []
 
@@ -1424,26 +1658,26 @@ def _summary(comparisons, n_top=5):
             other_side_long = f"the other cohorts ({', '.join(others)})"
 
         # ---------------------------------------------------------
-        # 1. What pattern was discovered
+        # 1. Which cohorts the pattern separates
         # ---------------------------------------------------------
 
         if comparison["is_reference_cohort"]:
             title = (
-                f"Discovered pattern: {target} (reference cohort) vs "
+                f"Pattern: {target} (reference cohort) vs "
                 f"{other_side_long}"
             )
         elif binary and comparison["pattern_of"] is None:
-            title = f"Discovered pattern: contrast {target} vs {other_side}"
+            title = f"Pattern: contrast {target} vs {other_side}"
         else:
-            title = f"Discovered pattern: {target} vs {other_side_long}"
+            title = f"Pattern: {target} vs {other_side_long}"
 
         n_cpgs = len(comparison["signature"])
 
         text = [
             title,
             "",
-            "The SVM identified a multivariate DNA methylation pattern, "
-            f"combining the {n_cpgs} CpGs analysed, that distinguishes "
+            "The SVM fitted a multivariate DNA methylation pattern, "
+            f"combining the {n_cpgs} CpGs analysed, to separate "
             f"{target} from {other_side_long}.",
         ]
 
@@ -1469,81 +1703,167 @@ def _summary(comparisons, n_top=5):
         # 2-3. Key CpGs and their observed methylation direction
         # ---------------------------------------------------------
 
-        text += [
-            "",
-            "Key CpGs contributing to the pattern",
-            "  Contribution = sign of the SVM coefficient: which side of the "
-            "classifier the CpG pushes towards, given all other CpGs.",
-            "  Observed methylation = difference in mean methylation (delta "
-            f"beta) between {target} and {other_side}, across all "
-            "hospitals.",
-        ]
+        # Two cohorts: both sides of the hyperplane are cohorts, so CpGs
+        # are grouped by the side they push towards. One-vs-rest: "the rest"
+        # is a mix of cohorts, so CpGs are grouped by their observed
+        # methylation in the target cohort; a CpG with lower methylation in
+        # the target characterizes it as much as one with higher methylation.
+        if binary:
 
-        groups = [
-            (f"Contributing towards {target}", 1.0),
-            (f"Contributing towards {other_side}", -1.0),
-        ]
-
-        opposite_signs = False
-
-        for heading, sign in groups:
-
-            entries = [
-                entry
-                for entry in comparison["signature"]
-                if np.sign(entry["coefficient"]) == sign
-            ][:n_top]
-
-            if not entries:
-                continue
-
-            text += ["", f"  {heading}:"]
-
-            for entry in entries:
-
-                difference = entry["methylation"]["mean_difference"]
-
-                if difference is None:
-                    observed = (
-                        "observed methylation difference not available "
-                        "(cohort summaries suppressed for privacy)"
-                    )
-                elif round(difference, 3) == 0:
-                    observed = (
-                        f"practically no difference in mean methylation "
-                        f"between {target} and {other_side} "
-                        f"(delta beta {difference:+.4f})"
-                    )
-                else:
-                    observed = (
-                        f"{'higher' if difference > 0 else 'lower'} mean "
-                        f"methylation in {target} than in {other_side} "
-                        f"(delta beta {difference:+.3f})"
-                    )
-
-                marker = ""
-
-                if (
-                    difference is not None
-                    and round(difference, 3) != 0
-                    and np.sign(difference) != sign
-                ):
-                    marker = " [*]"
-                    opposite_signs = True
-
-                text.append(
-                    f"    - {entry['cpg']} (coefficient "
-                    f"{entry['coefficient']:+.3f}): {observed}{marker}"
-                )
-
-        if opposite_signs:
             text += [
                 "",
-                "  [*] The contribution to the classifier and the observed "
-                "mean difference point in opposite directions. This can "
-                "happen in a multivariate model (e.g. with correlated CpGs) "
-                "and is reported as observed.",
+                "Key CpGs contributing to the pattern",
+                "  Contribution = sign of the SVM coefficient: which side of the "
+                "classifier the CpG pushes towards, given all other CpGs.",
+                "  Observed methylation = difference in mean methylation (delta "
+                f"beta) between {target} and {other_side}, across all "
+                "hospitals.",
             ]
+
+            groups = [
+                (f"Contributing towards {target}", 1.0),
+                (f"Contributing towards {other_side}", -1.0),
+            ]
+
+            opposite_signs = False
+
+            for heading, sign in groups:
+
+                entries = [
+                    entry
+                    for entry in comparison["signature"]
+                    if np.sign(entry["coefficient"]) == sign
+                ][:n_top]
+
+                if not entries:
+                    continue
+
+                text += ["", f"  {heading}:"]
+
+                for entry in entries:
+
+                    difference = entry["methylation"]["mean_difference"]
+
+                    if difference is None:
+                        observed = (
+                            "observed methylation difference not available "
+                            "(cohort summaries suppressed for privacy)"
+                        )
+                    elif round(difference, 3) == 0:
+                        observed = (
+                            f"practically no difference in mean methylation "
+                            f"between {target} and {other_side} "
+                            f"(delta beta {difference:+.4f})"
+                        )
+                    else:
+                        observed = (
+                            f"{'higher' if difference > 0 else 'lower'} mean "
+                            f"methylation in {target} than in {other_side} "
+                            f"(delta beta {difference:+.3f})"
+                        )
+
+                    marker = ""
+
+                    if (
+                        difference is not None
+                        and round(difference, 3) != 0
+                        and np.sign(difference) != sign
+                    ):
+                        marker = " [*]"
+                        opposite_signs = True
+
+                    text.append(
+                        f"    - {entry['cpg']} (coefficient "
+                        f"{entry['coefficient']:+.3f}): {observed}{marker}"
+                    )
+
+            if opposite_signs:
+                text += [
+                    "",
+                    "  [*] The contribution to the classifier and the observed "
+                    "mean difference point in opposite directions. This can "
+                    "happen in a multivariate model (e.g. with correlated CpGs) "
+                    "and is reported as observed.",
+                ]
+
+        else:
+
+            differences = [
+                entry["methylation"]["mean_difference"]
+                for entry in comparison["signature"]
+            ]
+            n_higher = sum(
+                d is not None and round(d, 3) > 0 for d in differences
+            )
+            n_lower = sum(
+                d is not None and round(d, 3) < 0 for d in differences
+            )
+
+            text += [
+                "",
+                "Key CpGs of the pattern",
+                f"  Grouped by their observed methylation in {target} "
+                f"compared with {other_side} (delta beta = difference in "
+                "mean methylation, across all hospitals). Of the "
+                f"{n_cpgs} CpGs, {n_higher} are more and {n_lower} less "
+                f"methylated in {target}.",
+                "  Coefficient = contribution to the SVM, given all other "
+                f"CpGs: positive pushes towards {target}, negative towards "
+                f"{other_side}. Ranked by the size of the coefficient.",
+            ]
+
+            groups = [
+                (f"Higher methylation in {target}", 1.0),
+                (f"Lower methylation in {target}", -1.0),
+            ]
+
+            opposite_signs = False
+
+            for heading, sign in groups:
+
+                entries = [
+                    entry
+                    for entry in comparison["signature"]
+                    if entry["methylation"]["mean_difference"] is not None
+                    and np.sign(round(entry["methylation"]["mean_difference"], 3))
+                    == sign
+                ][:n_top]
+
+                if not entries:
+                    continue
+
+                text += ["", f"  {heading}:"]
+
+                for entry in entries:
+
+                    marker = ""
+
+                    if np.sign(entry["coefficient"]) == -sign:
+                        marker = " [*]"
+                        opposite_signs = True
+
+                    text.append(
+                        f"    - {entry['cpg']} (delta beta "
+                        f"{entry['methylation']['mean_difference']:+.3f}, "
+                        f"coefficient {entry['coefficient']:+.3f}){marker}"
+                    )
+
+            if n_higher + n_lower < n_cpgs:
+                text += [
+                    "",
+                    f"  {n_cpgs - n_higher - n_lower} CpG(s) show practically "
+                    "no difference in mean methylation, or their cohort "
+                    "summaries were suppressed for privacy.",
+                ]
+
+            if opposite_signs:
+                text += [
+                    "",
+                    "  [*] The contribution to the classifier and the observed "
+                    "mean difference point in opposite directions. This can "
+                    "happen in a multivariate model (e.g. with correlated "
+                    "CpGs) and is reported as observed.",
+                ]
 
         text.append(
             "  The complete ranked list of CpGs is in the structured output."
@@ -1559,16 +1879,25 @@ def _summary(comparisons, n_top=5):
 
         text += [
             "",
-            "Evidence supporting the pattern (balanced accuracy 0.5 = "
-            "chance level)",
+            "Evidence (balanced accuracy 0.5 = chance level)",
+        ]
+
+        if C is not None and C_grid:
+            text.append(
+                f"  - Regularization: C = {C:g}, selected by cross-validation "
+                f"from {min(C_grid):g}-{max(C_grid):g} (highest balanced "
+                "accuracy; ties go to the smaller C)"
+            )
+
+        text += [
             "  - Cross-validated balanced accuracy: "
-            f"{value(cv['balanced_accuracy'])}",
+            f"{with_interval(cv)}",
             f"  - Sensitivity ({target} correctly identified): "
             f"{value(cv['sensitivity'])}",
             f"  - Specificity ({other_side} correctly identified): "
             f"{value(cv['specificity'])}",
             "  - LOHO balanced accuracy (hospitals not used for training): "
-            f"{value(loho['balanced_accuracy'] if loho else None)}",
+            f"{with_interval(loho)}",
             "  - Stability, mean coefficient correlation across folds and "
             "hospitals: "
             f"{value(stability['mean_coefficient_correlation'] if stability else None)}",
@@ -1583,24 +1912,32 @@ def _summary(comparisons, n_top=5):
 
         generalization = (
             f" In hospitals not used for training its balanced accuracy "
-            f"was {value(loho['balanced_accuracy'])}, compared with "
-            f"{value(cv['balanced_accuracy'])} in cross-validation."
-            if loho is not None
+            f"was {with_interval(loho)}."
+            if loho is not None and loho.get("balanced_accuracy") is not None
+            else ""
+        )
+
+        # 0.5 is chance level by definition, not a chosen threshold.
+        interval = cv.get("balanced_accuracy_interval")
+        chance = (
+            " The interval includes chance level: these data do not show "
+            f"that the CpGs separate {target} from {other_side} better "
+            "than chance."
+            if interval is not None and interval[0] <= 0.5
             else ""
         )
 
         text += [
             "",
             "Interpretation",
-            f"  The SVM discovered a multivariate methylation pattern that "
-            f"separates {target} from {other_side} with a cross-validated "
-            f"balanced accuracy of {value(cv['balanced_accuracy'])}."
-            f"{generalization} The CpGs act jointly: their coefficients "
-            "describe their contribution to the discrimination, not their "
-            "individual biological importance. This is a discovery and "
-            "characterization result; it does not validate an "
-            "episignature, which requires downstream assessment by the "
-            "researcher.",
+            f"  The SVM separated {target} from {other_side} with a "
+            f"cross-validated balanced accuracy of {with_interval(cv)}."
+            f"{chance}{generalization}{selection_caveat} The "
+            "CpGs act jointly: their coefficients describe their "
+            "contribution to the separation, not their individual "
+            "biological importance. This is a characterization result; it "
+            "does not validate an episignature, which requires downstream "
+            "assessment by the researcher.",
         ]
 
         lines_per_comparison.append("\n".join(text))
@@ -1639,6 +1976,9 @@ def central(
     min_samples=5,
     run_loho=True,
     stability_top_k=10,
+    sample_column="sample_label",
+    value_column="beta",
+    features_selected_on_same_samples=None,
 ):
     """
     Federated Linear SVM for discovery and characterization of
@@ -1698,6 +2038,18 @@ def central(
     stability_top_k:
         Size of the top-ranked CpG set used in the stability analysis.
 
+    features_selected_on_same_samples:
+        Optional. Whether the CpGs were selected on these same samples (e.g.
+        by Elastic Net on the same hospitals). True adds to the summary that
+        the accuracies are optimistic; False states that the CpGs were
+        selected independently; None (default) says that this is unknown.
+        It only changes the text, not the analysis.
+
+    sample_column, value_column:
+        Only for long input (one row per sample and probe, with a
+        ``probe_id`` column, as produced by v6-extractionIDAT-py): the
+        sample column and the value column (e.g. "beta" or "m_value").
+
     Returns
     -------
     dict
@@ -1745,6 +2097,14 @@ def central(
     # COHORT DETECTION AND PIPELINE SELECTION
     # =============================================================
 
+    layout_args = {
+        "sample_column": sample_column,
+        "value_column": value_column,
+    }
+
+    # Hospitals that could not take part, with the reason.
+    errors = []
+
     cohort_detection = _detect_cohorts(
         client,
         org_ids,
@@ -1753,6 +2113,8 @@ def central(
         classes,
         reference_cohort,
         min_samples,
+        layout_args,
+        errors,
     )
 
     if "error" in cohort_detection:
@@ -1771,6 +2133,7 @@ def central(
         "n_folds": n_folds,
         "random_seed": random_seed,
         "min_samples": min_samples,
+        **layout_args,
     }
 
     settings = {
@@ -1794,16 +2157,24 @@ def central(
         ]
 
     # =============================================================
-    # DISCOVERY
+    # DISCOVERY AND LEAVE-ONE-HOSPITAL-OUT VALIDATION
     # =============================================================
 
-    discovery = _run_discovery(
+    experiments = [{"key": "discovery", "train": org_ids, "held_out": None}]
+
+    if run_loho and len(org_ids) >= 2:
+        experiments += _loho_experiments(org_ids)
+
+    outcome = _run_experiments(
         client,
         org_ids,
         base_args,
         settings,
-        "discovery",
+        experiments,
+        errors,
     )
+
+    discovery = outcome["discovery"]
 
     if "error" in discovery:
         return discovery
@@ -1816,40 +2187,22 @@ def central(
     info(f"Best federated SVM C = {final['C']}")
 
     # Decision-score distribution of the final model on the discovery data.
-    final_scores = _evaluate(
-        client,
-        org_ids,
-        base_args,
-        [
-            {
-                "id": "final",
-                "models": [
-                    {
-                        "fold": None,
-                        "weights": final["weights"],
-                        "biases": final["biases"],
-                        "mean": final["mean"],
-                        "std": final["std"],
-                    }
-                ],
-            }
-        ],
-        "final model scores",
-        score_bins=SCORE_BINS,
-    ).get("final")
+    final_scores = discovery["evaluation"]
 
-    # =============================================================
-    # VALIDATION: LEAVE-ONE-HOSPITAL-OUT
-    # =============================================================
-
-    if run_loho:
-        loho = _run_loho(client, org_ids, base_args, settings)
-    else:
+    if not run_loho:
         loho = {
             "available": False,
             "reason": "LOHO was not requested.",
             "results": [],
         }
+    elif len(org_ids) < 2:
+        loho = {
+            "available": False,
+            "reason": "LOHO requires at least two organizations.",
+            "results": [],
+        }
+    else:
+        loho = _loho_report(org_ids, classes, outcome)
 
     loho_final_models = loho.pop("_final_models", [])
     loho_histograms = loho.pop("_score_histograms", None)
@@ -1957,7 +2310,12 @@ def central(
 
         comparisons.append(comparison)
 
-    evidence_summary = _summary(comparisons)
+    evidence_summary = _summary(
+        comparisons,
+        features_selected_on_same_samples=features_selected_on_same_samples,
+        C=final["C"],
+        C_grid=C_grid,
+    )
 
     # =============================================================
     # FINAL OUTPUT
@@ -1969,6 +2327,10 @@ def central(
         "algorithm": "federated_linear_svm",
 
         "cohort_detection": cohort_detection,
+
+        # Hospitals (organization ids) that could not take part in a step,
+        # with the reason (e.g. CpGs missing after quality control).
+        "skipped": errors,
 
         "classes": classes,
         "features": features,
@@ -2028,6 +2390,14 @@ def central(
         "validation": {
             "scope": (
                 "CV and LOHO results are conditional on the supplied CpGs."
+            ),
+            "features_selected_on_same_samples": (
+                features_selected_on_same_samples
+            ),
+            "interval": (
+                "95% interval of the balanced accuracy from Beta posteriors "
+                "of the per-class accuracies (Brodersen et al., 2010); "
+                "approximate for pooled cross-validation"
             ),
             "cv": {
                 "C": best["C"],
