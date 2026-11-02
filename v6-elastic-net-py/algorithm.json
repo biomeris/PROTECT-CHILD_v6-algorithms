@@ -11,22 +11,122 @@
       "description": "Coordinator: aggregates sufficient statistics from all nodes and solves Elastic Net by coordinate descent. Returns coefficients and selected CpGs.",
       "type": "central",
       "databases": [
-        {"name": "methylation", "description": "Beta-value matrix: CpG columns + binary outcome"}
+        {
+          "name": "methylation",
+          "description": "Beta-value matrix: CpG columns + binary outcome"
+        }
       ],
       "arguments": [
-        {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns (markers)", "has_default_value": false},
-        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column (0/1)", "has_default_value": false},
-        {"name": "alpha", "type": "float", "display_name": "Alpha", "description": "Regularization strength", "default_value": 0.01, "has_default_value": true},
-        {"name": "l1_ratio", "type": "float", "display_name": "L1 ratio", "description": "Balance L1/L2 (1=Lasso, 0=Ridge)", "default_value": 0.5, "has_default_value": true},
-        {"name": "max_iter", "type": "integer", "display_name": "Max iterations", "description": "Max coordinate-descent iterations", "default_value": 1000, "has_default_value": true},
-        {"name": "tol", "type": "float", "display_name": "Tolerance", "description": "Convergence threshold", "default_value": 1e-08, "has_default_value": true},
-        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard: skip nodes with fewer samples", "default_value": 5, "has_default_value": true},
-        {"name": "warn_gram_gb", "type": "float", "display_name": "Gram memory warning (GB)", "description": "Warn if the p×p Gram matrix exceeds this size", "default_value": 1.0, "has_default_value": true},
-        {"name": "center_by", "type": "string", "display_name": "Centering", "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)", "default_value": "hospital", "has_default_value": true},
-        {"name": "cohort_column", "type": "column", "display_name": "Cohort column", "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)", "default_value": null, "has_default_value": true},
-        {"name": "cohorts", "type": "string_list", "display_name": "Cohorts", "description": "Cohorts to include; empty = all", "default_value": null, "has_default_value": true},
-        {"name": "sample_column", "type": "string", "display_name": "Sample column (long format)", "description": "Sample column when the input is long format (probe_id, sample, value)", "default_value": "sample_label", "has_default_value": true},
-        {"name": "value_column", "type": "string", "display_name": "Value column (long format)", "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format", "default_value": "beta", "has_default_value": true}
+        {
+          "name": "features",
+          "type": "column_list",
+          "display_name": "CpG columns",
+          "description": "Candidate CpGs (at most 2,000), e.g. the top DMPs of v6-dmp-dmr-py; only those available in every node are used",
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Outcome",
+          "description": "Outcome column: numeric (e.g. age), or text with positive_value (e.g. cohort)",
+          "has_default_value": false
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "display_name": "Alpha",
+          "description": "Regularization strength",
+          "default_value": 0.01,
+          "has_default_value": true
+        },
+        {
+          "name": "l1_ratio",
+          "type": "float",
+          "display_name": "L1 ratio",
+          "description": "Balance L1/L2 (1=Lasso, 0=Ridge)",
+          "default_value": 0.5,
+          "has_default_value": true
+        },
+        {
+          "name": "max_iter",
+          "type": "integer",
+          "display_name": "Max iterations",
+          "description": "Max coordinate-descent iterations",
+          "default_value": 1000,
+          "has_default_value": true
+        },
+        {
+          "name": "tol",
+          "type": "float",
+          "display_name": "Tolerance",
+          "description": "Convergence threshold",
+          "default_value": 1e-08,
+          "has_default_value": true
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Min samples (privacy)",
+          "description": "Privacy guard: skip nodes with fewer samples",
+          "default_value": 5,
+          "has_default_value": true
+        },
+        {
+          "name": "warn_gram_gb",
+          "type": "float",
+          "display_name": "Gram memory warning (GB)",
+          "description": "Warn if the p×p Gram matrix exceeds this size",
+          "default_value": 1.0,
+          "has_default_value": true
+        },
+        {
+          "name": "center_by",
+          "type": "string",
+          "display_name": "Centering",
+          "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)",
+          "default_value": "hospital",
+          "has_default_value": true
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long format)",
+          "description": "Sample column when the input is long format (probe_id, sample, value)",
+          "default_value": "sample_label",
+          "has_default_value": true
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long format)",
+          "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format",
+          "default_value": "beta",
+          "has_default_value": true
+        },
+        {
+          "name": "positive_value",
+          "type": "string",
+          "display_name": "Positive value (text outcome)",
+          "description": "For a text outcome such as the cohort: outcome = 1 when the value equals this, 0 otherwise (combine with cohorts to compare two cohorts)",
+          "default_value": null,
+          "has_default_value": true
+        }
       ]
     },
     {
@@ -35,17 +135,82 @@
       "description": "Per-node: local sums/sums-of-squares for global standardization. Returns aggregates only.",
       "type": "federated",
       "databases": [
-        {"name": "methylation", "description": "Beta-value matrix: CpG columns + binary outcome"}
+        {
+          "name": "methylation",
+          "description": "Beta-value matrix: CpG columns + binary outcome"
+        }
       ],
       "arguments": [
-        {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns", "has_default_value": false},
-        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column", "has_default_value": false},
-        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true},
-        {"name": "center_by", "type": "string", "display_name": "Centering", "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)", "default_value": "hospital", "has_default_value": true},
-        {"name": "cohort_column", "type": "column", "display_name": "Cohort column", "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)", "default_value": null, "has_default_value": true},
-        {"name": "cohorts", "type": "string_list", "display_name": "Cohorts", "description": "Cohorts to include; empty = all", "default_value": null, "has_default_value": true},
-        {"name": "sample_column", "type": "string", "display_name": "Sample column (long format)", "description": "Sample column when the input is long format (probe_id, sample, value)", "default_value": "sample_label", "has_default_value": true},
-        {"name": "value_column", "type": "string", "display_name": "Value column (long format)", "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format", "default_value": "beta", "has_default_value": true}
+        {
+          "name": "features",
+          "type": "column_list",
+          "display_name": "CpG columns",
+          "description": "Predictor columns",
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Outcome",
+          "description": "Outcome column: numeric (e.g. age), or text with positive_value (e.g. cohort)",
+          "has_default_value": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Min samples (privacy)",
+          "description": "Privacy guard",
+          "default_value": 5,
+          "has_default_value": true
+        },
+        {
+          "name": "center_by",
+          "type": "string",
+          "display_name": "Centering",
+          "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)",
+          "default_value": "hospital",
+          "has_default_value": true
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long format)",
+          "description": "Sample column when the input is long format (probe_id, sample, value)",
+          "default_value": "sample_label",
+          "has_default_value": true
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long format)",
+          "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format",
+          "default_value": "beta",
+          "has_default_value": true
+        },
+        {
+          "name": "positive_value",
+          "type": "string",
+          "display_name": "Positive value (text outcome)",
+          "description": "For a text outcome such as the cohort: outcome = 1 when the value equals this, 0 otherwise (combine with cohorts to compare two cohorts)",
+          "default_value": null,
+          "has_default_value": true
+        }
       ]
     },
     {
@@ -54,20 +219,103 @@
       "description": "Per-node: sufficient statistics G_k = Xs^T Xs and b_k = Xs^T yc on globally-standardized data. Returns aggregates only.",
       "type": "federated",
       "databases": [
-        {"name": "methylation", "description": "Beta-value matrix: CpG columns + binary outcome"}
+        {
+          "name": "methylation",
+          "description": "Beta-value matrix: CpG columns + binary outcome"
+        }
       ],
       "arguments": [
-        {"name": "features", "type": "column_list", "display_name": "CpG columns", "description": "Predictor columns", "has_default_value": false},
-        {"name": "outcome_column", "type": "column", "display_name": "Outcome", "description": "Binary outcome column", "has_default_value": false},
-        {"name": "mean", "type": "json", "display_name": "Global mean", "description": "Global per-column mean (from round 1)", "has_default_value": false},
-        {"name": "std", "type": "json", "display_name": "Global std", "description": "Global per-column std (from round 1)", "has_default_value": false},
-        {"name": "ymean", "type": "float", "display_name": "Global outcome mean", "description": "Global mean of the outcome (from round 1)", "has_default_value": false},
-        {"name": "min_samples", "type": "integer", "display_name": "Min samples (privacy)", "description": "Privacy guard", "default_value": 5, "has_default_value": true},
-        {"name": "center_by", "type": "string", "display_name": "Centering", "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)", "default_value": "hospital", "has_default_value": true},
-        {"name": "cohort_column", "type": "column", "display_name": "Cohort column", "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)", "default_value": null, "has_default_value": true},
-        {"name": "cohorts", "type": "string_list", "display_name": "Cohorts", "description": "Cohorts to include; empty = all", "default_value": null, "has_default_value": true},
-        {"name": "sample_column", "type": "string", "display_name": "Sample column (long format)", "description": "Sample column when the input is long format (probe_id, sample, value)", "default_value": "sample_label", "has_default_value": true},
-        {"name": "value_column", "type": "string", "display_name": "Value column (long format)", "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format", "default_value": "beta", "has_default_value": true}
+        {
+          "name": "features",
+          "type": "column_list",
+          "display_name": "CpG columns",
+          "description": "Predictor columns",
+          "has_default_value": false
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Outcome",
+          "description": "Outcome column: numeric (e.g. age), or text with positive_value (e.g. cohort)",
+          "has_default_value": false
+        },
+        {
+          "name": "mean",
+          "type": "json",
+          "display_name": "Global mean",
+          "description": "Global per-column mean (from round 1)",
+          "has_default_value": false
+        },
+        {
+          "name": "std",
+          "type": "json",
+          "display_name": "Global std",
+          "description": "Global per-column std (from round 1)",
+          "has_default_value": false
+        },
+        {
+          "name": "ymean",
+          "type": "float",
+          "display_name": "Global outcome mean",
+          "description": "Global mean of the outcome (from round 1)",
+          "has_default_value": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Min samples (privacy)",
+          "description": "Privacy guard",
+          "default_value": 5,
+          "has_default_value": true
+        },
+        {
+          "name": "center_by",
+          "type": "string",
+          "display_name": "Centering",
+          "description": "'hospital' (default: one intercept per hospital, removes batch between hospitals), 'hospital_cohort' (one intercept per hospital x cohort) or 'global' (original)",
+          "default_value": "hospital",
+          "has_default_value": true
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column holding the cohort of each sample (needed for 'hospital_cohort' or cohorts)",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long format)",
+          "description": "Sample column when the input is long format (probe_id, sample, value)",
+          "default_value": "sample_label",
+          "has_default_value": true
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long format)",
+          "description": "Value column (e.g. 'beta' or 'm_value') when the input is long format",
+          "default_value": "beta",
+          "has_default_value": true
+        },
+        {
+          "name": "positive_value",
+          "type": "string",
+          "display_name": "Positive value (text outcome)",
+          "description": "For a text outcome such as the cohort: outcome = 1 when the value equals this, 0 otherwise (combine with cohorts to compare two cohorts)",
+          "default_value": null,
+          "has_default_value": true
+        }
       ]
     }
   ]

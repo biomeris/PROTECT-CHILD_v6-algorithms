@@ -22,6 +22,19 @@ Entrada (independiente del modelo de datos): cada nodo acepta
     por muestra outcome (+ cohorte). Se pivota en el nodo solo para `features`.
 Los nombres de columna se pasan como argumentos.
 
+Outcome: numerico (p.ej. edad), o una columna de texto (p.ej. la cohorte) con
+`positive_value`: y = 1 si el valor es `positive_value`, 0 si no (junto con
+`cohorts` para comparar dos cohortes).
+
+CpGs disponibles: tras el control de calidad cada hospital conserva un conjunto
+de sondas algo distinto. En la ronda 1 cada nodo indica que features tiene sin
+valores ausentes; el modelo usa solo las disponibles en todos los nodos validos
+y el resultado lista las excluidas (con en cuantos nodos estaban).
+
+Tamaño: la matriz de Gram (p×p float64) viaja en binario (base64); p esta
+limitado a MAX_FEATURES para no superar el limite de 1 GB por resultado de
+vantage6. Las CpGs deben venir pre-seleccionadas (p.ej. top DMPs de v6-dmp-dmr-py).
+
 Centrado (`center_by`):
   - "global"          : media/std global (comportamiento original).
   - "hospital"        : cada nodo centra X e y con sus propias medias.
@@ -33,6 +46,7 @@ intra-grupo agregada. Ojo: "hospital_cohort" elimina tambien el efecto de la
 cohorte; no usarlo si el outcome depende de la cohorte que se quiere estudiar.
 """
 
+import base64
 from typing import Any
 import numpy as np
 import pandas as pd
@@ -48,14 +62,24 @@ from vantage6.algorithm.client import AlgorithmClient
 # Helpers (corren donde toque; no son funciones de algoritmo)
 # --------------------------------------------------------------------------
 CENTER_MODES = ("global", "hospital", "hospital_cohort")
+# p×p float64 en base64: 2,000 features ≈ 43 MB por nodo
+MAX_FEATURES = 2000
+
+
+def _encode_array(a: np.ndarray) -> dict:
+    a = np.ascontiguousarray(a, dtype="<f8")
+    return {"shape": list(a.shape), "data": base64.b64encode(a.tobytes()).decode("ascii")}
+
+
+def _decode_array(d: dict) -> np.ndarray:
+    return np.frombuffer(base64.b64decode(d["data"]), dtype="<f8").reshape(d["shape"])
 
 
 def _to_wide(df: pd.DataFrame, features: list, outcome_column: str,
              cohort_column: str | None, sample_column: str, value_column: str) -> Any:
     """Formato largo -> ancho (una fila por muestra) solo para `features`."""
-    needed = ["probe_id", sample_column, value_column, outcome_column]
-    if cohort_column:
-        needed.append(cohort_column)
+    per_sample = list(dict.fromkeys([outcome_column] + ([cohort_column] if cohort_column else [])))
+    needed = ["probe_id", sample_column, value_column] + per_sample
     missing = [c for c in needed if c not in df.columns]
     if missing:
         return {"error": f"missing columns: {missing}"}
@@ -64,7 +88,6 @@ def _to_wide(df: pd.DataFrame, features: list, outcome_column: str,
     wide = long.pivot(index=sample_column, columns="probe_id", values=value_column)
     wide = wide.reindex(columns=list(features))
 
-    per_sample = [outcome_column] + ([cohort_column] if cohort_column else [])
     meta = df[[sample_column] + per_sample].drop_duplicates()
     if meta[sample_column].duplicated().any():
         return {"error": "outcome/cohort values differ between rows of the same sample"}
@@ -74,8 +97,12 @@ def _to_wide(df: pd.DataFrame, features: list, outcome_column: str,
 def _prepare(df: pd.DataFrame, features: list, outcome_column: str,
              min_samples: int, center_by: str = "global",
              cohort_column: str | None = None, cohorts: list | None = None,
-             sample_column: str = "sample_label", value_column: str = "beta") -> Any:
-    """Subset limpio (ancho) con columna `_group`, o dict de error.
+             sample_column: str = "sample_label", value_column: str = "beta",
+             positive_value: str | None = None) -> Any:
+    """(subset ancho con columnas `_group` e `_y`, features disponibles), o dict de error.
+
+    `_y` es el outcome numerico (0/1 con `positive_value`). Una feature esta
+    disponible si no tiene valores ausentes en las muestras del nodo.
 
     Privacy guard K=min_samples: el nodo debe tener >= min_samples muestras y, al
     centrar por grupo, los grupos con < min_samples se descartan.
@@ -94,12 +121,14 @@ def _prepare(df: pd.DataFrame, features: list, outcome_column: str,
             warn(df["error"])
             return df
 
-    cols = list(features) + [outcome_column] + ([cohort_column] if cohort_column else [])
-    missing = [c for c in cols if c not in df.columns]
+    per_sample = list(dict.fromkeys([outcome_column] + ([cohort_column] if cohort_column else [])))
+    missing = [c for c in per_sample if c not in df.columns]
     if missing:
         warn(f"Missing columns: {missing}")
         return {"error": f"missing columns: {missing}"}
-    sub = df[cols].dropna()
+    # Features ausentes en este nodo: columnas vacias (se excluyen, no se aborta)
+    df = df.reindex(columns=list(dict.fromkeys(list(features) + per_sample)))
+    sub = df.dropna(subset=per_sample)
 
     if cohorts:
         sub = sub[sub[cohort_column].isin(cohorts)]
@@ -114,16 +143,26 @@ def _prepare(df: pd.DataFrame, features: list, outcome_column: str,
     else:
         sub = sub.assign(_group="node")
 
+    if positive_value is not None:
+        y = (sub[outcome_column].astype(str) == str(positive_value)).astype(float)
+    else:
+        y = pd.to_numeric(sub[outcome_column], errors="coerce")
+        if y.isna().any():
+            return {"error": f"outcome column '{outcome_column}' is not numeric; "
+                             "give positive_value (e.g. a cohort) to use it as 0/1"}
+    sub = sub.assign(_y=y)
+
     if len(sub) < min_samples:
         warn(f"Node has {len(sub)} < {min_samples} samples — skipped (privacy guard)")
         return {"error": f"insufficient samples (< {min_samples})"}
-    return sub
+    available = [f for f in features if sub[f].notna().all()]
+    return sub, available
 
 
-def _center_within_groups(sub: pd.DataFrame, features: list, outcome_column: str):
-    """X e y centrados con la media de su grupo (nodo o nodo×cohorte)."""
+def _center_within_groups(sub: pd.DataFrame, features: list):
+    """X e y (`_y`) centrados con la media de su grupo (nodo o nodo×cohorte)."""
     X = sub[list(features)].astype(float)
-    y = sub[outcome_column].astype(float)
+    y = sub["_y"]
     Xc = X - X.groupby(sub["_group"]).transform("mean")
     yc = y - y.groupby(sub["_group"]).transform("mean")
     return Xc.to_numpy(), yc.to_numpy()
@@ -191,27 +230,31 @@ def partial_moments(
     df1: pd.DataFrame, features: list, outcome_column: str, min_samples: int = 5,
     center_by: str = "global", cohort_column: str | None = None,
     cohorts: list | None = None, sample_column: str = "sample_label",
-    value_column: str = "beta",
+    value_column: str = "beta", positive_value: str | None = None,
 ) -> dict:
-    """Ronda 1: momentos locales para la estandarizacion.
+    """Ronda 1: features disponibles y momentos locales para la estandarizacion.
 
-    Devuelve sumas globales (modo "global") y la suma de cuadrados intra-grupo
-    `ss_within` (modos centrados por grupo).
+    Devuelve, para las features disponibles en el nodo (`available`), sumas
+    globales (modo "global") y la suma de cuadrados intra-grupo `ss_within`
+    (modos centrados por grupo).
     """
     info("Elastic Net — partial_moments")
-    sub = _prepare(df1, features, outcome_column, min_samples, center_by,
-                   cohort_column, cohorts, sample_column, value_column)
-    if isinstance(sub, dict):
-        return sub
-    X = sub[list(features)].to_numpy(dtype=float)
-    Xc, _ = _center_within_groups(sub, features, outcome_column)
+    prepared = _prepare(df1, features, outcome_column, min_samples, center_by,
+                        cohort_column, cohorts, sample_column, value_column, positive_value)
+    if isinstance(prepared, dict):
+        return prepared
+    sub, available = prepared
+    info(f"{len(sub)} samples; {len(available)}/{len(features)} features available")
+    X = sub[available].to_numpy(dtype=float)
+    Xc, _ = _center_within_groups(sub, available)
     return {
         "n": int(len(sub)),
         "n_groups": int(sub["_group"].nunique()),
+        "available": available,
         "sum": X.sum(axis=0).tolist(),
         "sumsq": (X ** 2).sum(axis=0).tolist(),
         "ss_within": (Xc ** 2).sum(axis=0).tolist(),
-        "ysum": float(sub[outcome_column].sum()),
+        "ysum": float(sub["_y"].sum()),
     }
 
 
@@ -222,9 +265,12 @@ def partial_gram(
     mean: list, std: list, ymean: float, min_samples: int = 5,
     center_by: str = "global", cohort_column: str | None = None,
     cohorts: list | None = None, sample_column: str = "sample_label",
-    value_column: str = "beta",
+    value_column: str = "beta", positive_value: str | None = None,
 ) -> dict:
     """Ronda 2: estadisticos suficientes G = Xs^T Xs, b = Xs^T yc.
+
+    `features` son las disponibles en todos los nodos (decididas en la ronda 1).
+    G viaja en binario (base64, float64).
 
     Estandariza con media/std GLOBAL (del central) para que el agregado de G
     entre nodos sea exacto. Solo devuelve agregados; nunca filas individuales.
@@ -233,13 +279,17 @@ def partial_gram(
     podria filtrar covarianzas -> usar solo sobre un subset pre-filtrado.
     """
     info("Elastic Net — partial_gram")
-    sub = _prepare(df1, features, outcome_column, min_samples, center_by,
-                   cohort_column, cohorts, sample_column, value_column)
-    if isinstance(sub, dict):
-        return sub
+    prepared = _prepare(df1, features, outcome_column, min_samples, center_by,
+                        cohort_column, cohorts, sample_column, value_column, positive_value)
+    if isinstance(prepared, dict):
+        return prepared
+    sub, available = prepared
+    if len(available) < len(features):
+        return {"error": f"{len(features) - len(available)} features are no longer available on this node"}
     # Aviso de memoria en el nodo (construye una matriz Gram p×p local)
     _check_dimensionality(len(features))
-    if len(features) >= len(sub):
+    p_exceeds_n = len(features) >= len(sub)
+    if p_exceeds_n:
         warn(f"p={len(features)} features >= n={len(sub)} samples on this node: the "
              "shared Gram matrix carries a lot of information about each patient. "
              "Use fewer features than patients per node.")
@@ -247,11 +297,12 @@ def partial_gram(
     if center_by == "global":
         mean_arr = np.asarray(mean, dtype=float)
         Xs = (sub[list(features)].to_numpy(dtype=float) - mean_arr) / std_arr
-        yc = sub[outcome_column].to_numpy(dtype=float) - ymean
+        yc = sub["_y"].to_numpy(dtype=float) - ymean
     else:
-        Xc, yc = _center_within_groups(sub, features, outcome_column)
+        Xc, yc = _center_within_groups(sub, features)
         Xs = Xc / std_arr
-    return {"G": (Xs.T @ Xs).tolist(), "b": (Xs.T @ yc).tolist()}
+    return {"G": _encode_array(Xs.T @ Xs), "b": (Xs.T @ yc).tolist(),
+            "n": int(len(sub)), "p_exceeds_n": p_exceeds_n}
 
 
 # --------------------------------------------------------------------------
@@ -274,9 +325,12 @@ def central(
     cohorts: list | None = None,
     sample_column: str = "sample_label",
     value_column: str = "beta",
+    positive_value: str | None = None,
 ) -> dict:
     """Coordinador del Elastic Net federado (estadisticos suficientes, 2 rondas).
 
+    features: CpGs candidatas (como mucho MAX_FEATURES), p.ej. top DMPs.
+    outcome_column/positive_value: outcome numerico, o 0/1 = (valor == positive_value).
     center_by: "hospital" (defecto, intercepto por hospital: elimina batch entre
     hospitales), "hospital_cohort" (intercepto por hospital×cohorte) o "global".
     cohort_column/cohorts: columna de cohorte y, opcionalmente, cohortes a incluir.
@@ -284,66 +338,112 @@ def central(
     """
     if center_by not in CENTER_MODES:
         return {"error": f"center_by must be one of {CENTER_MODES}"}
+    features = list(dict.fromkeys(features))
+    if not features or len(features) > MAX_FEATURES:
+        return {"error": f"give between 1 and {MAX_FEATURES:,} features (got {len(features):,}); "
+                         "pre-select CpGs, e.g. the top DMPs of v6-dmp-dmr-py"}
     org_ids = [o["id"] for o in client.organization.list()]
     info(f"Federated Elastic Net | {len(org_ids)} nodos | {len(features)} features "
          f"| center_by={center_by}")
-    data_args = {"features": features, "outcome_column": outcome_column,
+    data_args = {"outcome_column": outcome_column,
                  "min_samples": min_samples, "center_by": center_by,
                  "cohort_column": cohort_column, "cohorts": cohorts,
-                 "sample_column": sample_column, "value_column": value_column}
+                 "sample_column": sample_column, "value_column": value_column,
+                 "positive_value": positive_value}
 
     # Aviso de coste en memoria (solo lee el nº de features, no toca datos)
     _check_dimensionality(len(features), warn_gb=warn_gram_gb)
 
-    # --- Ronda 1: momentos -> estandarizacion global ---
+    # --- Ronda 1: features disponibles y momentos -> estandarizacion global ---
     task1 = client.task.create(
         method="partial_moments",
-        arguments=data_args,
+        arguments={**data_args, "features": features},
         organizations=org_ids,
         name="ElasticNet round 1 (moments)",
     )
-    r1 = [r for r in client.wait_for_results(task_id=task1.get("id")) if "error" not in r]
+    results1 = client.wait_for_results(task_id=task1.get("id"))
+    skipped = [r["error"] for r in results1 if "error" in r]
+    r1 = [r for r in results1 if "error" not in r]
     if not r1:
-        return {"error": "no valid nodes in round 1"}
+        return {"error": "no valid nodes in round 1", "skipped": skipped}
+
+    # Solo las features disponibles en todos los nodos validos
+    n_available = {f: sum(f in set(r["available"]) for r in r1) for f in features}
+    common = [f for f in features if n_available[f] == len(r1)]
+    excluded = [{"feature": f, "n_nodes_available": n_available[f]}
+                for f in features if n_available[f] < len(r1)]
+    if excluded:
+        warn(f"{len(excluded)} features not available in every node are excluded")
+    if not common:
+        return {"error": "no feature is available in every node", "excluded_features": excluded,
+                "skipped": skipped}
+
+    def stack(key: str) -> np.ndarray:
+        """Suma sobre nodos de un estadistico por feature, en el orden de `common`."""
+        total = np.zeros(len(common))
+        for r in r1:
+            index = {f: i for i, f in enumerate(r["available"])}
+            total += np.asarray(r[key], dtype=float)[[index[f] for f in common]]
+        return total
+
     total_n = sum(r["n"] for r in r1)
-    mean = _aggregate(r1, "sum") / total_n
+    mean = stack("sum") / total_n
     if center_by == "global":
-        var = _aggregate(r1, "sumsq") / total_n - mean ** 2
+        var = stack("sumsq") / total_n - mean ** 2
     else:
-        var = _aggregate(r1, "ss_within") / total_n   # varianza intra-grupo agregada
+        var = stack("ss_within") / total_n   # varianza intra-grupo agregada
     std = np.sqrt(np.maximum(var, 1e-12))
     ymean = sum(r["ysum"] for r in r1) / total_n
 
     # --- Ronda 2: estadisticos suficientes G, b ---
     task2 = client.task.create(
         method="partial_gram",
-        arguments={**data_args, "mean": mean.tolist(), "std": std.tolist(),
-                   "ymean": ymean},
+        arguments={**data_args, "features": common, "mean": mean.tolist(),
+                   "std": std.tolist(), "ymean": ymean},
         organizations=org_ids,
         name="ElasticNet round 2 (gram)",
     )
-    r2 = [r for r in client.wait_for_results(task_id=task2.get("id")) if "error" not in r]
+    results2 = client.wait_for_results(task_id=task2.get("id"))
+    r2 = [r for r in results2 if "error" not in r]
     if not r2:
-        return {"error": "no valid nodes in round 2"}
+        return {"error": "no valid nodes in round 2", "skipped": skipped}
     if len(r2) < len(r1):
         warn(f"Round 2: {len(r1) - len(r2)} nodos cayeron entre rondas")
+        skipped += [r["error"] for r in results2 if "error" in r]
+    # n de los nodos que aportan G (puede ser menor si alguno cayo)
+    total_n = sum(r["n"] for r in r2)
 
     # --- Central resuelve el descent sobre los agregados ---
-    G = _aggregate(r2, "G")
+    G = np.sum([_decode_array(r["G"]) for r in r2], axis=0)
     b = _aggregate(r2, "b")
     w = _coordinate_descent_gram(G, b, total_n, alpha, l1_ratio, max_iter, tol)
 
-    selected = [f for f, wj in zip(features, w) if abs(wj) > 1e-6]
-    info(f"Elastic Net done | {len(selected)}/{len(features)} CpGs seleccionadas")
+    selected = sorted(
+        ({"feature": f, "coefficient": float(wj)} for f, wj in zip(common, w) if abs(wj) > 1e-6),
+        key=lambda s: -abs(s["coefficient"]),
+    )
+    info(f"Elastic Net done | {len(selected)}/{len(common)} CpGs seleccionadas")
+    privacy_warnings = []
+    n_p_exceeds_n = sum(r["p_exceeds_n"] for r in r2)
+    if n_p_exceeds_n:
+        privacy_warnings.append(
+            f"In {n_p_exceeds_n} of {len(r2)} nodes there are at least as many features "
+            f"({len(common)}) as samples: the shared Gram matrix reveals much about each patient")
     return {
+        "selected": selected,
+        "selected_cpgs": [s["feature"] for s in selected],
         "coefficients": w.tolist(),
-        "features": list(features),
-        "selected_cpgs": selected,
+        "features": common,
+        "n_features_requested": len(features),
+        "excluded_features": excluded,
         "n_total": int(total_n),
         "n_nodes": len(r2),
         "n_groups": int(sum(r["n_groups"] for r in r1)),
         "nodes_skipped": len(org_ids) - len(r2),
+        "skipped": skipped,
+        "privacy_warnings": privacy_warnings,
         "center_by": center_by,
         "cohorts": list(cohorts) if cohorts else None,
+        "outcome": {"column": outcome_column, "positive_value": positive_value},
         "hyperparams": {"alpha": alpha, "l1_ratio": l1_ratio},
     }

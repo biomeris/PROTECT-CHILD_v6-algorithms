@@ -43,7 +43,24 @@ Una tabla por nodo, en cualquiera de estos formatos (se detecta solo):
 
 Los nombres de columna (outcome, cohorte, muestra, valor) se pasan como
 argumentos, así que el algoritmo no depende de cómo se integre el modelo de
-datos. Las muestras con algún valor ausente en las features/outcome se excluyen.
+datos. Las muestras sin outcome (o sin cohorte, si se usa) se excluyen.
+
+**Outcome**: numérico (p.ej. `age`, regresión), o de texto con `positive_value`:
+y = 1 si el valor es `positive_value`, 0 si no. Para comparar dos cohortes de la
+salida de `v6-extractionIDAT-py`: `outcome_column="cohort"`,
+`cohort_column="cohort"`, `cohorts=["lipid", "highcardio"]`,
+`positive_value="highcardio"`.
+
+**CpGs disponibles en todos los hospitales**: tras el control de calidad cada
+hospital conserva un conjunto de sondas algo distinto (una sonda se elimina si
+falla en alguna muestra del hospital). En la ronda 1 cada nodo indica qué
+features tiene sin valores ausentes; el modelo usa solo las disponibles en todos
+los nodos válidos y el resultado las lista en `excluded_features` (con en
+cuántos nodos estaban), en vez de descartar el hospital entero.
+
+**Selección previa**: las `features` deben venir pre-seleccionadas (como mucho
+2,000), p.ej. los top DMPs de `v6-dmp-dmr-py` (presentes en todos los
+hospitales: columna `n_nodes`).
 
 ## Centrado: hospitales y cohortes
 
@@ -66,8 +83,9 @@ grupos (hospital, cohorte) con menos de `min_samples` muestras se descartan.
 
 | Argumento | Tipo | Default | Descripción |
 |---|---|---|---|
-| `features` | column_list | — | columnas CpG a usar como predictores |
-| `outcome_column` | column | — | columna outcome binaria |
+| `features` | column_list | — | CpGs candidatas (máx. 2,000) |
+| `outcome_column` | column | — | outcome numérico, o de texto con `positive_value` |
+| `positive_value` | string | — | outcome = 1 si el valor es este (p.ej. una cohorte) |
 | `alpha` | float | 0.01 | fuerza de regularización |
 | `l1_ratio` | float | 0.5 | balance L1/L2 (1=Lasso, 0=Ridge) |
 | `max_iter` | int | 1000 | iteraciones máx de coordinate descent |
@@ -84,18 +102,29 @@ grupos (hospital, cohorte) con menos de `min_samples` muestras se descartan.
 
 ```json
 {
+  "selected": [{"feature": "cg...", "coefficient": 0.12}, ...],
+  "selected_cpgs": ["cg...", ...],
   "coefficients": [...],
   "features": [...],
-  "selected_cpgs": ["cg...", ...],
-  "n_total": 200,
-  "n_nodes": 4,
-  "n_groups": 4,
+  "n_features_requested": 1000,
+  "excluded_features": [{"feature": "cg...", "n_nodes_available": 2}],
+  "n_total": 28,
+  "n_nodes": 3,
+  "n_groups": 3,
   "nodes_skipped": 0,
+  "skipped": [],
+  "privacy_warnings": ["..."],
   "center_by": "hospital",
-  "cohorts": null,
+  "cohorts": ["lipid", "highcardio"],
+  "outcome": {"column": "cohort", "positive_value": "highcardio"},
   "hyperparams": {"alpha": 0.01, "l1_ratio": 0.5}
 }
 ```
+
+`selected` ordena las CpGs seleccionadas de mayor a menor |coeficiente|
+(coeficientes sobre X estandarizada). `features`/`coefficients` son las CpGs
+usadas (disponibles en todos los nodos) y todos sus coeficientes. `skipped` da
+el motivo de cada nodo que no participó.
 
 ## Privacidad
 
@@ -108,14 +137,31 @@ por nodo. Ver `docs/privacy.md`.
 ## Limitación de escala
 
 La matriz Gram es `p×p`. Para `p` grande (~850K CpGs) es inviable (~TB) → usar
-pre-screening federado para reducir a ~miles de features antes de ejecutar. El
-algoritmo avisa del coste en memoria al arrancar.
+pre-screening federado para reducir a ~miles de features antes de ejecutar. Cada
+nodo la envía en binario (float64, base64): 1,000 features ≈ 11 MB, 2,000 ≈ 43
+MB por nodo. El límite de 2,000 features mantiene el resultado lejos del límite
+de 1 GB por resultado de vantage6.
+
+## Limitaciones abiertas
+
+- **Privacidad con p ≥ n**: con más features que pacientes por nodo la Gram
+  revela casi los datos de cada paciente (salvo una rotación). El resultado lo
+  avisa en `privacy_warnings`; pendiente de decisión del proyecto (ver
+  `docs/privacy.md`).
+- **`alpha` fijo, sin validación cruzada**: qué CpGs se seleccionan depende de
+  `alpha`.
+- **Selección y evaluación con los mismos datos**: si las CpGs vienen de DMP/DMR
+  y luego se entrena y evalúa un clasificador (SVM) con las mismas muestras, la
+  precisión se sobreestima; hace falta reservar muestras.
+- Con un outcome 0/1 es un modelo lineal (mínimos cuadrados): sirve para
+  seleccionar CpGs, no para predecir probabilidades.
 
 ## Test local
 
 ```bash
 pip install -e .
-python test/test.py   # valida federado == centralizado con MockNetwork
+python test/test.py   # federado == centralizado con MockNetwork, outcome de cohorte,
+                      # CpGs ausentes en un hospital, límites y cliente real
 ```
 
 ## Build & deploy
