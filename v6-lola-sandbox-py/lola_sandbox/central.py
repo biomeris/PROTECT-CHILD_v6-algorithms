@@ -1,0 +1,183 @@
+"""
+LOLA enrichment of DMRs, computed once.
+
+Sandbox version of v6-lola-py. Its three inputs are not patient-level data:
+
+- user set: the DMRs of a v6-dmp-dmr-py result (``global_dmrs``: chromosome,
+  start, end), an aggregate result
+- universe: the probes that DMP/DMR tested (its ``universe`` field), i.e. the
+  CpGs that could have been in a DMR
+- reference: LOLACore hg38, built into the Docker image (nodes have no internet)
+
+So nothing is asked from the hospitals: the central function runs on one node,
+counts the overlaps once and computes one Fisher test per reference region set.
+(v6-lola-py sends the counting to every node and sums the tables; with the same
+inputs at every node that multiplies all counts by the number of nodes.)
+
+The DMRs are redefined as the universe CpGs they cover, so that user set and
+universe count the same units (tested CpGs); see lola_core.run_lola.
+"""
+from __future__ import annotations
+
+import base64
+import io
+import os
+from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
+from scipy.stats import false_discovery_control, fisher_exact
+
+from vantage6.algorithm.decorator.action import central
+from vantage6.algorithm.tools.util import info
+
+from .lola_core import run_lola
+
+# LOLACore hg38 collections with cached region sets in the image
+COLLECTIONS = (
+    "ucsc_features", "encode_tfbs", "sheffield_dnase", "codex",
+    "cistrome_cistrome", "cistrome_epigenome",
+)
+REGION_DB = os.environ.get("LOLA_REGION_DB", "/opt/lola/LOLACore/hg38")
+MAX_RESULT_ROWS = 10_000
+RESULT_COLUMNS = [
+    "dbSet", "collection", "description", "cellType", "tissue", "antibody",
+    "treatment", "dataSource", "filename",
+    "support", "b", "c", "d", "oddsRatio", "pValue", "qValue", "pValueLog",
+    "rnkSup", "rnkPV", "rnkOR", "maxRnk", "meanRnk",
+]
+
+
+def decode_table(table) -> pd.DataFrame:
+    """A table from a DMP/DMR result: Parquet in base64 ({"format", "data"}) or records."""
+    if isinstance(table, dict) and table.get("format") == "parquet+base64":
+        return pd.read_parquet(io.BytesIO(base64.b64decode(table["data"])))
+    return pd.DataFrame(table)
+
+
+def _validate(dmrs: pd.DataFrame, universe: pd.DataFrame, collections, direction, top_n, known) -> None:
+    missing = {"chromosome", "start", "end"} - set(dmrs.columns)
+    if missing:
+        raise ValueError(f"dmrs needs the columns chromosome, start and end; missing {sorted(missing)}")
+    missing = {"chromosome", "position"} - set(universe.columns)
+    if missing:
+        raise ValueError(f"universe needs the columns chromosome and position; missing {sorted(missing)}")
+    unknown = sorted(set(collections) - set(known))
+    if unknown:
+        raise ValueError(f"Unknown collection(s) {unknown}; available: {list(known)}")
+    if direction not in ("enrichment", "depletion"):
+        raise ValueError(f"direction must be 'enrichment' or 'depletion', got {direction!r}")
+    if not isinstance(top_n, int) or isinstance(top_n, bool) or not 1 <= top_n <= MAX_RESULT_ROWS:
+        raise ValueError(f"top_n must be an integer between 1 and {MAX_RESULT_ROWS:,}, got {top_n!r}")
+
+
+def lola_enrichment(
+    dmrs: pd.DataFrame,
+    universe: pd.DataFrame,
+    collections: tuple[str, ...] = COLLECTIONS,
+    direction: str = "enrichment",
+    min_overlap: int = 1,
+    top_n: int = 1000,
+    region_db: str = REGION_DB,
+    known: tuple[str, ...] = COLLECTIONS,
+) -> dict:
+    """Undecorated implementation (importable from tests, with another database)."""
+    _validate(dmrs, universe, collections, direction, top_n, known)
+    output = {"summary": {}, "warnings": [], "results": []}
+    dmrs = dmrs[["chromosome", "start", "end"]].dropna()
+    universe = universe[["chromosome", "position"]].dropna()
+    universe = universe[universe["position"] > 0]
+    if dmrs.empty:
+        output["warnings"].append("No DMRs given: nothing to test")
+        return output
+
+    info(f"LOLA: {len(dmrs)} DMRs against {len(universe):,} universe CpGs, collections {list(collections)}")
+    scores, annotation, n_user_cpgs = run_lola(dmrs, universe, region_db, tuple(collections), min_overlap)
+    info(f"{n_user_cpgs} universe CpGs lie in the DMRs; {len(scores):,} region sets tested")
+
+    alternative = "less" if direction == "depletion" else "greater"
+    for column in ("support", "b", "c", "d"):
+        scores[column] = scores[column].astype(int)
+    if (scores[["b", "c", "d"]] < 0).any().any():
+        raise RuntimeError("Negative counts in the 2x2 tables: the DMR CpGs are not all in the universe")
+    fisher = [fisher_exact([[r.support, r.b], [r.c, r.d]], alternative=alternative)
+              for r in scores.itertuples()]
+    scores["oddsRatio"] = [f[0] for f in fisher]
+    scores["pValue"] = [f[1] for f in fisher]
+    scores["qValue"] = false_discovery_control(scores["pValue"], method="bh")
+    scores["pValueLog"] = -np.log10(scores["pValue"].clip(lower=1e-322))
+    scores["rnkSup"] = scores["support"].rank(ascending=False, method="min")
+    scores["rnkPV"] = scores["pValueLog"].rank(ascending=False, method="min")
+    scores["rnkOR"] = scores["oddsRatio"].rank(ascending=False, method="min")
+    scores["maxRnk"] = scores[["rnkSup", "rnkPV", "rnkOR"]].max(axis=1)
+    scores["meanRnk"] = scores[["rnkSup", "rnkPV", "rnkOR"]].mean(axis=1).round(3)
+
+    annotation = annotation.reset_index(drop=True)
+    annotation["dbSet"] = (annotation.index + 1).astype(str)
+    scores["dbSet"] = scores["dbSet"].astype(str)
+    result = scores.merge(annotation, on="dbSet", how="left")
+    for column in RESULT_COLUMNS:
+        if column not in result.columns:
+            result[column] = None
+    result = result.sort_values(["pValue", "meanRnk"], ascending=[True, True]).reset_index(drop=True)
+
+    output["summary"] = {
+        "n_dmrs": int(len(dmrs)),
+        "n_universe": int(len(universe)),
+        "n_dmr_cpgs": n_user_cpgs,
+        "n_region_sets": int(len(result)),
+        "n_significant_q_0.05": int((result["qValue"] < 0.05).sum()),
+        "direction": direction,
+        "collections": list(collections),
+        "n_returned": int(min(top_n, len(result))),
+    }
+    if n_user_cpgs < len(dmrs):
+        output["warnings"].append(
+            f"Only {n_user_cpgs} universe CpGs lie in the {len(dmrs)} DMRs: check that the DMRs and the universe come from the same DMP/DMR result"
+        )
+    top = result.head(top_n)[RESULT_COLUMNS]
+    output["results"] = top.astype(object).where(top.notna(), None).to_dict(orient="records")
+    info(f"{output['summary']['n_significant_q_0.05']} region sets significant at q < 0.05")
+    return output
+
+
+@central
+def central_function(
+    dmrs: list[dict],
+    universe: Any,
+    collections: list[str] | None = None,
+    direction: Literal["enrichment", "depletion"] = "enrichment",
+    min_overlap: int = 1,
+    top_n: int = 1000,
+) -> Any:
+    """LOLA enrichment of the DMRs of a DMP/DMR result, against LOLACore hg38.
+
+    Parameters
+    ----------
+    dmrs : list[dict]
+        The ``global_dmrs`` of a v6-dmp-dmr-py result (chromosome, start, end).
+    universe : dict
+        The ``universe`` of the same DMP/DMR result (tested CpGs with chromosome
+        and position, Parquet in base64), or a list of records.
+    collections : list[str] | None
+        LOLACore collections to test (default: all available, see COLLECTIONS).
+    direction : str
+        "enrichment" (default) or "depletion": the one-sided Fisher test.
+    min_overlap : int
+        Minimum overlap in bp between a region and a reference region.
+    top_n : int
+        Number of region sets returned (smallest p-value first), 1 to 10,000.
+
+    Returns
+    -------
+    dict
+        ``summary`` (counts, direction, collections), ``warnings`` and ``results``:
+        one record per reference region set with its annotation, the 2x2 counts
+        (support, b, c, d), oddsRatio, pValue, qValue (Benjamini-Hochberg over all
+        region sets tested) and LOLA's ranks.
+    """
+    return lola_enrichment(
+        decode_table(dmrs), decode_table(universe),
+        tuple(collections) if collections else COLLECTIONS,
+        direction, min_overlap, top_n,
+    )

@@ -1,0 +1,71 @@
+{
+  "name": "LOLA enrichment of DMRs (sandbox)",
+  "image": "localhost:32000/protect-child/lola-sandbox:1.0.0",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central_function",
+      "display_name": "LOLA enrichment of DMRs",
+      "description": "Region set enrichment (LOLA) of the DMRs of a DMP/DMR result against LOLACore hg38, with the probes tested by DMP/DMR as universe. Computed once, on one node; no patient data is used.",
+      "step_type": "central_compute",
+      "databases": [],
+      "arguments": [
+        {
+          "name": "dmrs",
+          "type": "json",
+          "display_name": "DMRs",
+          "description": "The global_dmrs of a DMP/DMR result (chromosome, start, end per DMR).",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "universe",
+          "type": "json",
+          "display_name": "Universe",
+          "description": "The universe of the same DMP/DMR result: the probes it tested (chromosome, position).",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "collections",
+          "type": "string_list",
+          "display_name": "LOLACore collections",
+          "description": "Collections to test: ucsc_features, encode_tfbs, sheffield_dnase, codex, cistrome_cistrome, cistrome_epigenome (default: all).",
+          "default_value": null,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "direction",
+          "type": "string",
+          "display_name": "Direction",
+          "description": "enrichment (default) or depletion: the one-sided Fisher test.",
+          "default_value": "enrichment",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_overlap",
+          "type": "integer",
+          "display_name": "Minimum overlap (bp)",
+          "description": "Minimum overlap between a CpG and a reference region.",
+          "default_value": 1,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "top_n",
+          "type": "integer",
+          "display_name": "Region sets returned",
+          "description": "Number of region sets returned, smallest p-value first (1 to 10,000).",
+          "default_value": 1000,
+          "has_default_value": true,
+          "is_frontend_only": false
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-lola-sandbox-py"
+version = "1.0.0"
+description = "LOLA region set enrichment of the DMRs of a DMP/DMR result against LOLACore hg38 (sandbox version of v6-lola-py)."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0a43",
+  "pandas",
+  "rpy2>=3.5,<3.6",  # 3.6 needs R >= 4.4; Debian 12 has R 4.2
+  "numpy",
+  "scipy>=1.11"
+]
+authors = [
+    # TODO add authors
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+# TODO add urls
+
+[tool.hatch.build.targets.wheel]
+packages = ["lola_sandbox"]
+
+[dependency-groups]
+dev = [
+  "pytest",
+]
