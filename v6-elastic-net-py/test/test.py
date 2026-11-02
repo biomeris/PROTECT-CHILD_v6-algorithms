@@ -12,6 +12,10 @@ sklearn.ElasticNet centralizado sobre los datos completos (exacto), para:
       un grupo pequeño descartado por min_samples
   [5] filtro `cohorts`
   [6] errores de entrada
+  [7] outcome de texto (cohorte) con positive_value
+  [8] CpG ausente en un hospital: se excluye y el hospital sigue participando
+  [9] limite de features, Gram en binario, resultado ordenado
+  [10] solo lo que acepta un nodo real de vantage6
 
 A cada hospital se le añade un desplazamiento (batch) en X e y para que los
 modos de centrado den resultados distintos.
@@ -141,5 +145,75 @@ check("error" in run_central(nodes, center_by="hospital_cohort"),
 check("error" in run_central(nodes, center_by="other"), "center_by desconocido -> error")
 check("error" in run_central([d.drop(columns="cohort") for d in nodes], center_by="hospital_cohort",
                              cohort_column="cohort"), "cohort_column ausente -> error")
+
+# ---------------------------------------------------------------------------
+def reference_y(data: pd.DataFrame, features: list, y: pd.Series, groups: pd.Series) -> np.ndarray:
+    """Como `reference`, con features y outcome dados."""
+    X = data[features].astype(float)
+    Xc = X - X.groupby(groups).transform("mean")
+    yc = y - y.groupby(groups).transform("mean")
+    Xs = (Xc / np.sqrt((Xc ** 2).mean())).to_numpy()
+    return ElasticNet(alpha=ALPHA, l1_ratio=L1_RATIO, fit_intercept=False,
+                      max_iter=100000, tol=1e-10).fit(Xs, yc.to_numpy()).coef_
+
+
+print("\n[7] Text outcome (cohort) with positive_value")
+two = df[df["cohort"].isin(["cohort_A", "cohort_B"])]
+r_cohort = run_central([to_long(d) for d in nodes], outcome_column="cohort", cohort_column="cohort",
+                       cohorts=["cohort_A", "cohort_B"], positive_value="cohort_B")
+compare(r_cohort, reference_y(two, FEATURES, (two["cohort"] == "cohort_B").astype(float), two["hospital"]),
+        "outcome = (cohort == 'cohort_B')")
+check(r_cohort["n_total"] == len(two) and r_cohort["outcome"]["positive_value"] == "cohort_B",
+      "solo cohort_A y cohort_B; outcome 0/1 por cohorte")
+r_text = run_central(nodes, outcome_column="cohort")
+check("error" in r_text and len(r_text["skipped"]) == 3 and "not numeric" in r_text["skipped"][0],
+      "outcome de texto sin positive_value -> error que explica la causa")
+
+# ---------------------------------------------------------------------------
+print("\n[8] CpG missing in one hospital")
+missing_cpg = FEATURES[3]
+long_nodes = [to_long(d) for d in nodes]
+long_nodes[1] = long_nodes[1][long_nodes[1]["probe_id"] != missing_cpg]  # QC la quito en el hospital 1
+r_missing = run_central(long_nodes)
+rest = [f for f in FEATURES if f != missing_cpg]
+expected = reference_y(df, rest, df[OUTCOME].astype(float), df["hospital"])
+check(np.allclose(r_missing["coefficients"], expected, atol=1e-6) and r_missing["features"] == rest,
+      "el modelo usa las CpGs disponibles en todos los hospitales (== centralizado)")
+check(r_missing["excluded_features"] == [{"feature": missing_cpg, "n_nodes_available": 2}],
+      "la CpG excluida se lista, con en cuantos hospitales estaba")
+check(r_missing["n_nodes"] == 3 and r_missing["n_total"] == len(df), "los tres hospitales siguen participando")
+
+# ---------------------------------------------------------------------------
+print("\n[9] Limits and result")
+from importlib import import_module  # noqa: E402
+module = import_module("v6-elastic-net-py.federated")
+check("error" in run_central(nodes, features=[f"cg{i}" for i in range(module.MAX_FEATURES + 1)]),
+      f"mas de {module.MAX_FEATURES} features -> error")
+G = np.arange(6, dtype=float).reshape(2, 3)
+check(np.array_equal(module._decode_array(module._encode_array(G)), G), "la Gram viaja en binario sin perdidas")
+coefs = [abs(s["coefficient"]) for s in r_hosp["selected"]]
+check(coefs == sorted(coefs, reverse=True) and [s["feature"] for s in r_hosp["selected"]] == r_hosp["selected_cpgs"],
+      "selected: CpGs con su coeficiente, de mayor a menor |coeficiente|")
+check(r_hosp["privacy_warnings"] == [], "sin aviso de privacidad cuando hay mas muestras que features")
+check(len(r_sub["privacy_warnings"]) == 1, "aviso de privacidad cuando un nodo tiene menos muestras que features")
+
+# ---------------------------------------------------------------------------
+print("\n[10] Real vantage6 node")
+import ast  # noqa: E402
+import inspect  # noqa: E402
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+from vantage6.algorithm.client import AlgorithmClient  # noqa: E402
+
+root = Path(__file__).parent.parent
+real_params = set(inspect.signature(AlgorithmClient.Task.create).parameters) - {"self"}
+tree = ast.parse((root / "v6-elastic-net-py" / "federated.py").read_text())
+used = {kw.arg for node in ast.walk(tree) if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute) and node.func.attr == "create"
+        and ast.unparse(node.func.value) == "client.task" for kw in node.keywords}
+check(used <= real_params, f"client.task.create solo usa argumentos del cliente real {sorted(used)}")
+pkg_name = re.search(r'ARG PKG_NAME="([^"]+)"', (root / "Dockerfile").read_text()).group(1)
+check(all(hasattr(import_module(pkg_name), f) for f in ("central", "partial_moments", "partial_gram")),
+      f"PKG_NAME del Dockerfile ('{pkg_name}') es el modulo importable")
 
 print("\nAll checks passed.")
