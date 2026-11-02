@@ -1,0 +1,105 @@
+{
+  "name": "SVM_TEST",
+  "image": "ghcr.io/vantage6/algorithm/svm_test",
+  "vantage6_version": "5.0",
+  "code_url": "https://mygitrepo.org",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "description": "svm algorithm for episignature discovery",
+      "step_type": "central_compute",
+      "databases": [
+        {
+          "name": "Central database 1"
+        }
+      ],
+      "arguments": [
+        { "name": "features", "type": "", "description": "" },
+        { "name": "outcome_column", "type": "", "description": "" },
+        { "name": "classes", "type": "", "description": "" },
+        { "name": "reference_cohort", "type": "", "description": "" },
+        { "name": "C_grid", "type": "", "description": "" },
+        { "name": "n_folds", "type": "", "description": "" },
+        { "name": "max_rounds", "type": "", "description": "" },
+        { "name": "tolerance", "type": "", "description": "" },
+        { "name": "random_seed", "type": "", "description": "" },
+        { "name": "min_samples", "type": "", "description": "" },
+        { "name": "run_loho", "type": "", "description": "" },
+        { "name": "stability_top_k", "type": "", "description": "" }
+      ]
+    },
+    {
+      "name": "partial_cohorts",
+      "description": "",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        { "name": "features", "type": "", "description": "" },
+        { "name": "outcome_column", "type": "", "description": "" }
+      ]
+    },
+    {
+      "name": "partial_summary",
+      "description": "",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        { "name": "features", "type": "", "description": "" },
+        { "name": "outcome_column", "type": "", "description": "" },
+        { "name": "classes", "type": "", "description": "" },
+        { "name": "n_folds", "type": "", "description": "" },
+        { "name": "random_seed", "type": "", "description": "" },
+        { "name": "min_samples", "type": "", "description": "" }
+      ]
+    },
+    {
+      "name": "partial_svm",
+      "description": "",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        { "name": "features", "type": "", "description": "" },
+        { "name": "outcome_column", "type": "", "description": "" },
+        { "name": "classes", "type": "", "description": "" },
+        { "name": "jobs", "type": "", "description": "" },
+        { "name": "n_folds", "type": "", "description": "" },
+        { "name": "random_seed", "type": "", "description": "" },
+        { "name": "min_samples", "type": "", "description": "" }
+      ]
+    },
+    {
+      "name": "partial_evaluate",
+      "description": "",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        { "name": "features", "type": "", "description": "" },
+        { "name": "outcome_column", "type": "", "description": "" },
+        { "name": "classes", "type": "", "description": "" },
+        { "name": "jobs", "type": "", "description": "" },
+        { "name": "n_folds", "type": "", "description": "" },
+        { "name": "random_seed", "type": "", "description": "" },
+        { "name": "min_samples", "type": "", "description": "" },
+        { "name": "score_bins", "type": "", "description": "" }
+      ]
+    }
+  ]
+}

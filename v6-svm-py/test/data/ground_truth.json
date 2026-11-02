@@ -1,0 +1,33 @@
+{
+  "description": "Synthetic data. Planted methylation differences (delta beta) of each cohort relative to the reference cohort.",
+  "seed": 2024,
+  "cohorts": [
+    "early_rejection",
+    "late_rejection",
+    "no_rejection"
+  ],
+  "reference_cohort": "no_rejection",
+  "hospitals": {
+    "hospital_1": 45,
+    "hospital_2": 30,
+    "hospital_3": 15
+  },
+  "differential_cpgs": {
+    "early_rejection": {
+      "cg16961919": -0.2852,
+      "cg30945189": 0.3363,
+      "cg98600311": -0.1865,
+      "cg58875915": 0.1459,
+      "cg82955664": 0.3123,
+      "cg20634389": 0.1395
+    },
+    "late_rejection": {
+      "cg82601876": -0.2812,
+      "cg91533846": 0.3408,
+      "cg44272554": 0.1909,
+      "cg64152846": -0.1229,
+      "cg21315734": 0.2306,
+      "cg12957478": 0.2851
+    }
+  }
+}
