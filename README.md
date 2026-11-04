@@ -74,7 +74,7 @@ The algorithm boilerplate contains a `Dockerfile` in the root folder. Enter the 
 cd /directory/with/dockerfile
 # replace $myusername with your Dockerhub username
 docker login -u $myusername
-docker build -t $myusername/algorithm-name .
+docker buildx build --platform linux/amd64 -t $myusername/algorithm-name .
 docker push $myusername/algorithm-name
 ```
 
