@@ -1945,6 +1945,72 @@ def _summary(comparisons, n_top=5, features_selected_on_same_samples=None,
     return lines_per_comparison
 
 
+def _tables(comparisons, evidence_summary):
+    """
+    Flat tables (lists of records) for display, e.g. in the vantage6 UI:
+    the interpretation, the performance and the ranked CpGs of each
+    comparison. They repeat values from ``comparisons``.
+    """
+
+    def interval(metrics, side):
+        bounds = (metrics or {}).get("balanced_accuracy_interval")
+        return bounds[side] if bounds else None
+
+    interpretation = []
+    performance = []
+    cpgs = []
+
+    for comparison, text in zip(comparisons, evidence_summary):
+
+        name = comparison["comparison"]
+        cv = comparison["cv_metrics"] or {}
+        loho = comparison["loho_metrics"] or {}
+        stability = comparison["stability"] or {}
+
+        interpretation.append(
+            {
+                "comparison": name,
+                "interpretation": text.split("Interpretation", 1)[-1].strip(),
+            }
+        )
+
+        performance.append(
+            {
+                "comparison": name,
+                "cv_balanced_accuracy": cv.get("balanced_accuracy"),
+                "cv_ci_low": interval(cv, 0),
+                "cv_ci_high": interval(cv, 1),
+                "sensitivity": cv.get("sensitivity"),
+                "specificity": cv.get("specificity"),
+                "loho_balanced_accuracy": loho.get("balanced_accuracy"),
+                "loho_ci_low": interval(loho, 0),
+                "loho_ci_high": interval(loho, 1),
+                "stability_correlation": stability.get(
+                    "mean_coefficient_correlation"
+                ),
+                "stability_top_k_jaccard": stability.get("mean_top_k_jaccard"),
+            }
+        )
+
+        for entry in comparison["signature"]:
+            cpgs.append(
+                {
+                    "comparison": name,
+                    "rank": entry["rank"],
+                    "cpg": entry["cpg"],
+                    "coefficient": entry["coefficient"],
+                    "pushes_towards": entry["direction"],
+                    "delta_beta": entry["methylation"]["mean_difference"],
+                }
+            )
+
+    return {
+        "interpretation": interpretation,
+        "performance": performance,
+        "cpgs": cpgs,
+    }
+
+
 def _histograms_to_dict(histograms, comparison_names, classes):
 
     return {
@@ -2411,6 +2477,9 @@ def central(
         "evidence_summary": evidence_summary,
 
         "comparisons": comparisons,
+
+        # The same results as flat tables (e.g. for the vantage6 UI).
+        "tables": _tables(comparisons, evidence_summary),
 
         "visualization": {
             "score_bins": SCORE_BINS,

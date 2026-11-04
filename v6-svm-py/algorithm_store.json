@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.2.1",
+  "image": "localhost:32000/protect-child/svm:1.3.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -149,6 +149,45 @@
           "has_default_value": true,
           "default_value": null,
           "is_frontend_only": false
+        }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Interpretation",
+          "description": "Plain-language interpretation of each comparison",
+          "type": "table",
+          "schema": {
+            "location": [
+              "tables",
+              "interpretation"
+            ],
+            "columns": [
+              "comparison",
+              "interpretation"
+            ]
+          }
+        },
+        {
+          "name": "Performance",
+          "description": "Balanced accuracy with 95% interval (cross-validation and leave-one-hospital-out) and stability",
+          "type": "table",
+          "schema": {
+            "location": [
+              "tables",
+              "performance"
+            ]
+          }
+        },
+        {
+          "name": "Ranked CpGs",
+          "description": "CpGs of each comparison by size of the coefficient",
+          "type": "table",
+          "schema": {
+            "location": [
+              "tables",
+              "cpgs"
+            ]
+          }
         }
       ]
     },

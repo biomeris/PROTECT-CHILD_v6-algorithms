@@ -52,6 +52,26 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Beta and M values per cohort",
+          "description": "Global mean Beta and M value per probe and cohort",
+          "type": "table",
+          "schema": {
+            "location": [],
+            "columns": [
+              "probe_id",
+              "cohort",
+              "beta_mean_global",
+              "m_mean_global",
+              "delta_beta",
+              "n_samples_cohort",
+              "n_samples_total",
+              "coverage"
+            ]
+          }
+        }
       ]
     },
     {

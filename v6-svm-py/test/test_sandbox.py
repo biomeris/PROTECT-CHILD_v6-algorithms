@@ -137,6 +137,12 @@ check("selected independently" in " ".join(independent["evidence_summary"])
       and independent["validation"]["features_selected_on_same_samples"] is False,
       "features_selected_on_same_samples=False: stated, and kept in the output")
 
+tables = wide["tables"]
+check(len(tables["interpretation"]) == len(wide["comparisons"])
+      and tables["performance"][0]["cv_balanced_accuracy"] == wide["comparisons"][0]["cv_metrics"]["balanced_accuracy"]
+      and len(tables["cpgs"]) == len(CPGS) * len(wide["comparisons"])
+      and all(not isinstance(v, (dict, list)) for row in tables["cpgs"] + tables["performance"] for v in row.values()),
+      "flat tables (interpretation, performance, cpgs) repeat the results with one value per cell")
 binary_text = " ".join(wide["evidence_summary"])
 check(f"C = {wide['model']['C']:g}, selected by cross-validation from 0.001-100" in binary_text,
       "the summary states the selected C and the grid it came from")

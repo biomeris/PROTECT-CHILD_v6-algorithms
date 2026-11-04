@@ -66,6 +66,48 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Epigenetic age per cohort",
+          "description": "Mean predicted age, chronological age and age acceleration per clock and cohort",
+          "type": "table",
+          "schema": {
+            "location": [
+              "results"
+            ],
+            "columns": [
+              "cohort",
+              "clock",
+              "mean_age_global",
+              "sd_age_global",
+              "mean_chronological_age_global",
+              "mean_age_acceleration_global",
+              "n_samples_total",
+              "n_nodes",
+              "coverage_ok"
+            ]
+          }
+        },
+        {
+          "name": "Clock coverage",
+          "description": "Share of each clock's CpGs present in the data",
+          "type": "table",
+          "schema": {
+            "location": [
+              "clock_coverage"
+            ],
+            "columns": [
+              "clock",
+              "coverage_min",
+              "coverage_max",
+              "n_nodes_reported",
+              "n_nodes_coverage_ok",
+              "tissue",
+              "population"
+            ]
+          }
+        }
       ]
     },
     {

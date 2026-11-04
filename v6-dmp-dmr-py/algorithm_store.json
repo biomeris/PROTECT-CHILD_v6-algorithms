@@ -113,6 +113,52 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Differentially methylated positions",
+          "description": "Top DMPs (random-effects meta-analysis over hospitals)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "global_dmps"
+            ],
+            "columns": [
+              "probe_id",
+              "chromosome",
+              "position",
+              "genes",
+              "delta_beta",
+              "estimate",
+              "p_value",
+              "adj_p_value",
+              "heterogeneity_p_value",
+              "n_nodes",
+              "n_samples_a",
+              "n_samples_b"
+            ]
+          }
+        },
+        {
+          "name": "Differentially methylated regions",
+          "description": "Runs of significant neighbouring probes",
+          "type": "table",
+          "schema": {
+            "location": [
+              "global_dmrs"
+            ],
+            "columns": [
+              "chromosome",
+              "start",
+              "end",
+              "n_probes",
+              "genes",
+              "direction",
+              "mean_delta_beta",
+              "max_probe_adj_p_value"
+            ]
+          }
+        }
       ]
     },
     {

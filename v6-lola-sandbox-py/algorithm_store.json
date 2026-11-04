@@ -65,6 +65,30 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Enriched region sets",
+          "description": "LOLACore region sets, smallest p-value first",
+          "type": "table",
+          "schema": {
+            "location": [
+              "results"
+            ],
+            "columns": [
+              "collection",
+              "description",
+              "cellType",
+              "tissue",
+              "antibody",
+              "support",
+              "b",
+              "oddsRatio",
+              "pValue",
+              "qValue"
+            ]
+          }
+        }
       ]
     }
   ]
