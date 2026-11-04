@@ -159,7 +159,9 @@
             ]
           }
         }
-      ]
+      ],
+      "standalone": true,
+      "display_name": "Differentially methylated positions and regions"
     },
     {
       "name": "rpc_compute_methylation",
@@ -223,7 +225,8 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
-      ]
+      ],
+      "standalone": false
     }
   ]
 }

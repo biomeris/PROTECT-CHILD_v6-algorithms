@@ -189,7 +189,8 @@
             ]
           }
         }
-      ]
+      ],
+      "standalone": true
     },
     {
       "name": "partial_cohorts",
@@ -236,7 +237,8 @@
           "has_default_value": true,
           "default_value": "beta"
         }
-      ]
+      ],
+      "standalone": false
     },
     {
       "name": "partial_summary",
@@ -318,7 +320,8 @@
           "has_default_value": true,
           "default_value": "beta"
         }
-      ]
+      ],
+      "standalone": false
     },
     {
       "name": "partial_svm",
@@ -408,7 +411,8 @@
           "has_default_value": true,
           "default_value": "beta"
         }
-      ]
+      ],
+      "standalone": false
     },
     {
       "name": "partial_evaluate",
@@ -507,7 +511,8 @@
           "has_default_value": true,
           "default_value": "beta"
         }
-      ]
+      ],
+      "standalone": false
     }
   ]
 }

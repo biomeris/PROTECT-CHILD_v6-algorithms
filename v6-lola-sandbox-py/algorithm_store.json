@@ -89,7 +89,8 @@
             ]
           }
         }
-      ]
+      ],
+      "standalone": true
     }
   ]
 }

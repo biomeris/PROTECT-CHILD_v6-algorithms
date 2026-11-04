@@ -72,7 +72,9 @@
             ]
           }
         }
-      ]
+      ],
+      "standalone": true,
+      "display_name": "Beta and M values per cohort"
     },
     {
       "name": "federated_function",
@@ -111,7 +113,8 @@
           "has_default_value": false,
           "is_frontend_only": false
         }
-      ]
+      ],
+      "standalone": false
     },
     {
       "name": "federated_top_probes",
@@ -150,7 +153,8 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
-      ]
+      ],
+      "standalone": false
     }
   ]
 }

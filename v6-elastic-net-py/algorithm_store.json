@@ -7,7 +7,7 @@
   "functions": [
     {
       "name": "central",
-      "display_name": "Federated Elastic Net (central)",
+      "display_name": "Elastic net CpG selection",
       "description": "Coordinator: aggregates sufficient statistics from all nodes and solves Elastic Net by coordinate descent. Returns coefficients and selected CpGs.",
       "databases": [
         {
@@ -157,7 +157,8 @@
             ]
           }
         }
-      ]
+      ],
+      "standalone": true
     },
     {
       "name": "partial_moments",
@@ -241,7 +242,8 @@
           "has_default_value": true
         }
       ],
-      "step_type": "federated_compute"
+      "step_type": "federated_compute",
+      "standalone": false
     },
     {
       "name": "partial_gram",
@@ -346,7 +348,8 @@
           "has_default_value": true
         }
       ],
-      "step_type": "federated_compute"
+      "step_type": "federated_compute",
+      "standalone": false
     }
   ]
 }

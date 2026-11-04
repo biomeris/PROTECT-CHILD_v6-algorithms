@@ -61,7 +61,9 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
-      ]
+      ],
+      "standalone": true,
+      "display_name": "Extract Beta and M values from IDATs"
     }
   ]
 }

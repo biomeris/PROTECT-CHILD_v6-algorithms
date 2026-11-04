@@ -108,7 +108,9 @@
             ]
           }
         }
-      ]
+      ],
+      "standalone": true,
+      "display_name": "Epigenetic age per cohort"
     },
     {
       "name": "federated_function",
@@ -170,7 +172,8 @@
           "has_default_value": true,
           "is_frontend_only": false
         }
-      ]
+      ],
+      "standalone": false
     }
   ]
 }
