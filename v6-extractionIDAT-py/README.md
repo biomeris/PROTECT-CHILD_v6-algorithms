@@ -47,14 +47,14 @@ then Beta and M values of the probes that pass the masks (pylluminator).
 | --- | --- | --- |
 | `cohort_column` | `"cohort"` | Sample sheet column that holds the cohort |
 | `sample_sheet_name` | `samplesheet.csv` or `sample_sheet.csv` | Sample sheet file name |
-| `sample_columns` | none | Other sample sheet columns to add to every row, e.g. `["Age"]` (named in snake_case: `age`). Numeric columns become numbers; empty or `NA` values are kept as missing |
+| `sample_columns` | none | Other sample sheet columns to add to every row, e.g. `["Site"]` (named in snake_case). Numeric columns become numbers; empty or `NA` values are kept as missing. An `Age` column (any capitalisation) is added automatically as `age` when the sample sheet has one, for the epigenetic clocks |
 | `pvalue_threshold` | `0.05` | pOOBAH detection p-value threshold |
 | `min_beads` | `1` | Minimum number of beads per probe |
 
 ### Output
 
 One row per (probe, sample): `probe_id`, `sample_label`, `cohort`, `beta`,
-`m_value` (float32), followed by the `sample_columns`.
+`m_value` (float32), followed by the `sample_columns` and, if the sample sheet has one, `age`.
 
 Size: an EPIC v2 sample has about 870k probes after QC. 17 samples gave 14.7 million
 rows, a 226 MB dataframe at the node, about 100 s and 4 GB of memory to extract.

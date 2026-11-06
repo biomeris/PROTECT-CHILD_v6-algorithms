@@ -35,7 +35,7 @@ EPIC v2 tables of ~870k probes.
 
 | Argument | Type | Default | Description |
 | --- | --- | --- | --- |
-| `lista_relojes` | list of strings | `horvath2013`, `hannum`, `pcphenoage`, `pedbe` | pyaging clocks to calculate; the user can choose any pyaging clock names |
+| `lista_relojes` | list of strings | `horvath2013`, `hannum`, `pcphenoage`, `pedbe` | pyaging clocks to calculate (empty = the defaults). The web interface offers the 142 clocks of the image as a list; [docs/clocks.md](docs/clocks.md) describes what each predicts, for which tissue and population, and which need extra inputs |
 | `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample |
 | `min_samples` | integer (>= 2) | `3` | Minimum number of samples a cohort needs on a node to be included |
 | `coverage_threshold` | float (0-1) | `0.9` | Minimum coverage for a result to be flagged `coverage_ok`; only sets the flag, never removes results |

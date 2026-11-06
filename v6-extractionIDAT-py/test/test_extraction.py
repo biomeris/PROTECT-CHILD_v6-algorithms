@@ -154,6 +154,19 @@ with tempfile.TemporaryDirectory() as tmp:
     )
     check(result["site"].dtype == object, "text sample sheet column stays text")
 
+    automatic = extraction_impl({}, idat_dir=str(folder))
+    check(list(automatic.columns) == OUTPUT_COLUMNS + ["age"]
+          and automatic.groupby("sample_label")["age"].first().to_dict()
+          == {"6264509100_R01C01": 54, "6264509100_R01C02": 61},
+          "an 'Age' column in the sample sheet is added automatically, without requesting it")
+    only_site = extraction_impl({}, idat_dir=str(folder), sample_columns=["Site"])
+    check(list(only_site.columns) == OUTPUT_COLUMNS + ["site", "age"],
+          "requested columns first, then the automatic age")
+    (folder / "sample_sheet.csv").write_text(
+        "Sample_ID,Cohort,AGE\n6264509100_R01C01,cohort_A,54\n6264509100_R01C02,cohort_B,61\n")
+    check("age" in extraction_impl({}, idat_dir=str(folder)).columns, "any capitalisation of Age is found")
+check(list(result.columns).count("age") == 1, "a requested Age is not added a second time")
+
 # ---------------------------------------------------------------------------
 # 4. Sample sheet variants and errors (temporary folders with empty IDAT files)
 # ---------------------------------------------------------------------------

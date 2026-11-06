@@ -121,6 +121,11 @@ def resolve_idat_folder(connection_details: dict, idat_dir: str | None = None) -
     return folder
 
 
+# Sample sheet columns added whenever the sheet has them (any capitalisation), even if
+# not requested: the age is needed by the epigenetic clocks' age acceleration.
+AUTOMATIC_COLUMNS = ("age",)
+
+
 def sample_metadata(
     idat_dir: Path,
     cohort_column: str = "cohort",
@@ -129,8 +134,9 @@ def sample_metadata(
 ) -> pd.DataFrame:
     """Find the IDAT samples in a folder and their cohort in the sample sheet.
 
-    Returns one row per sample with `sample_label`, `cohort` and one column per
-    entry in `sample_columns` (named in snake_case, e.g. 'Age' -> 'age').
+    Returns one row per sample with `sample_label`, `cohort`, one column per
+    entry in `sample_columns` (named in snake_case, e.g. 'Age' -> 'age') and the
+    AUTOMATIC_COLUMNS the sheet has, if not requested already.
     Raises if the folder has no IDATs, the sheet or a requested column is missing,
     or a sample is not in the sheet or has no cohort.
     """
@@ -176,6 +182,11 @@ def sample_metadata(
             f"sample_columns {unknown} not found in sample sheet {sheet_path.name}. "
             f"Available columns: {sorted(sheet.columns)}."
         )
+
+    for key in AUTOMATIC_COLUMNS:
+        if key in sheet.columns and key not in extra_keys and key != cohort_key:
+            info(f"Sample sheet column '{key}' found: added automatically")
+            extra_keys.append(key)
 
     rows = _sheet_rows_by_sample_label(sheet, cohort_key)
     metadata = pd.DataFrame({"sample_label": sample_labels})
