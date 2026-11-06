@@ -119,6 +119,49 @@ def build_bundle(out_dir: str, clocks: list[str] | None = None) -> dict:
     return manifest
 
 
+# Clock sets offered in the web interface (one dropdown). Except the default set, they
+# are computed from the bundle's metadata, so they always match the bundled clocks,
+# and they leave out clocks that need inputs this algorithm does not provide.
+DEFAULT_SET = "Default (horvath2013, hannum, pcphenoage, pedbe)"
+ONLY_LISTED = "Only the clocks listed below"
+CLOCK_SETS = (
+    DEFAULT_SET,
+    "Blood chronological-age clocks",
+    "All chronological-age clocks",
+    "Biological, phenotypic and mortality clocks",
+    "Paediatric and gestational clocks",
+    "Mitotic clocks",
+    ONLY_LISTED,
+)
+PAEDIATRIC_POPULATIONS = {"children", "children and adolescents", "newborns", "prenatal and newborn",
+                          "pregnancies"}
+
+
+def clocks_in_set(name: str, bundle: dict) -> list[str]:
+    """The bundled clocks of a computed clock set (not DEFAULT_SET or ONLY_LISTED)."""
+    def matches(meta: dict) -> bool:
+        predicts = meta.get("predicts") or []
+        tissue = " ".join(meta.get("tissue") or [])
+        population = meta.get("population") or ""
+        first = predicts[0] if predicts else ""
+        if name == "Blood chronological-age clocks":
+            return first == "chronological age" and ("blood" in tissue or "leukocyte" in tissue)
+        if name == "All chronological-age clocks":
+            return first == "chronological age"
+        if name == "Biological, phenotypic and mortality clocks":
+            return any(p in ("biological age", "phenotypic age", "mortality risk") for p in predicts)
+        if name == "Paediatric and gestational clocks":
+            # Age estimators for children and pregnancies, not other newborn scores
+            return first == "gestational age" or (first == "chronological age"
+                                                   and population in PAEDIATRIC_POPULATIONS)
+        if name == "Mitotic clocks":
+            return "mitotic age" in predicts
+        raise ValueError(f"Unknown clock set {name!r}; choose one of {list(CLOCK_SETS)}")
+
+    clocks = bundle.get("clocks", {})
+    return sorted(c for c, meta in clocks.items() if not meta.get("extra_features") and matches(meta))
+
+
 def load_bundle() -> dict | None:
     """The bundle manifest at $EPICLOCK_CLOCK_BUNDLE, or None (e.g. local development)."""
     path = os.environ.get(BUNDLE_ENV)

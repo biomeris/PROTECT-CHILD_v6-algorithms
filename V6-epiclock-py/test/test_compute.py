@@ -416,10 +416,13 @@ check(
     f"without lista_relojes only the default clocks {DEFAULT_CLOCKS} are calculated, with the same results",
 )
 store = json.loads((current_path.parent / "algorithm_store.json").read_text())
-store_defaults = [a.get("default_value") for f in store["functions"] for a in f["arguments"] if a["name"] == "lista_relojes"]
+from epiclock_v5.clock_bundle import CLOCK_SETS as _SETS, DEFAULT_SET as _DEFAULT_SET  # noqa: E402
+central_store = next(f for f in store["functions"] if f["name"] == "central_function")
+clock_set_arg = next(a for a in central_store["arguments"] if a["name"] == "clock_set")
 check(
-    len(store_defaults) == 2 and all(d == DEFAULT_CLOCKS for d in store_defaults),
-    "algorithm_store.json offers the same default clocks as DEFAULT_CLOCKS (both functions)",
+    clock_set_arg["allowed_values"] == list(_SETS) and clock_set_arg["default_value"] == _DEFAULT_SET
+    and _DEFAULT_SET == f"Default ({', '.join(DEFAULT_CLOCKS)})",
+    "algorithm_store.json offers the clock sets as a dropdown, with the default clocks (DEFAULT_CLOCKS) first",
 )
 check(all_ok["coverage_ok"].all(), "threshold 0 -> every result coverage_ok, nothing removed")
 
@@ -726,5 +729,46 @@ try:
 except RuntimeError as exc:
     check("not present" in str(exc), "a refused subtask stops the task with HQ's message (instead of waiting forever)")
 check(check_subtask({"id": 7}, "x") == 7, "a created subtask returns its id")
+
+print("\n[10] Clock sets")
+from epiclock_v5.central import resolve_clocks  # noqa: E402
+from epiclock_v5.clock_bundle import CLOCK_SETS, DEFAULT_SET, ONLY_LISTED, clocks_in_set  # noqa: E402
+
+fake_bundle = {"clocks": {
+    "hannum": {"predicts": ["chronological age"], "tissue": ["whole blood"], "population": "adults"},
+    "horvath2013": {"predicts": ["chronological age"], "tissue": ["multi-tissue"], "population": "all ages"},
+    "pedbe": {"predicts": ["chronological age"], "tissue": ["buccal epithelium"], "population": "children and adolescents"},
+    "knight": {"predicts": ["gestational age"], "tissue": ["cord blood"], "population": "newborns"},
+    "pcphenoage": {"predicts": ["phenotypic age"], "tissue": ["whole blood"], "population": "adults"},
+    "epitoc2": {"predicts": ["mitotic age"], "tissue": ["multi-tissue"], "population": "adults"},
+    "downsyndrome": {"predicts": ["Down syndrome methylation score"], "tissue": ["neonatal blood spots"],
+                     "population": "newborns"},
+    "grimage2": {"predicts": ["mortality risk"], "tissue": ["whole blood"], "population": "adults",
+                 "extra_features": ["female", "age"]},
+}}
+check(clocks_in_set("Blood chronological-age clocks", fake_bundle) == ["hannum"],
+      "blood chronological-age clocks")
+check(clocks_in_set("All chronological-age clocks", fake_bundle) == ["hannum", "horvath2013", "pedbe"],
+      "all chronological-age clocks")
+check(clocks_in_set("Paediatric and gestational clocks", fake_bundle) == ["knight", "pedbe"],
+      "paediatric and gestational clocks: age estimators only (not other newborn scores)")
+check(clocks_in_set("Biological, phenotypic and mortality clocks", fake_bundle) == ["pcphenoage"],
+      "clocks that need extra inputs (grimage2) are left out of the sets")
+check(clocks_in_set("Mitotic clocks", fake_bundle) == ["epitoc2"], "mitotic clocks")
+check(resolve_clocks(None, None, None) == ["horvath2013", "hannum", "pcphenoage", "pedbe"]
+      and resolve_clocks(None, ["hannum"], None) == ["hannum"],
+      "without a set: the listed clocks, or the defaults (unchanged behaviour)")
+check(resolve_clocks(DEFAULT_SET, ["epitoc2"], None) == ["horvath2013", "hannum", "pcphenoage", "pedbe", "epitoc2"],
+      "listed clocks are added to the set, without duplicates")
+check(resolve_clocks(ONLY_LISTED, ["knight", ""], None) == ["knight"], "only the listed clocks (blank rows ignored)")
+for args, text in (((ONLY_LISTED, [], None), "no clock is listed"),
+                   (("Blood chronological-age clocks", None, None), "need the clock bundle"),
+                   (("Nonsense", None, fake_bundle), "Unknown clock set")):
+    try:
+        resolve_clocks(*args)
+        check(False, text)
+    except ValueError as exc:
+        check(text in str(exc), f"clear error: {exc}")
+check(len(CLOCK_SETS) == 7 and CLOCK_SETS[0] == DEFAULT_SET, "seven clock sets, the default first")
 
 print("\nAll checks passed.")

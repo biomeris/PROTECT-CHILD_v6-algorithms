@@ -35,6 +35,7 @@ EPIC v2 tables of ~870k probes.
 
 | Argument | Type | Default | Description |
 | --- | --- | --- | --- |
+| `clock_set` | string | none | `central_function` only. A clock set (the web interface's dropdown): `Default (horvath2013, hannum, pcphenoage, pedbe)`, `Blood chronological-age clocks`, `All chronological-age clocks`, `Biological, phenotypic and mortality clocks`, `Paediatric and gestational clocks`, `Mitotic clocks` or `Only the clocks listed below`. Except the default, the sets are computed from the image's clock bundle and leave out clocks needing extra inputs; `lista_relojes` are added to the set. Not given: `lista_relojes`, or the defaults |
 | `lista_relojes` | list of strings | `horvath2013`, `hannum`, `pcphenoage`, `pedbe` | pyaging clocks to calculate (empty = the defaults). The web interface offers the 142 clocks of the image as a list; [docs/clocks.md](docs/clocks.md) describes what each predicts, for which tissue and population, and which need extra inputs |
 | `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample |
 | `min_samples` | integer (>= 2) | `3` | Minimum number of samples a cohort needs on a node to be included |

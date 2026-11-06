@@ -14,7 +14,7 @@ from vantage6.algorithm.decorator.algorithm_client import algorithm_client
 from vantage6.algorithm.decorator.action import central
 from vantage6.algorithm.client import AlgorithmClient
 
-from .clock_bundle import load_bundle
+from .clock_bundle import CLOCK_SETS, DEFAULT_SET, ONLY_LISTED, clocks_in_set, load_bundle
 from .federated import DEFAULT_CLOCKS, NODE_RESULT_COLUMNS
 
 GLOBAL_RESULT_COLUMNS = [
@@ -216,11 +216,33 @@ def check_subtask(task: Any, name: str) -> int:
     return task["id"]
 
 
+def resolve_clocks(clock_set: str | None, listed: List[str] | None, bundle: dict | None) -> List[str]:
+    """The clocks to calculate: a clock set (see CLOCK_SETS) plus the listed clocks.
+    Without a set: the listed clocks, or DEFAULT_CLOCKS if none are listed."""
+    listed = [clock for clock in (listed or []) if clock]
+    if clock_set in (None, ""):
+        return listed or list(DEFAULT_CLOCKS)
+    if clock_set == ONLY_LISTED:
+        if not listed:
+            raise ValueError("Clock set 'Only the clocks listed below', but no clock is listed")
+        return listed
+    if clock_set == DEFAULT_SET:
+        base = list(DEFAULT_CLOCKS)
+    elif clock_set in CLOCK_SETS:
+        if bundle is None:
+            raise ValueError("Clock sets need the clock bundle of the Docker image")
+        base = clocks_in_set(clock_set, bundle)
+    else:
+        raise ValueError(f"Unknown clock set {clock_set!r}; choose one of {list(CLOCK_SETS)}")
+    return base + [clock for clock in listed if clock not in base]
+
+
 @central
 @algorithm_client
 def central_function(
     client: AlgorithmClient,
     lista_relojes: List[str] | None = None,
+    clock_set: str | None = None,
     cohort_column: str = "cohort",
     min_samples: int = 3,
     coverage_threshold: float = 0.9,
@@ -240,7 +262,11 @@ def central_function(
     lista_relojes : List[str], optional
         pyaging clock names to calculate (e.g., ['horvath2013', 'hannum', 'pedbe']).
         If not given or empty, DEFAULT_CLOCKS (defined in federated.py) are
-        calculated.
+        calculated, unless a ``clock_set`` is chosen.
+    clock_set : str, optional
+        One of CLOCK_SETS (clock_bundle.py): the default clocks, a set computed
+        from the bundle (e.g. blood chronological-age clocks), or only the
+        listed clocks. The clocks of ``lista_relojes`` are added to the set.
     cohort_column : str, optional
         Name of the column in each node's data that holds the cohort of each sample
         (default: "cohort")
@@ -274,10 +300,9 @@ def central_function(
     org_ids = select_organizations(client, organizations_to_include)
     info(f"Using {len(org_ids)} organizations")
 
-    if not lista_relojes:
-        lista_relojes = list(DEFAULT_CLOCKS)
-        info("No clocks specified; using the default clocks")
     bundle = load_bundle()
+    lista_relojes = resolve_clocks(clock_set, lista_relojes, bundle)
+    info(f"Clocks ({clock_set or 'as listed or default'}): {lista_relojes}")
     check_requested_clocks(lista_relojes, bundle)
     info(f"Creating subtask to calculate clocks: {lista_relojes}")
     task = client.task.create(
@@ -322,6 +347,8 @@ def central_function(
     if n_mapped < len(results):
         info(f"{len(results) - n_mapped} node(s) did not map renamed EPIC v2 CpGs (mapping disabled or missing)")
     return {
+        "clock_set": clock_set,
+        "clocks": lista_relojes,
         "results": global_summary.to_dict(orient="records"),
         "clock_coverage": coverage,
         "n_nodes_legacy_loci_mapping": n_mapped,

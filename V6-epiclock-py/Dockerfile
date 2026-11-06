@@ -2,19 +2,22 @@
 # basic python3 image as base
 FROM ghcr.io/vantage6/infrastructure/algorithm-base:5.0
 
-# install federated algorithm. PyTorch (needed by pyaging) is installed from the
-# CPU-only index first: the default Linux wheel pulls several GB of CUDA libraries
-# that the nodes do not use.
-COPY . /app
+# Dependencies first, before the algorithm's code, so that changing the code does not
+# reinstall them nor download the clocks again. PyTorch (needed by pyaging) is
+# installed from the CPU-only index: the default Linux wheel pulls several GB of CUDA
+# libraries that the nodes do not use. Keep these in line with pyproject.toml.
 RUN pip install torch --index-url https://download.pytorch.org/whl/cpu \
- && pip install /app
+ && pip install "vantage6-algorithm-tools>=5.0.0a43" pandas "pyaging>=0.5.7,<0.6"
 
 # Bundle the epigenetic clocks (~2.5 GB: every human DNA-methylation clock in
 # pyaging except SystemsAge) into the Hugging Face cache inside the image, so the
-# nodes never download anything and all nodes use the same clock files.
+# nodes never download anything and all nodes use the same clock files. Only the
+# bundling script and its module are copied here (no package __init__ needed).
 # An optional Hugging Face token can be passed as a build secret (not stored in the
 # image): HF_TOKEN=hf_xxx make image   (or docker buildx build --secret id=hf_token,env=HF_TOKEN ...)
 ENV HF_HOME=/opt/hf_cache
+COPY bundle_clocks.py /app/bundle_clocks.py
+COPY epiclock_v5/clock_bundle.py /app/epiclock_v5/clock_bundle.py
 RUN --mount=type=secret,id=hf_token,required=false \
     if [ -f /run/secrets/hf_token ]; then export HF_TOKEN="$(cat /run/secrets/hf_token)"; fi; \
     cd /app && python bundle_clocks.py --out /opt/clock_bundle
@@ -23,6 +26,10 @@ RUN --mount=type=secret,id=hf_token,required=false \
 # requested clocks against clocks.json.
 ENV HF_HUB_OFFLINE=1 \
     EPICLOCK_CLOCK_BUNDLE=/opt/clock_bundle/clocks.json
+
+# install federated algorithm (dependencies are already installed above)
+COPY . /app
+RUN pip install --no-deps /app
 
 # Name of the Python module that vantage6's wrapper imports: the module folder
 # (epiclock_v5), not the pip package name (epiclock-v5). Declared here, after the

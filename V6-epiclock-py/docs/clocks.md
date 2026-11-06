@@ -7,153 +7,155 @@ web interface's clock list (same order). Generated from the bundle's metadata.
 - **Extra inputs**: inputs this algorithm does not provide (e.g. sex, age, protein
   levels). pyaging then uses reference values or 0, which can bias the result; the
   result reports these clocks under `clock_coverage` (`extra_features`).
+- **Sets**: the clock sets offered in the web interface (Clock set) that include the
+  clock; clocks needing extra inputs are in no set.
 - Defaults: `horvath2013`, `hannum`, `pcphenoage` and `pedbe` (paediatric buccal
   clock, for children's samples).
 
-| Clock | Predicts | Tissue | Population | CpGs | Extra inputs | Year |
-|---|---|---|---|---|---|---|
-| `abec` | chronological age | whole blood | adults | 1695 |  | 2020 |
-| `altumage` | chronological age | multi-tissue | all ages | 20318 |  | 2022 |
-| `cabec` | chronological age | whole blood | adults | 1892 |  | 2020 |
-| `corticalclock` | chronological age | brain cortex | all ages | 347 |  | 2020 |
-| `ctsliver` | chronological age | liver | adults | 90 |  | 2024 |
-| `eabec` | chronological age | whole blood | adults | 1791 |  | 2020 |
-| `encen100` | chronological age | whole blood, saliva, buccal epithelium | centenarians | 198 |  | 2023 |
-| `encen40` | chronological age | whole blood, saliva, buccal epithelium | older adults | 559 |  | 2023 |
-| `gliasin` | chronological age | brain cortex | adults | 220 |  | 2024 |
-| `han` | chronological age | whole blood | all ages | 65 |  | 2020 |
-| `hannum` | chronological age | whole blood | adults | 71 |  | 2013 |
-| `hep` | chronological age | liver | adults | 70 |  | 2024 |
-| `horvath2013` | chronological age | multi-tissue | all ages | 353 |  | 2013 |
-| `intrinclock` | chronological age | multi-tissue | all ages | 380 |  | 2024 |
-| `intrinclock370` | chronological age | multi-tissue | all ages | 370 |  | 2024 |
-| `lin` | chronological age | whole blood | all ages | 99 |  | 2016 |
-| `neusin` | chronological age | brain cortex | adults | 672 |  | 2024 |
-| `pcbrainage` | chronological age | brain cortex | adults | 357852 |  | 2022 |
-| `pchannum` | chronological age | whole blood | adults | 78464 |  | 2022 |
-| `pchorvath2013` | chronological age | multi-tissue | all ages | 78464 |  | 2022 |
-| `pcskinandblood` | chronological age | skin, whole blood, cultured fibroblasts | all ages | 78464 |  | 2022 |
-| `pedbe` | chronological age | buccal epithelium | children and adolescents | 94 |  | 2020 |
-| `pipekelasticnet` | chronological age | multi-tissue | all ages | 239 |  | 2022 |
-| `pipekfilteredh` | chronological age | multi-tissue | all ages | 272 |  | 2022 |
-| `pipekretrainedh` | chronological age | multi-tissue | all ages | 308 |  | 2022 |
-| `retroelementagev1` | chronological age | whole blood | all ages | 1317 |  | 2024 |
-| `retroelementagev2` | chronological age | whole blood | all ages | 1378 |  | 2024 |
-| `senchronoage` | chronological age | whole blood | adults | 187 |  | 2026 |
-| `skinandblood` | chronological age | buccal epithelium, whole blood, epithelium, cultured fibroblasts, skin, cord blood | all ages | 391 |  | 2018 |
-| `stoch` | chronological age | sorted monocytes | adults | 353 |  | 2024 |
-| `stocp` | chronological age | sorted monocytes | adults | 513 |  | 2024 |
-| `stocz` | chronological age | sorted monocytes | adults | 514 |  | 2024 |
-| `vidalbralo` | chronological age | whole blood | adults | 8 |  | 2016 |
-| `wu` | chronological age | whole blood | children | 111 |  | 2019 |
-| `yingcausage` | chronological age | whole blood | adults | 585 |  | 2024 |
-| `zhangblup` | chronological age | whole blood, saliva | all ages | 319607 |  | 2019 |
-| `zhangen` | chronological age | whole blood, saliva | all ages | 514 |  | 2019 |
-| `dnamphenoage` | phenotypic age | whole blood | adults | 513 |  | 2018 |
-| `hrsinchphenoage` | phenotypic age | whole blood | adults | 959 |  | 2022 |
-| `pcphenoage` | phenotypic age | whole blood | adults | 78464 |  | 2022 |
-| `weidner` | biological age | whole blood | all ages | 3 |  | 2014 |
-| `bohlin` | gestational age | cord blood | newborns | 251 |  | 2016 |
-| `epicga` | gestational age | cord blood | newborns | 176 |  | 2021 |
-| `knight` | gestational age | cord blood, neonatal blood spots | newborns | 148 |  | 2016 |
-| `leecontrol` | gestational age | placenta | pregnancies | 546 |  | 2019 |
-| `leerefinedrobust` | gestational age | placenta | pregnancies | 395 |  | 2019 |
-| `leerobust` | gestational age | placenta | pregnancies | 558 |  | 2019 |
-| `mayne` | gestational age | placenta | pregnancies | 62 |  | 2017 |
-| `celldrift` | mitotic age | cultured human cells | human cell cultures | 2322 |  | 2023 |
-| `epicmithyper` | mitotic age | B cells | human, age unspecified | 184 |  | 2020 |
-| `epicmithypo` | mitotic age | B cells | human, age unspecified | 1164 |  | 2020 |
-| `epitoc1` | mitotic age | multi-tissue, whole blood | all ages | 385 |  | 2016 |
-| `epitoc2` | mitotic age | whole blood | adults | 163 |  | 2020 |
-| `epitoc3` | mitotic age | cultured primary human cells, whole blood, multi-tissue, cord blood | all ages | 170 |  | 2020 |
-| `hypoclock` | mitotic age | multi-tissue | human, age unspecified | 678 |  | 2020 |
-| `miage` | mitotic age | multi-tissue | human, age unspecified | 268 |  | 2018 |
-| `stemtoc` | mitotic age | multi-tissue, cultured human cells, whole blood | all ages | 371 |  | 2024 |
-| `stemtocvitro` | mitotic age | multi-tissue, cultured human cells | prenatal and newborn | 629 |  | 2024 |
-| `adbahadosingh` | late-onset Alzheimer's disease | whole blood | older adults | 4 |  | 2021 |
-| `bocklandt` | EDARADD methylation | saliva | adults | 1 |  | 2011 |
-| `cellpopage` | cell-population passage age | cultured fibroblasts | human cell cultures | 2543 |  | 2024 |
-| `compil6` | interleukin-6 | whole blood | older adults | 35 |  | 2021 |
-| `cvdwesterman` | cardiovascular disease risk | whole blood | adults | 235 |  | 2020 |
-| `deconvolutebloodepicbcell` | B cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |
-| `deconvolutebloodepiccd4tcell` | CD4+ T cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |
-| `deconvolutebloodepiccd8tcell` | CD8+ T cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |
-| `deconvolutebloodepicmonocyte` | monocyte proportion | purified blood leukocytes | adults | 600 |  | 2018 |
-| `deconvolutebloodepicneutrophil` | neutrophil proportion | purified blood leukocytes | adults | 600 |  | 2018 |
-| `deconvolutebloodepicnkcell` | natural killer cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |
-| `depressionbarbu` | major depressive disorder | whole blood | adults | 196 |  | 2021 |
-| `dnamfili` | frailty risk | whole blood | older adults | 20 |  | 2022 |
-| `dnamic` | intrinsic capacity | whole blood | older adults | 91 |  | 2025 |
-| `dnamphenoagenonprc` | non-polycomb PhenoAge contribution | whole blood | adults | 458 |  | 2022 |
-| `dnamphenoageprc` | polycomb-related PhenoAge contribution | whole blood | adults | 55 |  | 2022 |
-| `dnamstress` | stress exposure | whole blood | adults | 211 |  | 2023 |
-| `dnamtl` | leukocyte telomere length | whole blood | adults | 140 |  | 2019 |
-| `downsyndrome` | Down syndrome methylation score | neonatal blood spots | newborns | 652 |  | 2021 |
-| `dunedinpace` | pace of aging | whole blood | adults | 20000 |  | 2022 |
-| `dunedinpoam38` | pace of aging | whole blood | adults | 46 |  | 2020 |
-| `garagnani` | ELOVL2 methylation | whole blood | all ages | 1 |  | 2012 |
-| `grimage2leptin` | leptin | whole blood | older adults | 187 |  | 2022 |
-| `grimage2logcrp` | C-reactive protein | whole blood | older adults | 132 |  | 2022 |
-| `grimage2pai1` | PAI-1 | whole blood | older adults | 211 |  | 2022 |
-| `hepatoxu` | hepatocellular carcinoma | plasma cell-free DNA | adults | 10 |  | 2017 |
-| `mccartneyalcohol` | alcohol consumption | whole blood | adults | 450 |  | 2018 |
-| `mccartneybmi` | body mass index | whole blood | adults | 1109 |  | 2018 |
-| `mccartneybodyfat` | body fat percentage | whole blood | adults | 968 |  | 2018 |
-| `mccartneyeducation` | educational attainment | whole blood | adults | 373 |  | 2018 |
-| `mccartneyhdlcholesterol` | HDL cholesterol | whole blood | adults | 737 |  | 2018 |
-| `mccartneyldlcholesterol` | LDL cholesterol | whole blood | adults | 233 |  | 2018 |
-| `mccartneysmoking` | smoking exposure | whole blood | adults | 233 |  | 2018 |
-| `mccartneytotalcholesterol` | total cholesterol | whole blood | adults | 204 |  | 2018 |
-| `mccartneytotalhdlratio` | total-to-HDL cholesterol ratio | whole blood | adults | 412 |  | 2018 |
-| `mccartneywhr` | waist-to-hip ratio | whole blood | adults | 226 |  | 2018 |
-| `pcdnamtl` | leukocyte telomere length | whole blood | adults | 78464 |  | 2022 |
-| `prostatecancerkirby` | prostate cancer | prostate | adult men | 3 |  | 2017 |
-| `reedbmi` | BMI methylation score | whole blood, cord blood | all ages | 135 |  | 2020 |
-| `replitali` | replicative history | cultured primary human cells | human cell cultures | 87 |  | 2022 |
-| `replitalinorm` | replicative history | cultured fibroblasts | human cell cultures | 218 |  | 2022 |
-| `sencultureage` | cellular senescence | cultured fibroblasts, cultured mesenchymal stromal cells | human cell cultures | 142 |  | 2026 |
-| `senmortalityage` | mortality risk | whole blood | adults | 91 |  | 2026 |
-| `twelvecelldeconvolutebloodepicbas` | basophil proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepicbmem` | memory B cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepicbnv` | naive B cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepiccd4mem` | memory CD4+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepiccd4nv` | naive CD4+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepiccd8mem` | memory CD8+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepiccd8nv` | naive CD8+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepiceos` | eosinophil proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepicmono` | monocyte proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepicneu` | neutrophil proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepicnk` | natural killer cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `twelvecelldeconvolutebloodepictreg` | regulatory T-cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |
-| `xchrom` | X-chromosome dosage | whole blood | adults | 453152 |  | 2021 |
-| `ychrom` | Y-chromosome presence | whole blood | adults | 453152 |  | 2021 |
-| `yingadaptage` | adaptive epigenetic age | whole blood | adults | 999 |  | 2024 |
-| `yingdamage` | damaging epigenetic age | whole blood | adults | 1089 |  | 2024 |
-| `zhangmortality` | mortality risk | whole blood | older adults | 10 |  | 2017 |
-| `cpgptgrimage3` | biological age, mortality risk | whole blood | adults | 24 | age, grimage2timp1, grimage2packyrs, grimage2logcrp, grim… | 2024 |
-| `cpgptpcgrimage3` | biological age, mortality risk | whole blood | adults | 31 | age, grimage2timp1, grimage2packyrs, grimage2logcrp, grim… | 2024 |
-| `dnamfitage` | physical-fitness biological age | whole blood | adults | 1343 | female, age | 2023 |
-| `dnamfitagegait` | gait speed | whole blood | adults | 111 | female | 2023 |
-| `dnamfitagegrip` | grip strength | whole blood | adults | 183 | female | 2023 |
-| `dnamfitagevo2max` | VO2max | whole blood | adults | 41 | age | 2023 |
-| `grimage` | mortality risk | whole blood | adults | 1032 | female, age | 2019 |
-| `grimage2` | mortality risk | whole blood | older adults | 1032 | female, age | 2022 |
-| `grimage2adm` | adrenomedullin | whole blood | older adults | 187 | age | 2022 |
-| `grimage2b2m` | beta-2-microglobulin | whole blood | older adults | 92 | age | 2022 |
-| `grimage2cystatinc` | cystatin C | whole blood | older adults | 88 | age | 2022 |
-| `grimage2gdf15` | GDF-15 | whole blood | older adults | 138 | age | 2022 |
-| `grimage2loga1c` | hemoglobin A1c | whole blood | older adults | 87 | age | 2022 |
-| `grimage2packyrs` | smoking exposure | whole blood | older adults | 173 | age | 2022 |
-| `grimage2timp1` | TIMP-1 | whole blood | older adults | 43 | age | 2022 |
-| `pcgrimage` | mortality risk | whole blood | adults | 78466 | female, age | 2022 |
-| `pcgrimageadm` | adrenomedullin | whole blood | adults | 78466 | female, age | 2022 |
-| `pcgrimageb2m` | beta-2-microglobulin | whole blood | adults | 78465 | age | 2022 |
-| `pcgrimagecystatinc` | cystatin C | whole blood | adults | 78466 | female, age | 2022 |
-| `pcgrimagegdf15` | GDF-15 | whole blood | adults | 78465 | age | 2022 |
-| `pcgrimageleptin` | leptin | whole blood | adults | 78466 | female, age | 2022 |
-| `pcgrimagepackyrs` | smoking exposure | whole blood | adults | 78466 | female, age | 2022 |
-| `pcgrimagepai1` | PAI-1 | whole blood | adults | 78465 | female | 2022 |
-| `pcgrimagetimp1` | TIMP-1 | whole blood | adults | 78466 | female, age | 2022 |
+| Clock | Predicts | Tissue | Population | CpGs | Extra inputs | Year | Sets |
+|---|---|---|---|---|---|---|---|
+| `abec` | chronological age | whole blood | adults | 1695 |  | 2020 | Blood chronological-age clocks, All chronological-age clocks |
+| `altumage` | chronological age | multi-tissue | all ages | 20318 |  | 2022 | All chronological-age clocks |
+| `cabec` | chronological age | whole blood | adults | 1892 |  | 2020 | Blood chronological-age clocks, All chronological-age clocks |
+| `corticalclock` | chronological age | brain cortex | all ages | 347 |  | 2020 | All chronological-age clocks |
+| `ctsliver` | chronological age | liver | adults | 90 |  | 2024 | All chronological-age clocks |
+| `eabec` | chronological age | whole blood | adults | 1791 |  | 2020 | Blood chronological-age clocks, All chronological-age clocks |
+| `encen100` | chronological age | whole blood, saliva, buccal epithelium | centenarians | 198 |  | 2023 | Blood chronological-age clocks, All chronological-age clocks |
+| `encen40` | chronological age | whole blood, saliva, buccal epithelium | older adults | 559 |  | 2023 | Blood chronological-age clocks, All chronological-age clocks |
+| `gliasin` | chronological age | brain cortex | adults | 220 |  | 2024 | All chronological-age clocks |
+| `han` | chronological age | whole blood | all ages | 65 |  | 2020 | Blood chronological-age clocks, All chronological-age clocks |
+| `hannum` | chronological age | whole blood | adults | 71 |  | 2013 | Default, Blood chronological-age clocks, All chronological-age clocks |
+| `hep` | chronological age | liver | adults | 70 |  | 2024 | All chronological-age clocks |
+| `horvath2013` | chronological age | multi-tissue | all ages | 353 |  | 2013 | Default, All chronological-age clocks |
+| `intrinclock` | chronological age | multi-tissue | all ages | 380 |  | 2024 | All chronological-age clocks |
+| `intrinclock370` | chronological age | multi-tissue | all ages | 370 |  | 2024 | All chronological-age clocks |
+| `lin` | chronological age | whole blood | all ages | 99 |  | 2016 | Blood chronological-age clocks, All chronological-age clocks |
+| `neusin` | chronological age | brain cortex | adults | 672 |  | 2024 | All chronological-age clocks |
+| `pcbrainage` | chronological age | brain cortex | adults | 357852 |  | 2022 | All chronological-age clocks |
+| `pchannum` | chronological age | whole blood | adults | 78464 |  | 2022 | Blood chronological-age clocks, All chronological-age clocks |
+| `pchorvath2013` | chronological age | multi-tissue | all ages | 78464 |  | 2022 | All chronological-age clocks |
+| `pcskinandblood` | chronological age | skin, whole blood, cultured fibroblasts | all ages | 78464 |  | 2022 | Blood chronological-age clocks, All chronological-age clocks |
+| `pedbe` | chronological age | buccal epithelium | children and adolescents | 94 |  | 2020 | Default, All chronological-age clocks, Paediatric and gestational clocks |
+| `pipekelasticnet` | chronological age | multi-tissue | all ages | 239 |  | 2022 | All chronological-age clocks |
+| `pipekfilteredh` | chronological age | multi-tissue | all ages | 272 |  | 2022 | All chronological-age clocks |
+| `pipekretrainedh` | chronological age | multi-tissue | all ages | 308 |  | 2022 | All chronological-age clocks |
+| `retroelementagev1` | chronological age | whole blood | all ages | 1317 |  | 2024 | Blood chronological-age clocks, All chronological-age clocks |
+| `retroelementagev2` | chronological age | whole blood | all ages | 1378 |  | 2024 | Blood chronological-age clocks, All chronological-age clocks |
+| `senchronoage` | chronological age | whole blood | adults | 187 |  | 2026 | Blood chronological-age clocks, All chronological-age clocks |
+| `skinandblood` | chronological age | buccal epithelium, whole blood, epithelium, cultured fibroblasts, skin, cord blood | all ages | 391 |  | 2018 | Blood chronological-age clocks, All chronological-age clocks |
+| `stoch` | chronological age | sorted monocytes | adults | 353 |  | 2024 | All chronological-age clocks |
+| `stocp` | chronological age | sorted monocytes | adults | 513 |  | 2024 | All chronological-age clocks |
+| `stocz` | chronological age | sorted monocytes | adults | 514 |  | 2024 | All chronological-age clocks |
+| `vidalbralo` | chronological age | whole blood | adults | 8 |  | 2016 | Blood chronological-age clocks, All chronological-age clocks |
+| `wu` | chronological age | whole blood | children | 111 |  | 2019 | Blood chronological-age clocks, All chronological-age clocks, Paediatric and gestational clocks |
+| `yingcausage` | chronological age | whole blood | adults | 585 |  | 2024 | Blood chronological-age clocks, All chronological-age clocks |
+| `zhangblup` | chronological age | whole blood, saliva | all ages | 319607 |  | 2019 | Blood chronological-age clocks, All chronological-age clocks |
+| `zhangen` | chronological age | whole blood, saliva | all ages | 514 |  | 2019 | Blood chronological-age clocks, All chronological-age clocks |
+| `dnamphenoage` | phenotypic age | whole blood | adults | 513 |  | 2018 | Biological, phenotypic and mortality clocks |
+| `hrsinchphenoage` | phenotypic age | whole blood | adults | 959 |  | 2022 | Biological, phenotypic and mortality clocks |
+| `pcphenoage` | phenotypic age | whole blood | adults | 78464 |  | 2022 | Default, Biological, phenotypic and mortality clocks |
+| `weidner` | biological age | whole blood | all ages | 3 |  | 2014 | Biological, phenotypic and mortality clocks |
+| `bohlin` | gestational age | cord blood | newborns | 251 |  | 2016 | Paediatric and gestational clocks |
+| `epicga` | gestational age | cord blood | newborns | 176 |  | 2021 | Paediatric and gestational clocks |
+| `knight` | gestational age | cord blood, neonatal blood spots | newborns | 148 |  | 2016 | Paediatric and gestational clocks |
+| `leecontrol` | gestational age | placenta | pregnancies | 546 |  | 2019 | Paediatric and gestational clocks |
+| `leerefinedrobust` | gestational age | placenta | pregnancies | 395 |  | 2019 | Paediatric and gestational clocks |
+| `leerobust` | gestational age | placenta | pregnancies | 558 |  | 2019 | Paediatric and gestational clocks |
+| `mayne` | gestational age | placenta | pregnancies | 62 |  | 2017 | Paediatric and gestational clocks |
+| `celldrift` | mitotic age | cultured human cells | human cell cultures | 2322 |  | 2023 | Mitotic clocks |
+| `epicmithyper` | mitotic age | B cells | human, age unspecified | 184 |  | 2020 | Mitotic clocks |
+| `epicmithypo` | mitotic age | B cells | human, age unspecified | 1164 |  | 2020 | Mitotic clocks |
+| `epitoc1` | mitotic age | multi-tissue, whole blood | all ages | 385 |  | 2016 | Mitotic clocks |
+| `epitoc2` | mitotic age | whole blood | adults | 163 |  | 2020 | Mitotic clocks |
+| `epitoc3` | mitotic age | cultured primary human cells, whole blood, multi-tissue, cord blood | all ages | 170 |  | 2020 | Mitotic clocks |
+| `hypoclock` | mitotic age | multi-tissue | human, age unspecified | 678 |  | 2020 | Mitotic clocks |
+| `miage` | mitotic age | multi-tissue | human, age unspecified | 268 |  | 2018 | Mitotic clocks |
+| `stemtoc` | mitotic age | multi-tissue, cultured human cells, whole blood | all ages | 371 |  | 2024 | Mitotic clocks |
+| `stemtocvitro` | mitotic age | multi-tissue, cultured human cells | prenatal and newborn | 629 |  | 2024 | Mitotic clocks |
+| `adbahadosingh` | late-onset Alzheimer's disease | whole blood | older adults | 4 |  | 2021 |  |
+| `bocklandt` | EDARADD methylation | saliva | adults | 1 |  | 2011 |  |
+| `cellpopage` | cell-population passage age | cultured fibroblasts | human cell cultures | 2543 |  | 2024 |  |
+| `compil6` | interleukin-6 | whole blood | older adults | 35 |  | 2021 |  |
+| `cvdwesterman` | cardiovascular disease risk | whole blood | adults | 235 |  | 2020 |  |
+| `deconvolutebloodepicbcell` | B cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |  |
+| `deconvolutebloodepiccd4tcell` | CD4+ T cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |  |
+| `deconvolutebloodepiccd8tcell` | CD8+ T cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |  |
+| `deconvolutebloodepicmonocyte` | monocyte proportion | purified blood leukocytes | adults | 600 |  | 2018 |  |
+| `deconvolutebloodepicneutrophil` | neutrophil proportion | purified blood leukocytes | adults | 600 |  | 2018 |  |
+| `deconvolutebloodepicnkcell` | natural killer cell proportion | purified blood leukocytes | adults | 600 |  | 2018 |  |
+| `depressionbarbu` | major depressive disorder | whole blood | adults | 196 |  | 2021 |  |
+| `dnamfili` | frailty risk | whole blood | older adults | 20 |  | 2022 |  |
+| `dnamic` | intrinsic capacity | whole blood | older adults | 91 |  | 2025 |  |
+| `dnamphenoagenonprc` | non-polycomb PhenoAge contribution | whole blood | adults | 458 |  | 2022 |  |
+| `dnamphenoageprc` | polycomb-related PhenoAge contribution | whole blood | adults | 55 |  | 2022 |  |
+| `dnamstress` | stress exposure | whole blood | adults | 211 |  | 2023 |  |
+| `dnamtl` | leukocyte telomere length | whole blood | adults | 140 |  | 2019 |  |
+| `downsyndrome` | Down syndrome methylation score | neonatal blood spots | newborns | 652 |  | 2021 |  |
+| `dunedinpace` | pace of aging | whole blood | adults | 20000 |  | 2022 |  |
+| `dunedinpoam38` | pace of aging | whole blood | adults | 46 |  | 2020 |  |
+| `garagnani` | ELOVL2 methylation | whole blood | all ages | 1 |  | 2012 |  |
+| `grimage2leptin` | leptin | whole blood | older adults | 187 |  | 2022 |  |
+| `grimage2logcrp` | C-reactive protein | whole blood | older adults | 132 |  | 2022 |  |
+| `grimage2pai1` | PAI-1 | whole blood | older adults | 211 |  | 2022 |  |
+| `hepatoxu` | hepatocellular carcinoma | plasma cell-free DNA | adults | 10 |  | 2017 |  |
+| `mccartneyalcohol` | alcohol consumption | whole blood | adults | 450 |  | 2018 |  |
+| `mccartneybmi` | body mass index | whole blood | adults | 1109 |  | 2018 |  |
+| `mccartneybodyfat` | body fat percentage | whole blood | adults | 968 |  | 2018 |  |
+| `mccartneyeducation` | educational attainment | whole blood | adults | 373 |  | 2018 |  |
+| `mccartneyhdlcholesterol` | HDL cholesterol | whole blood | adults | 737 |  | 2018 |  |
+| `mccartneyldlcholesterol` | LDL cholesterol | whole blood | adults | 233 |  | 2018 |  |
+| `mccartneysmoking` | smoking exposure | whole blood | adults | 233 |  | 2018 |  |
+| `mccartneytotalcholesterol` | total cholesterol | whole blood | adults | 204 |  | 2018 |  |
+| `mccartneytotalhdlratio` | total-to-HDL cholesterol ratio | whole blood | adults | 412 |  | 2018 |  |
+| `mccartneywhr` | waist-to-hip ratio | whole blood | adults | 226 |  | 2018 |  |
+| `pcdnamtl` | leukocyte telomere length | whole blood | adults | 78464 |  | 2022 |  |
+| `prostatecancerkirby` | prostate cancer | prostate | adult men | 3 |  | 2017 |  |
+| `reedbmi` | BMI methylation score | whole blood, cord blood | all ages | 135 |  | 2020 |  |
+| `replitali` | replicative history | cultured primary human cells | human cell cultures | 87 |  | 2022 |  |
+| `replitalinorm` | replicative history | cultured fibroblasts | human cell cultures | 218 |  | 2022 |  |
+| `sencultureage` | cellular senescence | cultured fibroblasts, cultured mesenchymal stromal cells | human cell cultures | 142 |  | 2026 |  |
+| `senmortalityage` | mortality risk | whole blood | adults | 91 |  | 2026 | Biological, phenotypic and mortality clocks |
+| `twelvecelldeconvolutebloodepicbas` | basophil proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepicbmem` | memory B cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepicbnv` | naive B cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepiccd4mem` | memory CD4+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepiccd4nv` | naive CD4+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepiccd8mem` | memory CD8+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepiccd8nv` | naive CD8+ T cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepiceos` | eosinophil proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepicmono` | monocyte proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepicneu` | neutrophil proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepicnk` | natural killer cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `twelvecelldeconvolutebloodepictreg` | regulatory T-cell proportion | purified blood leukocytes | adults | 240 |  | 2022 |  |
+| `xchrom` | X-chromosome dosage | whole blood | adults | 453152 |  | 2021 |  |
+| `ychrom` | Y-chromosome presence | whole blood | adults | 453152 |  | 2021 |  |
+| `yingadaptage` | adaptive epigenetic age | whole blood | adults | 999 |  | 2024 |  |
+| `yingdamage` | damaging epigenetic age | whole blood | adults | 1089 |  | 2024 |  |
+| `zhangmortality` | mortality risk | whole blood | older adults | 10 |  | 2017 | Biological, phenotypic and mortality clocks |
+| `cpgptgrimage3` | biological age, mortality risk | whole blood | adults | 24 | age, grimage2timp1, grimage2packyrs, grimage2logcrp, grim… | 2024 |  |
+| `cpgptpcgrimage3` | biological age, mortality risk | whole blood | adults | 31 | age, grimage2timp1, grimage2packyrs, grimage2logcrp, grim… | 2024 |  |
+| `dnamfitage` | physical-fitness biological age | whole blood | adults | 1343 | female, age | 2023 |  |
+| `dnamfitagegait` | gait speed | whole blood | adults | 111 | female | 2023 |  |
+| `dnamfitagegrip` | grip strength | whole blood | adults | 183 | female | 2023 |  |
+| `dnamfitagevo2max` | VO2max | whole blood | adults | 41 | age | 2023 |  |
+| `grimage` | mortality risk | whole blood | adults | 1032 | female, age | 2019 |  |
+| `grimage2` | mortality risk | whole blood | older adults | 1032 | female, age | 2022 |  |
+| `grimage2adm` | adrenomedullin | whole blood | older adults | 187 | age | 2022 |  |
+| `grimage2b2m` | beta-2-microglobulin | whole blood | older adults | 92 | age | 2022 |  |
+| `grimage2cystatinc` | cystatin C | whole blood | older adults | 88 | age | 2022 |  |
+| `grimage2gdf15` | GDF-15 | whole blood | older adults | 138 | age | 2022 |  |
+| `grimage2loga1c` | hemoglobin A1c | whole blood | older adults | 87 | age | 2022 |  |
+| `grimage2packyrs` | smoking exposure | whole blood | older adults | 173 | age | 2022 |  |
+| `grimage2timp1` | TIMP-1 | whole blood | older adults | 43 | age | 2022 |  |
+| `pcgrimage` | mortality risk | whole blood | adults | 78466 | female, age | 2022 |  |
+| `pcgrimageadm` | adrenomedullin | whole blood | adults | 78466 | female, age | 2022 |  |
+| `pcgrimageb2m` | beta-2-microglobulin | whole blood | adults | 78465 | age | 2022 |  |
+| `pcgrimagecystatinc` | cystatin C | whole blood | adults | 78466 | female, age | 2022 |  |
+| `pcgrimagegdf15` | GDF-15 | whole blood | adults | 78465 | age | 2022 |  |
+| `pcgrimageleptin` | leptin | whole blood | adults | 78466 | female, age | 2022 |  |
+| `pcgrimagepackyrs` | smoking exposure | whole blood | adults | 78466 | female, age | 2022 |  |
+| `pcgrimagepai1` | PAI-1 | whole blood | adults | 78465 | female | 2022 |  |
+| `pcgrimagetimp1` | TIMP-1 | whole blood | adults | 78466 | female, age | 2022 |  |
 
 ## Citations
 
