@@ -110,7 +110,7 @@ python test/test_sandbox.py   # long input, batched LOHO == separate runs,
 ## Build
 
 ```bash
-docker build -t svm:1.3.0 .
+docker build -t svm:1.3.1 .
 ```
 
 The Dockerfile's `PKG_NAME` is the module folder, `federated_svm`.

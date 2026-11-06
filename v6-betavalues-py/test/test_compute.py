@@ -287,6 +287,15 @@ check(
 # ---------------------------------------------------------------------------
 # 6. top_n on a larger network: the probes that differ most between cohorts
 # ---------------------------------------------------------------------------
+task = client.task.create(
+    method="central_function",
+    organizations=[org_ids[0]],
+    arguments={"cohort_column": "cohort", "min_samples": MIN_SAMPLES, "probes": []},
+    databases=[{"dataframe_id": dataframe["id"]}],
+)
+blank = pd.DataFrame(client.wait_for_results(task.get("id"))[0])
+check(blank.equals(global_summary), "probes=[] (a blank field in the web interface) gives the default top-N result")
+
 print("\n[6] top_n selects the probes with the largest difference between cohorts")
 rng = np.random.default_rng(6)
 N_PROBES, SHIFTED = 300, 12

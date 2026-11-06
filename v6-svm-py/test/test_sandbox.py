@@ -143,6 +143,11 @@ check(len(tables["interpretation"]) == len(wide["comparisons"])
       and len(tables["cpgs"]) == len(CPGS) * len(wide["comparisons"])
       and all(not isinstance(v, (dict, list)) for row in tables["cpgs"] + tables["performance"] for v in row.values()),
       "flat tables (interpretation, performance, cpgs) repeat the results with one value per cell")
+blank = run(WIDE, classes=[], C_grid=[], run_loho=False)
+detected = run(WIDE, classes=None, run_loho=False)
+check("error" not in blank and blank["classes"] == detected["classes"]
+      and blank["model_selection"]["best_C"] == detected["model_selection"]["best_C"],
+      "classes=[] and C_grid=[] (blank fields in the web interface) act as not given")
 binary_text = " ".join(wide["evidence_summary"])
 check(f"C = {wide['model']['C']:g}, selected by cross-validation from 0.001-100" in binary_text,
       "the summary states the selected C and the grid it came from")

@@ -2124,8 +2124,12 @@ def central(
         plain-language summary of the evidence, and data for visualization.
     """
 
-    if C_grid is None:
+    # The web interface sends blank optional fields as empty lists
+    if not C_grid:
         C_grid = DEFAULT_C_GRID
+
+    if not classes:
+        classes = None
 
     features = list(features)
     C_grid = sorted(float(C) for C in C_grid)

@@ -186,6 +186,9 @@ def central_function(
         sorted by delta_beta.
     """
     _validate_min_samples(min_samples)
+    # The web interface sends a blank optional list as [] instead of leaving it out
+    if not probes:
+        probes = None
     requested = _validate_probes(probes, MAX_RESULT_PROBES) if probes is not None else None
     if requested is None:
         _validate_top_n(top_n)
