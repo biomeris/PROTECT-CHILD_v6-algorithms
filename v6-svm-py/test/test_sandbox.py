@@ -264,5 +264,41 @@ try:
 except RuntimeError as exc:
     check("not present" in str(exc), "a refused subtask stops the task with HQ's message (instead of waiting forever)")
 
+
+
+class _Session:
+    """A session with finished tasks (id -> (name, image, result)), like the real client."""
+    def __init__(self, tasks, session_id=7):
+        outer = self
+        self._tasks, self.session_id = tasks, session_id
+
+        class task:  # noqa: N801
+            @staticmethod
+            def get(task_id):
+                t = outer._tasks.get(task_id)
+                return {"id": task_id, "name": t[0]} if t else {"msg": f"Task id={task_id} does not exist!"}
+
+        class result:  # noqa: N801
+            @staticmethod
+            def from_task(task_id):
+                t = outer._tasks.get(task_id)
+                return [t[2]] if t else []
+
+        self.task, self.result = task, result
+
+    def request(self, endpoint, params=None):
+        assert endpoint == "task" and params["session_id"] == self.session_id and params["status"] == "completed"
+        return {"data": [{"id": i, "name": t[0], "image": t[1]} for i, t in sorted(self._tasks.items(), reverse=True)]}
+
+
+session = _Session({30: ("en old", "ghcr.io/x/elastic-net:1.2.0", {"selected_cpgs": ["cgA"], "cohorts": ["a", "b"]}),
+                    31: ("svm", "ghcr.io/x/svm:1.4.0", {"algorithm": "federated_linear_svm"}),
+                    32: ("en new", "ghcr.io/x/elastic-net:1.2.0", {"selected_cpgs": ["cgB"], "cohorts": ["a", "b"]}),
+                    33: ("apply", "ghcr.io/x/svm:1.4.0", {"algorithm": "federated_linear_svm_apply"})})
+check(central_module._latest_task(session, central_module._is_elastic_net_result, ("elastic-net",), "Elastic Net") == 32,
+      "empty Elastic Net field: the most recent Elastic Net task of the session")
+check(central_module._latest_task(session, central_module._is_svm_model_result, ("svm",), "Federated linear SVM") == 31,
+      "empty SVM field in Apply: the most recent SVM training task (not an earlier Apply)")
+
 print(f"\n{'All checks passed' if not failures else f'{len(failures)} check(s) failed'}")
 sys.exit(1 if failures else 0)

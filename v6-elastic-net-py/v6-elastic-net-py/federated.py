@@ -329,6 +329,38 @@ def check_subtask(task: Any, name: str) -> int:
     return task["id"]
 
 
+def latest_task(client, accepts, image_hints, label: str, limit: int = 50) -> int:
+    """Id of the most recent finished task of this session whose result `accepts`.
+
+    Lists the session's finished top-level tasks, newest first, and checks their
+    results; tasks whose image contains one of `image_hints` are checked first, to
+    avoid reading large results of other analyses.
+    """
+    session_id = getattr(client, "session_id", None)
+    if session_id is None or not hasattr(client, "request"):
+        raise ValueError(f"No session to look in: give the {label} task number")
+    response = client.request("task", params={
+        "session_id": session_id, "is_user_created": 1, "status": "completed",
+        "per_page": limit})
+    tasks = response.get("data", []) if isinstance(response, dict) else []
+    tasks = sorted(tasks, key=lambda t: (not any(h in str(t.get("image", "")) for h in image_hints),
+                                         -int(t["id"])))
+    for task in tasks:
+        results = [r for r in client.result.from_task(int(task["id"])) if r is not None]
+        if results and accepts(results[0]):
+            return int(task["id"])
+    raise ValueError(f"No finished {label} task in this session: run {label} first in this session, "
+                     "or give a task number")
+
+
+def is_candidates_result(result: Any) -> bool:
+    """Un resultado de DMP/DMR o de Beta y M por cohorte."""
+    if isinstance(result, dict):
+        return "global_dmps" in result
+    return (isinstance(result, list) and bool(result) and isinstance(result[0], dict)
+            and {"probe_id", "cohort", "beta_mean_global"} <= set(result[0]))
+
+
 def task_result(client: AlgorithmClient, task_id: int) -> tuple:
     """(tarea, resultado) de una tarea terminada de la colaboracion, o ValueError."""
     task = client.task.get(int(task_id))
@@ -417,8 +449,9 @@ def central(
 
     CpGs candidatas: `features` (lista, como mucho MAX_FEATURES) o `candidates_task_id`:
     una tarea DMP/DMR o Beta y M por cohorte terminada, de la que se toman
-    `n_candidates` CpGs (ver candidates_from_task). El resultado indica de donde
-    vienen (`input`).
+    `n_candidates` CpGs (ver candidates_from_task). Sin ninguno de los dos, la tarea
+    DMP/DMR o Beta y M terminada mas reciente de la sesion. El resultado indica de
+    donde vienen (`input`).
     outcome_column/positive_value: outcome numerico, o 0/1 = (valor == positive_value).
     Con `cohorts` y sin positive_value: dos cohortes -> la segunda es la positiva;
     tres o mas -> un modelo por cohorte frente a las demas (one-vs-rest) y la union de
@@ -440,8 +473,16 @@ def central(
     elif features:
         provenance = {"source": "list", "description": f"a given list of {len(features)} CpGs"}
     else:
-        return {"error": "Give the candidate CpGs: features (a list) or candidates_task_id "
-                         "(a DMP/DMR or Beta and M values task)"}
+        # Ni lista ni tarea: la tarea DMP/DMR o Beta y M mas reciente de la sesion
+        try:
+            task_id = latest_task(client, is_candidates_result, ("dmp-dmr", "betavalues"),
+                                  "DMP/DMR or Beta and M values")
+        except ValueError as exc:
+            return {"error": f"Give the candidate CpGs: {exc}"}
+        features, provenance = candidates_from_task(client, task_id, int(n_candidates), cohorts)
+        provenance["selected"] = "automatically"
+        provenance["description"] = (f"Automatically selected the most recent {provenance['algorithm']} "
+                                     f"task in this session (task {task_id}): " + provenance["description"])
     info(f"Input: {provenance['description']}")
     features = list(dict.fromkeys(features))
     if not features or len(features) > MAX_FEATURES:

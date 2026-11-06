@@ -15,7 +15,9 @@ recovered).
   `v6-elastic-net-py`. Only the list is used, never coefficients. Or
   `features_task_id`: a finished Elastic Net task, whose selected CpGs (and, if
   `classes` is not given, cohorts) are read from its result. The result states
-  where the CpGs came from (`input`).
+  where the CpGs came from (`input`). With neither, the most recent finished
+  Elastic Net task of this session is used (for `apply_model`: the most recent
+  SVM task).
 - `organizations_to_include` (optional): the hospitals to use; all by default.
 - `outcome_column`: the column with each sample's cohort.
 - `classes` (optional): the cohorts to compare. Two cohorts give one hyperplane;
@@ -128,7 +130,7 @@ python test/test_sandbox.py   # long input, batched LOHO == separate runs,
 ## Build
 
 ```bash
-docker build -t svm:1.4.0 .
+docker build -t svm:1.5.0 .
 ```
 
 The Dockerfile's `PKG_NAME` is the module folder, `federated_svm`.

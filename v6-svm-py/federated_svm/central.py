@@ -138,6 +138,38 @@ def _select_organizations(client, organizations_to_include):
     return [org_id for org_id in org_ids if org_id in wanted]
 
 
+def _latest_task(client, accepts, image_hints, label: str, limit: int = 50) -> int:
+    """Id of the most recent finished task of this session whose result `accepts`.
+
+    Lists the session's finished top-level tasks, newest first, and checks their
+    results; tasks whose image contains one of `image_hints` are checked first, to
+    avoid reading large results of other analyses.
+    """
+    session_id = getattr(client, "session_id", None)
+    if session_id is None or not hasattr(client, "request"):
+        raise ValueError(f"No session to look in: give the {label} task number")
+    response = client.request("task", params={
+        "session_id": session_id, "is_user_created": 1, "status": "completed",
+        "per_page": limit})
+    tasks = response.get("data", []) if isinstance(response, dict) else []
+    tasks = sorted(tasks, key=lambda t: (not any(h in str(t.get("image", "")) for h in image_hints),
+                                         -int(t["id"])))
+    for task in tasks:
+        results = [r for r in client.result.from_task(int(task["id"])) if r is not None]
+        if results and accepts(results[0]):
+            return int(task["id"])
+    raise ValueError(f"No finished {label} task in this session: run {label} first in this session, "
+                     "or give a task number")
+
+
+def _is_elastic_net_result(result):
+    return isinstance(result, dict) and "selected_cpgs" in result
+
+
+def _is_svm_model_result(result):
+    return isinstance(result, dict) and result.get("algorithm") == "federated_linear_svm"
+
+
 def _task_result(client, task_id):
     """
     The task and its (first) result, for a finished task of the
@@ -2207,8 +2239,10 @@ def central(
 
     features_task_id:
         Id of a finished Elastic Net task: its selected CpGs are used and,
-        if ``classes`` is not given, its cohorts. The result states where
-        the CpGs came from (``input``).
+        if ``classes`` is not given, its cohorts. With neither this nor
+        ``features``, the most recent finished Elastic Net task of this
+        session is used. The result states where the CpGs came from
+        (``input``).
 
     outcome_column:
         Column with the predefined cohort label of each sample.
@@ -2305,12 +2339,24 @@ def central(
             "description": f"a given list of {len(features)} CpGs",
         }
     else:
-        return {
-            "error": (
-                "Give the CpGs: features (a list) or features_task_id (an "
-                "Elastic Net task)."
+        # Neither a list nor a task: the most recent Elastic Net task of this
+        # session.
+        try:
+            task_id = _latest_task(
+                client, _is_elastic_net_result, ("elastic-net",), "Elastic Net"
             )
-        }
+        except ValueError as exc:
+            return {"error": f"Give the CpGs: {exc}"}
+        features, task_cohorts, provenance = _features_from_task(client, task_id)
+        if classes is None and task_cohorts:
+            classes = list(task_cohorts)
+        if features_selected_on_same_samples is None:
+            features_selected_on_same_samples = True
+        provenance["selected"] = "automatically"
+        provenance["description"] = (
+            "Automatically selected the most recent Elastic Net task in this "
+            f"session (task {task_id}): " + provenance["description"]
+        )
 
     info(f"Input: {provenance['description']}")
 
@@ -2746,7 +2792,8 @@ def apply_model(
 
     model_task_id:
         Id of a finished SVM task whose model is applied. Give either this
-        or ``model``.
+        or ``model``; with neither, the most recent finished SVM task of
+        this session is used.
 
     model:
         Optional. A model as a dict with ``features``, ``classes``,
@@ -2786,9 +2833,19 @@ def apply_model(
             ),
         }
     else:
-        return {
-            "error": "Give the model: model_task_id (an SVM task) or model."
-        }
+        # Neither a task nor a model: the most recent SVM task of this session.
+        try:
+            task_id = _latest_task(
+                client, _is_svm_model_result, ("svm",), "Federated linear SVM"
+            )
+        except ValueError as exc:
+            return {"error": f"Give the model: {exc}"}
+        model, provenance = _model_from_task(client, task_id)
+        provenance["selected"] = "automatically"
+        provenance["description"] = (
+            "Automatically selected the most recent SVM task in this session "
+            f"(task {task_id}): " + provenance["description"]
+        )
 
     info(f"Input: {provenance['description']}")
 

@@ -190,5 +190,45 @@ for bad, text in ((2, "before 2.1.0"), (3, "not a DMP/DMR result"), (4, "no resu
     except ValueError as exc:
         check(text in str(exc), f"task {bad} is rejected: {exc}")
 
+
+
+class _Session:
+    """A session with finished tasks (id -> (name, image, result)), like the real client."""
+    def __init__(self, tasks, session_id=7):
+        outer = self
+        self._tasks, self.session_id = tasks, session_id
+
+        class task:  # noqa: N801
+            @staticmethod
+            def get(task_id):
+                t = outer._tasks.get(task_id)
+                return {"id": task_id, "name": t[0]} if t else {"msg": f"Task id={task_id} does not exist!"}
+
+        class result:  # noqa: N801
+            @staticmethod
+            def from_task(task_id):
+                t = outer._tasks.get(task_id)
+                return [t[2]] if t else []
+
+        self.task, self.result = task, result
+
+    def request(self, endpoint, params=None):
+        assert endpoint == "task" and params["session_id"] == self.session_id and params["status"] == "completed"
+        return {"data": [{"id": i, "name": t[0], "image": t[1]} for i, t in sorted(self._tasks.items(), reverse=True)]}
+
+
+from lola_sandbox.central import is_dmp_result, latest_task  # noqa: E402
+session = _Session({170: ("dmp old", "ghcr.io/x/dmp-dmr:2.2.0", dmp21), 172: ("dmp 2.0", "ghcr.io/x/dmp-dmr:2.0.0", dmp20),
+                    173: ("dmp new", "ghcr.io/x/dmp-dmr:2.2.0", dmp21), 175: ("svm", "ghcr.io/x/svm:1.4.0", {"algorithm": "svm"})})
+check(latest_task(session, is_dmp_result, ("dmp-dmr",), "DMP/DMR") == 173,
+      "empty task field: the most recent DMP/DMR task (with universe) of the session; newer other tasks are skipped")
+for client, text in ((_Session({175: ("svm", "svm", {"algorithm": "svm"})}), "No finished DMP/DMR task in this session"),
+                     (_Session({}, session_id=None), "No session to look in")):
+    try:
+        latest_task(client, is_dmp_result, ("dmp-dmr",), "DMP/DMR")
+        check(False, "no suitable task gives a clear message")
+    except ValueError as exc:
+        check(text in str(exc), f"no suitable task gives a clear message: {exc}")
+
 print(f"\n{'All checks passed' if not failures else f'{len(failures)} check(s) failed'}")
 sys.exit(1 if failures else 0)

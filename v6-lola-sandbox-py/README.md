@@ -35,7 +35,8 @@ reference region set the 2x2 table is
 
 - `dmp_task_id`: id of a finished DMP/DMR task (2.1.0 or later). Its DMRs and
   universe are read from that task's result, so nothing has to be copied.
-  Give either this or `dmrs` and `universe`. In the web interface the form
+  Give either this or `dmrs` and `universe`; with neither, the most recent
+  finished DMP/DMR task of this session is used. In the web interface the form
   asks first: result of a previous task, or upload own files.
 
 - `dmrs`: list of records with `chromosome`, `start`, `end` (the `global_dmrs`

@@ -33,7 +33,7 @@
           "name": "candidates_task_id",
           "type": "integer",
           "display_name": "Candidates task",
-          "description": "Id of a finished DMP/DMR task (its top DMPs found in all hospitals) or Beta and M values task (the probes with the largest difference between the chosen cohorts, full coverage), shown on its task page",
+          "description": "Id of a finished DMP/DMR task (its top DMPs found in all hospitals) or Beta and M values task (the probes with the largest difference between the chosen cohorts, full coverage), shown on its task page Leave empty to use the most recent finished DMP/DMR or Beta and M values task of this session; the result's Input table shows which one was used.",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": null,

@@ -86,6 +86,8 @@ grupos (hospital, cohorte) con menos de `min_samples` muestras se descartan.
 | `features` | json (lista) | — | CpGs candidatas (máx. 2,000); o bien `candidates_task_id` |
 | `candidates_task_id` | int | — | tarea DMP/DMR (top DMPs presentes en todos los hospitales) o Beta y M por cohorte (mayor Δβ entre las cohortes elegidas, cobertura completa) de la que se toman las candidatas |
 | `n_candidates` | int | 100 | cuántas candidatas tomar de esa tarea |
+
+Sin `features` ni `candidates_task_id` se usa la tarea DMP/DMR o Beta y M por cohorte terminada más reciente de la sesión; la tabla Input del resultado dice cuál.
 | `outcome_column` | column | — | outcome numérico, o de texto con `positive_value` |
 | `positive_value` | string | — | outcome = 1 si el valor es este (p.ej. una cohorte). Vacío con dos cohortes: la segunda es la positiva; vacío con tres o más: un modelo por cohorte frente a las demás (one-vs-rest) y la unión de las CpGs |
 | `alpha` | float | 0.01 | fuerza de regularización |

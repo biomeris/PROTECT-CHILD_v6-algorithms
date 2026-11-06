@@ -143,6 +143,35 @@ def lola_enrichment(
     return output
 
 
+def latest_task(client, accepts, image_hints, label: str, limit: int = 50) -> int:
+    """Id of the most recent finished task of this session whose result `accepts`.
+
+    Lists the session's finished top-level tasks, newest first, and checks their
+    results; tasks whose image contains one of `image_hints` are checked first, to
+    avoid reading large results of other analyses.
+    """
+    session_id = getattr(client, "session_id", None)
+    if session_id is None or not hasattr(client, "request"):
+        raise ValueError(f"No session to look in: give the {label} task number")
+    response = client.request("task", params={
+        "session_id": session_id, "is_user_created": 1, "status": "completed",
+        "per_page": limit})
+    tasks = response.get("data", []) if isinstance(response, dict) else []
+    tasks = sorted(tasks, key=lambda t: (not any(h in str(t.get("image", "")) for h in image_hints),
+                                         -int(t["id"])))
+    for task in tasks:
+        results = [r for r in client.result.from_task(int(task["id"])) if r is not None]
+        if results and accepts(results[0]):
+            return int(task["id"])
+    raise ValueError(f"No finished {label} task in this session: run {label} first in this session, "
+                     "or give a task number")
+
+
+def is_dmp_result(result: Any) -> bool:
+    """A DMP/DMR result with DMRs and the universe of tested probes (2.1.0 or later)."""
+    return isinstance(result, dict) and "global_dmrs" in result and "universe" in result
+
+
 def inputs_from_task(client: AlgorithmClient, task_id: int) -> tuple[Any, Any, dict]:
     """DMRs and universe of a finished DMP/DMR task (v6-dmp-dmr-py 2.1 or later) of
     the collaboration, and a description of where they come from."""
@@ -165,7 +194,9 @@ def inputs_from_task(client: AlgorithmClient, task_id: int) -> tuple[Any, Any, d
         raise ValueError(f"DMP/DMR task {task_id} ('{name}') has no universe of tested probes: "
                          "it comes from DMP/DMR before 2.1.0; run DMP/DMR again")
     comparison = result.get("comparison", {})
-    description = (f"the {len(result['global_dmrs'])} DMRs and {result.get('summary', {}).get('n_universe', 'the')} "
+    n_universe = result.get("summary", {}).get("n_universe")
+    description = (f"the {len(result['global_dmrs'])} DMRs and "
+                   f"{f'{n_universe:,}' if isinstance(n_universe, int) else 'the'} "
                    f"tested probes of DMP/DMR task {task_id} '{name}' "
                    f"({comparison.get('cohort_b')} vs {comparison.get('cohort_a')})")
     return result["global_dmrs"], result["universe"], {
@@ -191,7 +222,9 @@ def central_function(
     ----------
     dmp_task_id : int | None
         Id of a finished DMP/DMR task (2.1.0 or later): its DMRs and universe are
-        used. Give either this or ``dmrs`` and ``universe``.
+        used. Give either this or ``dmrs`` and ``universe``; with neither, the most
+        recent finished DMP/DMR task of this session is used, and the result says
+        which.
     dmrs : list[dict] | None
         The ``global_dmrs`` of a v6-dmp-dmr-py result (chromosome, start, end).
     universe : dict | None
@@ -223,7 +256,11 @@ def central_function(
     elif given:
         provenance = {"source": "files", "description": "uploaded DMRs and universe"}
     else:
-        raise ValueError("Give the DMP/DMR task (dmp_task_id) or upload its DMRs and universe")
+        task_id = latest_task(client, is_dmp_result, ("dmp-dmr",), "DMP/DMR")
+        dmrs, universe, provenance = inputs_from_task(client, task_id)
+        provenance["selected"] = "automatically"
+        provenance["description"] = ("Automatically selected the most recent DMP/DMR task in this "
+                                     f"session (task {task_id}): " + provenance["description"])
     info(f"Input: {provenance['description']}")
     output = lola_enrichment(
         decode_table(dmrs), decode_table(universe),

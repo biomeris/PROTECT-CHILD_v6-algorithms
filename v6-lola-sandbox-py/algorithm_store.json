@@ -1,6 +1,6 @@
 {
   "name": "LOLA enrichment of DMRs (sandbox)",
-  "image": "localhost:32000/protect-child/lola-sandbox:1.1.0",
+  "image": "localhost:32000/protect-child/lola-sandbox:1.2.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -30,7 +30,7 @@
           "name": "dmp_task_id",
           "type": "integer",
           "display_name": "DMP/DMR task",
-          "description": "Id of a finished DMP/DMR task (2.1.0 or later), shown on its task page: this run uses its DMRs and its tested probes (universe)",
+          "description": "Id of a finished DMP/DMR task (2.1.0 or later), shown on its task page: this run uses its DMRs and its tested probes (universe) Leave empty to use the most recent finished DMP/DMR task of this session; the result's Input table shows which one was used.",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": null,

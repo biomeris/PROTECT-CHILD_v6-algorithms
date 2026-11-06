@@ -308,4 +308,39 @@ union = set().union(*(r["selected_cpgs"] for r in ovr["per_cohort"].values()))
 check(set(ovr["selected_cpgs"]) == union and all(e["cohorts"] for e in ovr["selected"]),
       "selected_cpgs is the union, each with the cohort(s) that selected it")
 
+
+
+class _Session:
+    """A session with finished tasks (id -> (name, image, result)), like the real client."""
+    def __init__(self, tasks, session_id=7):
+        outer = self
+        self._tasks, self.session_id = tasks, session_id
+
+        class task:  # noqa: N801
+            @staticmethod
+            def get(task_id):
+                t = outer._tasks.get(task_id)
+                return {"id": task_id, "name": t[0]} if t else {"msg": f"Task id={task_id} does not exist!"}
+
+        class result:  # noqa: N801
+            @staticmethod
+            def from_task(task_id):
+                t = outer._tasks.get(task_id)
+                return [t[2]] if t else []
+
+        self.task, self.result = task, result
+
+    def request(self, endpoint, params=None):
+        assert endpoint == "task" and params["session_id"] == self.session_id and params["status"] == "completed"
+        return {"data": [{"id": i, "name": t[0], "image": t[1]} for i, t in sorted(self._tasks.items(), reverse=True)]}
+
+
+session = _Session({20: ("beta", "ghcr.io/x/betavalues:2.2.0", beta_result), 21: ("dmp", "ghcr.io/x/dmp-dmr:2.2.0", dmp_result),
+                    22: ("svm", "ghcr.io/x/svm:1.4.0", {"algorithm": "federated_linear_svm"})})
+check(fed.latest_task(session, fed.is_candidates_result, ("dmp-dmr", "betavalues"), "DMP/DMR or Beta and M values") == 21,
+      "empty candidates field: the most recent DMP/DMR or Beta and M values task of the session")
+only_beta = _Session({20: ("beta", "ghcr.io/x/betavalues:2.2.0", beta_result)})
+check(fed.latest_task(only_beta, fed.is_candidates_result, ("dmp-dmr", "betavalues"), "x") == 20,
+      "a Beta and M values task is found too")
+
 print("\nAll checks passed.")
