@@ -28,7 +28,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import false_discovery_control, fisher_exact
 
+from vantage6.algorithm.client import AlgorithmClient
 from vantage6.algorithm.decorator.action import central
+from vantage6.algorithm.decorator.algorithm_client import algorithm_client
 from vantage6.algorithm.tools.util import info
 
 from .lola_core import run_lola
@@ -141,10 +143,43 @@ def lola_enrichment(
     return output
 
 
+def inputs_from_task(client: AlgorithmClient, task_id: int) -> tuple[Any, Any, dict]:
+    """DMRs and universe of a finished DMP/DMR task (v6-dmp-dmr-py 2.1 or later) of
+    the collaboration, and a description of where they come from."""
+    task = client.task.get(int(task_id))
+    # A real client returns the task, or HQ's message when it cannot be read; the
+    # mock network used in tests has no task details (None)
+    if task is None:
+        task = {"id": int(task_id), "name": None}
+    elif not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise ValueError(f"Task {task_id} could not be read: {message}")
+    results = [r for r in client.result.from_task(int(task_id)) if r is not None]
+    name = task.get("name")
+    if not results:
+        raise ValueError(f"Task {task_id} ('{name}') has no result yet: is it finished and did it succeed?")
+    result = results[0]
+    if not (isinstance(result, dict) and "global_dmrs" in result):
+        raise ValueError(f"Task {task_id} ('{name}') is not a DMP/DMR result")
+    if "universe" not in result:
+        raise ValueError(f"DMP/DMR task {task_id} ('{name}') has no universe of tested probes: "
+                         "it comes from DMP/DMR before 2.1.0; run DMP/DMR again")
+    comparison = result.get("comparison", {})
+    description = (f"the {len(result['global_dmrs'])} DMRs and {result.get('summary', {}).get('n_universe', 'the')} "
+                   f"tested probes of DMP/DMR task {task_id} '{name}' "
+                   f"({comparison.get('cohort_b')} vs {comparison.get('cohort_a')})")
+    return result["global_dmrs"], result["universe"], {
+        "source": "task", "task_id": int(task_id), "task_name": name,
+        "algorithm": "DMP/DMR", "description": description}
+
+
 @central
+@algorithm_client
 def central_function(
-    dmrs: list[dict],
-    universe: Any,
+    client: AlgorithmClient,
+    dmp_task_id: int | None = None,
+    dmrs: list[dict] | None = None,
+    universe: Any = None,
     collections: list[str] | None = None,
     direction: Literal["enrichment", "depletion"] = "enrichment",
     min_overlap: int = 1,
@@ -154,9 +189,12 @@ def central_function(
 
     Parameters
     ----------
-    dmrs : list[dict]
+    dmp_task_id : int | None
+        Id of a finished DMP/DMR task (2.1.0 or later): its DMRs and universe are
+        used. Give either this or ``dmrs`` and ``universe``.
+    dmrs : list[dict] | None
         The ``global_dmrs`` of a v6-dmp-dmr-py result (chromosome, start, end).
-    universe : dict
+    universe : dict | None
         The ``universe`` of the same DMP/DMR result (tested CpGs with chromosome
         and position, Parquet in base64), or a list of records.
     collections : list[str] | None
@@ -171,13 +209,25 @@ def central_function(
     Returns
     -------
     dict
-        ``summary`` (counts, direction, collections), ``warnings`` and ``results``:
-        one record per reference region set with its annotation, the 2x2 counts
-        (support, b, c, d), oddsRatio, pValue, qValue (Benjamini-Hochberg over all
-        region sets tested) and LOLA's ranks.
+        ``input`` (where the DMRs and universe came from), ``summary`` (counts,
+        direction, collections), ``warnings`` and ``results``: one record per
+        reference region set with its annotation, the 2x2 counts (support, b, c,
+        d), oddsRatio, pValue, qValue (Benjamini-Hochberg over all region sets
+        tested) and LOLA's ranks.
     """
-    return lola_enrichment(
+    given = dmrs is not None and universe not in (None, "", {})
+    if dmp_task_id not in (None, "") and given:
+        raise ValueError("Give either dmp_task_id or dmrs and universe, not both")
+    if dmp_task_id not in (None, ""):
+        dmrs, universe, provenance = inputs_from_task(client, dmp_task_id)
+    elif given:
+        provenance = {"source": "files", "description": "uploaded DMRs and universe"}
+    else:
+        raise ValueError("Give the DMP/DMR task (dmp_task_id) or upload its DMRs and universe")
+    info(f"Input: {provenance['description']}")
+    output = lola_enrichment(
         decode_table(dmrs), decode_table(universe),
         tuple(collections) if collections else COLLECTIONS,
         direction, min_overlap, top_n,
     )
+    return {"input": provenance, **output}

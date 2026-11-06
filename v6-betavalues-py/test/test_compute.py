@@ -38,6 +38,7 @@ from vantage6.algorithm.mock.network import MockNetwork  # noqa: E402
 
 from globalIDAT.central import (  # noqa: E402
     CENTRAL_RESULT_COLUMNS,
+    OUTPUT_COLUMNS,
     GLOBAL_RESULT_COLUMNS,
     aggregate_cohort_results,
     cohort_totals,
@@ -57,6 +58,10 @@ from globalIDAT.federated import (  # noqa: E402
 DATABASE_LABEL = "default"
 NODE_FOLDERS = ["hospital_A", "hospital_B"]
 MIN_SAMPLES = 2
+
+
+# The central result is rounded to 4 decimals
+ROUNDING = 5e-5
 
 
 def check(condition: bool, message: str) -> None:
@@ -130,7 +135,7 @@ results = client.wait_for_results(task.get("id"))
 global_summary = pd.DataFrame(results[0])
 print(f"\nGlobal summary:\n{global_summary}")
 
-check(list(global_summary.columns) == CENTRAL_RESULT_COLUMNS, f"output columns are {CENTRAL_RESULT_COLUMNS}")
+check(list(global_summary.columns) == OUTPUT_COLUMNS, f"output columns are {OUTPUT_COLUMNS}")
 check(global_summary["probe_id"].nunique() == raw_all["probe_id"].nunique(), "default top_n (1000) covers all 5 mock probes")
 check(
     set(global_summary["cohort"]) == {"cohort_A", "cohort_B", "cohort_C"},
@@ -138,7 +143,7 @@ check(
 )
 expected_totals = raw_all.groupby("cohort")["sample_label"].nunique()
 check(
-    (global_summary["n_samples_total"] == global_summary["cohort"].map(expected_totals)).all(),
+    (global_summary["n_samples_with_value"] == global_summary["cohort"].map(expected_totals)).all(),
     f"n_samples_total per cohort is {expected_totals.to_dict()}",
 )
 
@@ -151,8 +156,8 @@ reference = (
 merged = global_summary.merge(reference, on=["cohort", "probe_id"], how="outer", validate="1:1")
 check(not merged.isna().any().any(), "every (cohort, probe_id) in the raw data appears in the global result")
 check(
-    np.allclose(merged["beta_mean_global"], merged["beta_ref"])
-    and np.allclose(merged["m_mean_global"], merged["m_ref"]),
+    np.allclose(merged["beta_mean_global"], merged["beta_ref"], atol=ROUNDING)
+    and np.allclose(merged["m_mean_global"], merged["m_ref"], atol=ROUNDING),
     "global means of all cohorts equal the pooled means of the raw data",
 )
 
@@ -166,8 +171,8 @@ check(
 )
 plain_avg = node_b.groupby("probe_id")[["beta_mean", "m_mean"]].mean()
 check(
-    np.allclose(cohort_b["beta_mean_global"], cohort_b["beta_ref"])
-    and np.allclose(cohort_b["m_mean_global"], cohort_b["m_ref"]),
+    np.allclose(cohort_b["beta_mean_global"], cohort_b["beta_ref"], atol=ROUNDING)
+    and np.allclose(cohort_b["m_mean_global"], cohort_b["m_ref"], atol=ROUNDING),
     "cohort_B global mean equals the sample-weighted mean of the raw data",
 )
 check(
@@ -181,7 +186,7 @@ reference_delta = (
 )
 deltas = global_summary.drop_duplicates("probe_id").set_index("probe_id")["delta_beta"]
 check(
-    np.allclose(deltas, reference_delta.loc[deltas.index]),
+    np.allclose(deltas, reference_delta.loc[deltas.index], atol=ROUNDING),
     "delta_beta is the largest minus the smallest cohort mean Beta of the probe",
 )
 check(deltas.is_monotonic_decreasing, "rows are sorted by delta_beta, largest first")
@@ -267,9 +272,9 @@ print(targeted)
 check(set(targeted["probe_id"]) == {"cg00000769"}, "only the requested probe is returned; unknown probes are skipped")
 check(set(targeted["cohort"]) == {"cohort_A", "cohort_B", "cohort_C"}, "the probe is reported for every cohort")
 check(
-    targeted.set_index("cohort")["beta_mean_global"].round(10).equals(
+    targeted.set_index("cohort")["beta_mean_global"].round(4).equals(
         global_summary.query("probe_id == 'cg00000769'").set_index("cohort")["beta_mean_global"]
-        .loc[targeted["cohort"]].round(10)
+        .loc[targeted["cohort"]].round(4)
     ),
     "targeted means equal those of the overview",
 )
@@ -358,12 +363,12 @@ check(
     "they are the 5 probes with the largest pooled delta_beta, in that order",
 )
 top_delta = top.drop_duplicates("probe_id").set_index("probe_id")["delta_beta"]
-check(np.allclose(top_delta, exact_delta.loc[top_delta.index]), "delta_beta equals the pooled difference of cohort means")
+check(np.allclose(top_delta, exact_delta.loc[top_delta.index], atol=ROUNDING), "delta_beta equals the pooled difference of cohort means")
 gappy = top[top["probe_id"] == GAPPY].set_index("cohort")
 check(not gappy.empty, f"{GAPPY} (missing in 2 samples) is kept in the result, not removed")
 check(
-    gappy.loc["cohort_Y", "n_samples_total"] == 5 and gappy.loc["cohort_Y", "n_samples_cohort"] == 7
-    and np.isclose(gappy.loc["cohort_Y", "coverage"], 5 / 7) and gappy.loc["cohort_X", "coverage"] == 1.0,
+    gappy.loc["cohort_Y", "n_samples_with_value"] == 5 and gappy.loc["cohort_Y", "n_samples_cohort"] == 7
+    and np.isclose(gappy.loc["cohort_Y", "coverage"], 5 / 7, atol=ROUNDING) and gappy.loc["cohort_X", "coverage"] == 1.0,
     f"{GAPPY}: coverage is 5/7 in cohort_Y (2 of 7 samples missing) and 1 in cohort_X",
 )
 check((top.loc[top["probe_id"] != GAPPY, "coverage"] == 1.0).all(), "the other top probes have coverage 1")
@@ -409,5 +414,50 @@ check(
     len(_validate_probes(["cg1", " cg1 ", "cg2", ""], MAX_RESULT_PROBES)) == 2,
     "duplicate and empty probe IDs are ignored",
 )
+
+# ---------------------------------------------------------------------------
+# 8. Hospitals to include, refused subtasks, output names
+# ---------------------------------------------------------------------------
+print("\n[8] Hospitals to include, refused subtasks, output names")
+from globalIDAT.central import _run_subtask, select_organizations  # noqa: E402
+
+task = client.task.create(
+    method="central_function",
+    organizations=[org_ids[0]],
+    arguments={"cohort_column": "cohort", "min_samples": MIN_SAMPLES,
+               "organizations_to_include": [org_ids[0]]},
+    databases=[{"dataframe_id": dataframe["id"]}],
+)
+two = pd.DataFrame(client.wait_for_results(task.get("id"))[0])
+check(two["n_samples_with_value"].sum() < global_summary["n_samples_with_value"].sum(),
+      "organizations_to_include=[first hospital] uses only that hospital's samples")
+
+
+class _FakeClient:
+    class organization:  # noqa: N801
+        @staticmethod
+        def list():
+            return [{"id": 1}, {"id": 2}, {"id": 3}]
+
+    class task:  # noqa: N801
+        @staticmethod
+        def create(**kwargs):
+            return {"msg": "The dataframe you selected is not present for the following organizations: 2, 3."}
+
+
+check(select_organizations(_FakeClient, None) == [1, 2, 3] and select_organizations(_FakeClient, []) == [1, 2, 3],
+      "no organizations_to_include (or an empty list from the web interface) means all")
+check(select_organizations(_FakeClient, [3, 1]) == [1, 3], "organizations_to_include keeps the collaboration's order")
+expect_value_error(lambda: select_organizations(_FakeClient, [9]), "not in this collaboration",
+                   "an unknown organization id is rejected")
+try:
+    _run_subtask(_FakeClient, [1, 2, 3], "federated_function", {}, name="test", description="")
+    check(False, "a refused subtask stops the task")
+except RuntimeError as exc:
+    check("not present for the following organizations" in str(exc),
+          "a refused subtask stops the task with HQ's message (instead of waiting forever)")
+check("n_samples_with_value" in global_summary.columns and "n_samples_total" not in global_summary.columns,
+      "the count of samples with a value is reported as n_samples_with_value")
+check(all(round(v, 4) == v for v in global_summary["beta_mean_global"]), "values are rounded to 4 decimals")
 
 print("\nAll checks passed.")

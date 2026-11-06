@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.3.1",
+  "image": "localhost:32000/protect-child/svm:1.4.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -18,12 +18,41 @@
       ],
       "arguments": [
         {
+          "name": "input_source",
+          "type": "string",
+          "display_name": "Input",
+          "description": "'Result of a previous task': this run uses the result of the task you give below. 'Upload my own file': upload a JSON file instead, e.g. for different data.",
+          "allowed_values": [
+            "Result of a previous task",
+            "Upload my own file"
+          ],
+          "has_default_value": true,
+          "default_value": "Result of a previous task",
+          "is_frontend_only": true
+        },
+        {
+          "name": "features_task_id",
+          "type": "integer",
+          "display_name": "Elastic Net task",
+          "description": "Id of a finished Elastic Net task, shown on its task page: this run uses its selected CpGs and, if Cohorts is empty, its cohorts",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Result of a previous task"
+        },
+        {
           "name": "features",
           "type": "json",
-          "display_name": "CpGs",
-          "description": "CpG IDs as a JSON list, e.g. the selected_cpgs of the elastic net result. Upload a .json file with the list. Every hospital needs all of them",
+          "display_name": "CpGs (file)",
+          "description": "A JSON list of CpG IDs; every hospital needs all of them",
           "is_frontend_only": false,
-          "has_default_value": false
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Upload my own file"
         },
         {
           "name": "outcome_column",
@@ -149,9 +178,28 @@
           "has_default_value": true,
           "default_value": null,
           "is_frontend_only": false
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "display_name": "Hospitals",
+          "description": "Hospitals (organizations) to use; empty = all of the collaboration",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
         }
       ],
       "ui_visualizations": [
+        {
+          "name": "Input",
+          "description": "Where this run's input came from",
+          "type": "table",
+          "schema": {
+            "location": [
+              "input"
+            ]
+          }
+        },
         {
           "name": "Interpretation",
           "description": "Plain-language interpretation of each comparison",
@@ -191,6 +239,135 @@
         }
       ],
       "standalone": true
+    },
+    {
+      "name": "apply_model",
+      "display_name": "Apply a trained SVM model",
+      "description": "Apply a finished SVM model, unchanged, to the samples of chosen hospitals (e.g. a hospital that took no part in selecting the CpGs or training) and report how well it classifies them: per hospital and pooled, with 95% intervals. Only counts leave the hospitals.",
+      "step_type": "central_compute",
+      "standalone": true,
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "input_source",
+          "type": "string",
+          "display_name": "Input",
+          "description": "'Result of a previous task': this run uses the result of the task you give below. 'Upload my own model': upload a JSON file instead, e.g. for different data.",
+          "allowed_values": [
+            "Result of a previous task",
+            "Upload my own model"
+          ],
+          "has_default_value": true,
+          "default_value": "Result of a previous task",
+          "is_frontend_only": true
+        },
+        {
+          "name": "model_task_id",
+          "type": "integer",
+          "display_name": "SVM task",
+          "description": "Id of a finished SVM task, shown on its task page: its model is applied",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Result of a previous task"
+        },
+        {
+          "name": "model",
+          "type": "json",
+          "display_name": "Model (file)",
+          "description": "A model as JSON with features, classes, weights, biases, mean and std",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Upload my own model"
+        },
+        {
+          "name": "outcome_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the true cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "display_name": "Hospitals",
+          "description": "Hospitals (organizations) to use; empty = all of the collaboration",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum evaluated samples a hospital needs before it returns its counts",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column (long data)",
+          "description": "Sample column when the data has one row per sample and probe",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column (long data)",
+          "description": "beta or m_value, as used to train the model",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Input",
+          "description": "Where this run's input came from",
+          "type": "table",
+          "schema": {
+            "location": [
+              "input"
+            ]
+          }
+        },
+        {
+          "name": "Performance",
+          "description": "Balanced accuracy with 95% interval per hospital and pooled",
+          "type": "table",
+          "schema": {
+            "location": [
+              "tables",
+              "performance"
+            ]
+          }
+        },
+        {
+          "name": "Comparisons",
+          "description": "Sensitivity and specificity per comparison (pooled)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "tables",
+              "comparisons"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "partial_cohorts",

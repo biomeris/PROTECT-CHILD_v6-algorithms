@@ -12,7 +12,11 @@ recovered).
 ## Input
 
 - `features`: the CpGs to analyse, e.g. the `selected_cpgs` of
-  `v6-elastic-net-py`. Only the list is used, never coefficients.
+  `v6-elastic-net-py`. Only the list is used, never coefficients. Or
+  `features_task_id`: a finished Elastic Net task, whose selected CpGs (and, if
+  `classes` is not given, cohorts) are read from its result. The result states
+  where the CpGs came from (`input`).
+- `organizations_to_include` (optional): the hospitals to use; all by default.
 - `outcome_column`: the column with each sample's cohort.
 - `classes` (optional): the cohorts to compare. Two cohorts give one hyperplane;
   more give one-vs-rest. By default all cohorts with at least `min_samples`
@@ -30,6 +34,20 @@ Every hospital needs all the CpGs. A hospital that lacks some (e.g. removed by
 its quality control) is left out and listed in the result's `skipped`, with the
 reason. With CpGs from `v6-elastic-net-py` this does not happen: it only selects
 CpGs available in every hospital.
+
+## Applying a trained model
+
+`apply_model` applies a finished SVM model, unchanged, to the samples of chosen
+hospitals and reports the confusion matrix and balanced accuracy (95% interval)
+per hospital and pooled. The model comes from a finished SVM task
+(`model_task_id`) or as JSON (`model`: features, classes, weights, biases, mean,
+std). With `organizations_to_include` on both steps it gives a fair evaluation:
+train the pipeline on some hospitals, apply the model to a hospital that took no
+part. A model trained on hospitals 1-2 and applied to hospital 3 gives exactly
+the SVM's leave-one-hospital-out result for hospital 3 (tested).
+
+If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not
+exist at one of the hospitals), the task stops at once with HQ's message.
 
 ## Federated rounds
 
@@ -110,7 +128,7 @@ python test/test_sandbox.py   # long input, batched LOHO == separate runs,
 ## Build
 
 ```bash
-docker build -t svm:1.3.1 .
+docker build -t svm:1.4.0 .
 ```
 
 The Dockerfile's `PKG_NAME` is the module folder, `federated_svm`.

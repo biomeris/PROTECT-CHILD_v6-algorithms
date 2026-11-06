@@ -83,9 +83,11 @@ grupos (hospital, cohorte) con menos de `min_samples` muestras se descartan.
 
 | Argumento | Tipo | Default | Descripción |
 |---|---|---|---|
-| `features` | column_list | — | CpGs candidatas (máx. 2,000) |
+| `features` | json (lista) | — | CpGs candidatas (máx. 2,000); o bien `candidates_task_id` |
+| `candidates_task_id` | int | — | tarea DMP/DMR (top DMPs presentes en todos los hospitales) o Beta y M por cohorte (mayor Δβ entre las cohortes elegidas, cobertura completa) de la que se toman las candidatas |
+| `n_candidates` | int | 100 | cuántas candidatas tomar de esa tarea |
 | `outcome_column` | column | — | outcome numérico, o de texto con `positive_value` |
-| `positive_value` | string | — | outcome = 1 si el valor es este (p.ej. una cohorte) |
+| `positive_value` | string | — | outcome = 1 si el valor es este (p.ej. una cohorte). Vacío con dos cohortes: la segunda es la positiva; vacío con tres o más: un modelo por cohorte frente a las demás (one-vs-rest) y la unión de las CpGs |
 | `alpha` | float | 0.01 | fuerza de regularización |
 | `l1_ratio` | float | 0.5 | balance L1/L2 (1=Lasso, 0=Ridge) |
 | `max_iter` | int | 1000 | iteraciones máx de coordinate descent |
@@ -97,6 +99,9 @@ grupos (hospital, cohorte) con menos de `min_samples` muestras se descartan.
 | `cohorts` | string_list | — | cohortes a incluir; vacío = todas |
 | `sample_column` | string | `sample_label` | columna de muestra (solo formato largo) |
 | `value_column` | string | `beta` | columna de valores (solo formato largo) |
+| `organizations_to_include` | lista de ids | todas | hospitales a usar; vacío = todos |
+
+El resultado incluye `input`: de dónde vienen las candidatas (una lista dada, o la tarea, su nombre y su análisis). En la interfaz web, el formulario pregunta primero si usar el resultado de una tarea anterior o subir un fichero JSON. Si HQ rechaza crear las subtareas (p.ej. el dataframe no existe en un hospital), la tarea se detiene con el mensaje de HQ en vez de esperar.
 
 ## Output
 

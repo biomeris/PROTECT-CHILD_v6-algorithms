@@ -17,11 +17,52 @@
       ],
       "arguments": [
         {
+          "name": "input_source",
+          "type": "string",
+          "display_name": "Input",
+          "description": "'Result of a previous task': this run uses the result of the task you give below. 'Upload my own file': upload a JSON file instead, e.g. for different data.",
+          "allowed_values": [
+            "Result of a previous task",
+            "Upload my own file"
+          ],
+          "has_default_value": true,
+          "default_value": "Result of a previous task",
+          "is_frontend_only": true
+        },
+        {
+          "name": "candidates_task_id",
+          "type": "integer",
+          "display_name": "Candidates task",
+          "description": "Id of a finished DMP/DMR task (its top DMPs found in all hospitals) or Beta and M values task (the probes with the largest difference between the chosen cohorts, full coverage), shown on its task page",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Result of a previous task"
+        },
+        {
+          "name": "n_candidates",
+          "type": "integer",
+          "display_name": "Number of candidates",
+          "description": "How many candidate CpGs to take from that task",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 100,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Result of a previous task"
+        },
+        {
           "name": "features",
           "type": "json",
-          "display_name": "CpGs",
-          "description": "Candidate CpG IDs as a JSON list, e.g. [\"cg14697761_TC21\", \"cg08640252_TC11\"] (at most 2,000; e.g. the top DMPs of a DMP/DMR result). Upload a .json file with the list. Only CpGs available in every hospital are used",
-          "has_default_value": false
+          "display_name": "Candidate CpGs (file)",
+          "description": "A JSON list of candidate CpG IDs (at most 2,000), e.g. [\"cg14697761_TC21\", \"cg08640252_TC11\"]; only those available in every hospital are used",
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Upload my own file"
         },
         {
           "name": "outcome_column",
@@ -122,24 +163,39 @@
           "name": "positive_value",
           "type": "string",
           "display_name": "Positive value (text outcome)",
-          "description": "For a text outcome such as the cohort: outcome = 1 when the value equals this, 0 otherwise (combine with cohorts to compare two cohorts)",
+          "description": "For a text outcome such as the cohort: outcome = 1 for this value, 0 otherwise. Empty with two cohorts: the second cohort is the positive one; empty with three or more cohorts: one model per cohort against the others (one-vs-rest) and the union of the selected CpGs",
           "default_value": null,
           "has_default_value": true
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "display_name": "Hospitals",
+          "description": "Hospitals (organizations) to use; empty = all of the collaboration",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
         }
       ],
       "step_type": "central_compute",
       "ui_visualizations": [
         {
+          "name": "Input",
+          "description": "Where this run's input came from",
+          "type": "table",
+          "schema": {
+            "location": [
+              "input"
+            ]
+          }
+        },
+        {
           "name": "Selected CpGs",
-          "description": "CpGs with a non-zero coefficient, largest first",
+          "description": "CpGs with a non-zero coefficient, largest first (one-vs-rest: with the cohorts that selected them)",
           "type": "table",
           "schema": {
             "location": [
               "selected"
-            ],
-            "columns": [
-              "feature",
-              "coefficient"
             ]
           }
         },

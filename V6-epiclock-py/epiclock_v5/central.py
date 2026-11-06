@@ -195,6 +195,27 @@ def summarise_clock_coverage(
     return rows
 
 
+def select_organizations(client: AlgorithmClient, organizations_to_include: list[int] | None) -> list[int]:
+    """Organization ids of the collaboration, or only those in `organizations_to_include`."""
+    org_ids = [organization.get("id") for organization in client.organization.list()]
+    if not organizations_to_include:
+        return org_ids
+    wanted = [int(org_id) for org_id in organizations_to_include]
+    unknown = sorted(set(wanted) - set(org_ids))
+    if unknown:
+        raise ValueError(f"organizations_to_include: {unknown} are not in this collaboration ({org_ids})")
+    return [org_id for org_id in org_ids if org_id in wanted]
+
+
+def check_subtask(task: Any, name: str) -> int:
+    """The id of a created subtask. HQ answers with a message instead of a task when
+    it refuses one (e.g. the dataframe is missing at a node); waiting would never end."""
+    if not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise RuntimeError(f"HQ did not create the subtask '{name}': {message}")
+    return task["id"]
+
+
 @central
 @algorithm_client
 def central_function(
@@ -204,6 +225,7 @@ def central_function(
     min_samples: int = 3,
     coverage_threshold: float = 0.9,
     age_column: str | None = "age",
+    organizations_to_include: List[int] | None = None,
 ) -> Any:
     """
     Central aggregation of epigenetic age predictions per cohort.
@@ -235,6 +257,8 @@ def central_function(
         (default: "age", added by the IDAT extraction's sample_columns). Nodes that
         have it also report the age acceleration (predicted minus chronological
         age); None skips the comparison.
+    organizations_to_include : List[int], optional
+        Organizations (hospitals) to use; all of the collaboration if not given.
 
     Returns:
     --------
@@ -247,9 +271,8 @@ def central_function(
         mapping or $MANIFEST_PATH)}``
     """
     info("Retrieving organizations in collaboration")
-    organizations = client.organization.list()
-    org_ids = [org.get("id") for org in organizations]
-    info(f"Found {len(org_ids)} organizations")
+    org_ids = select_organizations(client, organizations_to_include)
+    info(f"Using {len(org_ids)} organizations")
 
     if not lista_relojes:
         lista_relojes = list(DEFAULT_CLOCKS)
@@ -271,8 +294,9 @@ def central_function(
         },
     )
 
+    task_id = check_subtask(task, "Epigenetic clock calculation")
     info(f"Waiting for aggregated results from {len(org_ids)} organizations")
-    results = client.wait_for_results(task_id=task.get("id"))
+    results = client.wait_for_results(task_id=task_id)
     info(f"Received aggregated results from {len(results)} organizations")
 
     global_summary = aggregate_cohort_results(results)

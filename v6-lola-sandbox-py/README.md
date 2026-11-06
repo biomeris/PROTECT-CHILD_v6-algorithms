@@ -31,7 +31,12 @@ reference region set the 2x2 table is
 
 ## Function
 
-`central_function(dmrs, universe, collections=None, direction="enrichment", min_overlap=1, top_n=1000)`
+`central_function(dmp_task_id=None, dmrs=None, universe=None, collections=None, direction="enrichment", min_overlap=1, top_n=1000)`
+
+- `dmp_task_id`: id of a finished DMP/DMR task (2.1.0 or later). Its DMRs and
+  universe are read from that task's result, so nothing has to be copied.
+  Give either this or `dmrs` and `universe`. In the web interface the form
+  asks first: result of a previous task, or upload own files.
 
 - `dmrs`: list of records with `chromosome`, `start`, `end` (the `global_dmrs`
   of a DMP/DMR result).
@@ -44,7 +49,7 @@ reference region set the 2x2 table is
 - `direction`: `enrichment` (one-sided Fisher, upper tail) or `depletion`.
 - `top_n`: region sets returned, smallest p-value first (1 to 10,000).
 
-Result: `summary` (DMRs, universe CpGs, DMR CpGs, region sets tested and
+Result: `input` (where the DMRs and universe came from), `summary` (DMRs, universe CpGs, DMR CpGs, region sets tested and
 significant at q < 0.05), `warnings`, and `results`, one record per region set:
 its LOLACore annotation (`collection`, `description`, `cellType`, `tissue`,
 `antibody`, `treatment`, `dataSource`, `filename`), `support`, `b`, `c`, `d`,

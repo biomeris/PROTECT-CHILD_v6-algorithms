@@ -360,6 +360,27 @@ def aggregate_results(
     return output
 
 
+def select_organizations(client: AlgorithmClient, organizations_to_include: list[int] | None) -> list[int]:
+    """Organization ids of the collaboration, or only those in `organizations_to_include`."""
+    org_ids = [organization.get("id") for organization in client.organization.list()]
+    if not organizations_to_include:
+        return org_ids
+    wanted = [int(org_id) for org_id in organizations_to_include]
+    unknown = sorted(set(wanted) - set(org_ids))
+    if unknown:
+        raise ValueError(f"organizations_to_include: {unknown} are not in this collaboration ({org_ids})")
+    return [org_id for org_id in org_ids if org_id in wanted]
+
+
+def check_subtask(task: Any, name: str) -> int:
+    """The id of a created subtask. HQ answers with a message instead of a task when
+    it refuses one (e.g. the dataframe is missing at a node); waiting would never end."""
+    if not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise RuntimeError(f"HQ did not create the subtask '{name}': {message}")
+    return task["id"]
+
+
 @central_step
 @algorithm_client
 def central_methylation_analysis(
@@ -375,6 +396,7 @@ def central_methylation_analysis(
     top_n: int = DEFAULT_TOP_N,
     moderate_variance: bool = True,
     meta_model: str = "random",
+    organizations_to_include: list[int] | None = None,
 ) -> Any:
     """Federated DMP/DMR analysis of cohort_b vs cohort_a.
 
@@ -406,13 +428,14 @@ def central_methylation_analysis(
     meta_model : str
         "random" (DerSimonian-Laird random effects, default) or "fixed" (fixed
         effect) meta-analysis across hospitals.
+    organizations_to_include : list[int] | None
+        Organizations (hospitals) to use; all of the collaboration if not given.
     """
     _validate_top_n(top_n)
     if meta_model not in META_MODELS:
         raise ValueError(f"meta_model must be one of {META_MODELS}, got {meta_model!r}")
     info(f"Federated DMP/DMR analysis: {cohort_b} vs {cohort_a}")
-    organizations = client.organization.list()
-    org_ids = [org.get("id") for org in organizations]
+    org_ids = select_organizations(client, organizations_to_include)
 
     task = client.task.create(
         method="rpc_compute_methylation",
@@ -427,8 +450,9 @@ def central_methylation_analysis(
         },
     )
 
+    task_id = check_subtask(task, "DMP/DMR per hospital")
     info("Waiting for the nodes to finish...")
-    results = client.wait_for_results(task_id=task.get("id"))
+    results = client.wait_for_results(task_id=task_id)
 
     info("Local results received. Starting meta-analysis...")
     return aggregate_results(

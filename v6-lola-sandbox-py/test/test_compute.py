@@ -148,9 +148,47 @@ check(hasattr(module, "central_function"), f"the Dockerfile's PKG_NAME ('{pkg_na
 check(Path(REGION_DB).is_dir() and all(Path(REGION_DB, c).is_dir() for c in COLLECTIONS),
       f"LOLACore hg38 is in the image at {REGION_DB}")
 store = json.loads((current_path.parent / "algorithm_store.json").read_text())
-store_args = {a["name"] for f in store["functions"] for a in f["arguments"]}
+store_args = {a["name"] for f in store["functions"] for a in f["arguments"] if not a.get("is_frontend_only")}
 code_args = set(inspect.signature(module.central_function).parameters)
 check(store_args <= code_args, f"algorithm_store.json arguments exist in central_function {sorted(store_args)}")
+
+print("\n[5] DMRs and universe from a DMP/DMR task")
+from lola_sandbox.central import inputs_from_task  # noqa: E402
+
+
+class _Fake:
+    def __init__(self, tasks):
+        outer = self
+        self._tasks = tasks
+
+        class task:  # noqa: N801
+            @staticmethod
+            def get(task_id):
+                t = outer._tasks.get(task_id)
+                return {"id": task_id, "name": t[0]} if t else {"msg": f"Task id={task_id} does not exist!"}
+
+        class result:  # noqa: N801
+            @staticmethod
+            def from_task(task_id):
+                t = outer._tasks.get(task_id)
+                return [t[1]] if t else []
+
+        self.task, self.result = task, result
+
+
+dmp21 = {"comparison": {"cohort_a": "lipid", "cohort_b": "highcardio"}, "summary": {"n_universe": 3},
+         "global_dmrs": [{"chromosome": "chr1", "start": 1, "end": 9}], "universe": {"format": "x", "data": ""}}
+dmp20 = {k: v for k, v in dmp21.items() if k != "universe"}
+fake = _Fake({1: ("dmp", dmp21), 2: ("old dmp", dmp20), 3: ("svm", {"algorithm": "svm"}), 4: ("running", None)})
+got_dmrs, got_universe, prov = inputs_from_task(fake, 1)
+check(got_dmrs == dmp21["global_dmrs"] and got_universe == dmp21["universe"] and prov["task_id"] == 1
+      and "highcardio vs lipid" in prov["description"], "a DMP/DMR 2.1 task gives its DMRs, universe and provenance")
+for bad, text in ((2, "before 2.1.0"), (3, "not a DMP/DMR result"), (4, "no result yet"), (9, "could not be read")):
+    try:
+        inputs_from_task(fake, bad)
+        check(False, f"task {bad} is rejected")
+    except ValueError as exc:
+        check(text in str(exc), f"task {bad} is rejected: {exc}")
 
 print(f"\n{'All checks passed' if not failures else f'{len(failures)} check(s) failed'}")
 sys.exit(1 if failures else 0)

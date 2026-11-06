@@ -609,4 +609,33 @@ check(
     "probes without a genomic location are tested but left out of the universe",
 )
 
+# ---------------------------------------------------------------------------
+# 14. Hospitals to include, refused subtasks
+# ---------------------------------------------------------------------------
+print("\n[14] Hospitals to include, refused subtasks")
+from differentialy_methylated_positions_regions.central import check_subtask, select_organizations  # noqa: E402
+
+
+class _FakeClient:
+    class organization:  # noqa: N801
+        @staticmethod
+        def list():
+            return [{"id": 1}, {"id": 2}, {"id": 3}]
+
+
+check(select_organizations(_FakeClient, None) == [1, 2, 3] and select_organizations(_FakeClient, []) == [1, 2, 3],
+      "no organizations_to_include (or an empty list from the web interface) means all")
+check(select_organizations(_FakeClient, [3, 1]) == [1, 3], "organizations_to_include selects those hospitals")
+try:
+    select_organizations(_FakeClient, [9])
+    check(False, "an unknown organization id is rejected")
+except ValueError as exc:
+    check("not in this collaboration" in str(exc), "an unknown organization id is rejected")
+try:
+    check_subtask({"msg": "The dataframe you selected is not present for the following organizations: 2, 3."}, "x")
+    check(False, "a refused subtask stops the task")
+except RuntimeError as exc:
+    check("not present" in str(exc), "a refused subtask stops the task with HQ's message (instead of waiting forever)")
+check(check_subtask({"id": 7}, "x") == 7, "a created subtask returns its id")
+
 print("\nAll checks passed.")

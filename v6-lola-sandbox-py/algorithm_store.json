@@ -1,6 +1,6 @@
 {
   "name": "LOLA enrichment of DMRs (sandbox)",
-  "image": "localhost:32000/protect-child/lola-sandbox:1.0.0",
+  "image": "localhost:32000/protect-child/lola-sandbox:1.1.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -14,20 +14,53 @@
       "databases": [],
       "arguments": [
         {
+          "name": "input_source",
+          "type": "string",
+          "display_name": "Input",
+          "description": "'Result of a previous task': this run uses the result of the task you give below. 'Upload my own files': upload a JSON file instead, e.g. for different data.",
+          "allowed_values": [
+            "Result of a previous task",
+            "Upload my own files"
+          ],
+          "has_default_value": true,
+          "default_value": "Result of a previous task",
+          "is_frontend_only": true
+        },
+        {
+          "name": "dmp_task_id",
+          "type": "integer",
+          "display_name": "DMP/DMR task",
+          "description": "Id of a finished DMP/DMR task (2.1.0 or later), shown on its task page: this run uses its DMRs and its tested probes (universe)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Result of a previous task"
+        },
+        {
           "name": "dmrs",
           "type": "json",
-          "display_name": "DMRs",
-          "description": "The global_dmrs of a DMP/DMR result (chromosome, start, end per DMR).",
-          "has_default_value": false,
-          "is_frontend_only": false
+          "display_name": "DMRs (file)",
+          "description": "The global_dmrs of a DMP/DMR result (chromosome, start, end per DMR)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Upload my own files"
         },
         {
           "name": "universe",
           "type": "json",
-          "display_name": "Universe",
-          "description": "The universe of the same DMP/DMR result: the probes it tested (chromosome, position).",
-          "has_default_value": false,
-          "is_frontend_only": false
+          "display_name": "Universe (file)",
+          "description": "The universe of the same DMP/DMR result: the probes it tested (chromosome, position)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null,
+          "conditional_on": "input_source",
+          "conditional_operator": "==",
+          "conditional_value": "Upload my own files"
         },
         {
           "name": "collections",
@@ -67,6 +100,16 @@
         }
       ],
       "ui_visualizations": [
+        {
+          "name": "Input",
+          "description": "Where this run's input came from",
+          "type": "table",
+          "schema": {
+            "location": [
+              "input"
+            ]
+          }
+        },
         {
           "name": "Enriched region sets",
           "description": "LOLACore region sets, smallest p-value first",

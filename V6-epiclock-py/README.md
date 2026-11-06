@@ -40,6 +40,9 @@ EPIC v2 tables of ~870k probes.
 | `min_samples` | integer (>= 2) | `3` | Minimum number of samples a cohort needs on a node to be included |
 | `coverage_threshold` | float (0-1) | `0.9` | Minimum coverage for a result to be flagged `coverage_ok`; only sets the flag, never removes results |
 | `age_column` | string | `"age"` | Column with the chronological age; used to report the age acceleration (predicted minus chronological age). `null` skips it |
+| `organizations_to_include` | list of organization ids | all | `central_function` only: hospitals to use; empty = all |
+
+If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not exist at one of the hospitals), the task stops at once with HQ's message instead of waiting.
 
 ### EPIC v2 data
 

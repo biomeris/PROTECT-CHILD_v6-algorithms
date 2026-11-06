@@ -80,9 +80,15 @@ def _run_task(client, method, org_ids, arguments, name, errors=None):
         name=name,
     )
 
+    # HQ answers with a message instead of a task when it refuses one (e.g.
+    # the dataframe is missing at a node); waiting for it would never end.
+    if not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise RuntimeError(f"HQ did not create the subtask '{name}': {message}")
+
     results = []
 
-    for result in client.wait_for_results(task_id=task.get("id")):
+    for result in client.wait_for_results(task_id=task["id"]):
 
         if isinstance(result, dict) and "error" in result:
             warn(f"{method}: {result['error']}")
@@ -99,6 +105,143 @@ def _run_task(client, method, org_ids, arguments, name, errors=None):
         results.append(result)
 
     return results
+
+
+# ---------------------------------------------------------------------
+# HOSPITALS AND INPUTS FROM OTHER TASKS
+# ---------------------------------------------------------------------
+
+def _select_organizations(client, organizations_to_include):
+    """
+    Organization ids of the collaboration, or only those in
+    ``organizations_to_include`` (an empty list from the web interface
+    means all).
+    """
+
+    org_ids = [
+        organization["id"]
+        for organization in client.organization.list()
+    ]
+
+    if not organizations_to_include:
+        return org_ids
+
+    wanted = [int(org_id) for org_id in organizations_to_include]
+    unknown = sorted(set(wanted) - set(org_ids))
+
+    if unknown:
+        raise ValueError(
+            f"organizations_to_include: {unknown} are not in this "
+            f"collaboration ({org_ids})"
+        )
+
+    return [org_id for org_id in org_ids if org_id in wanted]
+
+
+def _task_result(client, task_id):
+    """
+    The task and its (first) result, for a finished task of the
+    collaboration. Raises ValueError with the reason otherwise.
+    """
+
+    task = client.task.get(int(task_id))
+
+    # A real client returns the task, or HQ's message when it cannot be read;
+    # the mock network used in tests has no task details (None).
+    if task is None:
+        task = {"id": int(task_id), "name": None}
+    elif not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise ValueError(f"Task {task_id} could not be read: {message}")
+
+    results = [
+        result
+        for result in client.result.from_task(int(task_id))
+        if result is not None
+    ]
+
+    if not results:
+        raise ValueError(
+            f"Task {task_id} ('{task.get('name')}') has no result yet: is "
+            "it finished and did it succeed?"
+        )
+
+    return task, results[0]
+
+
+def _features_from_task(client, task_id):
+    """
+    The CpGs selected by an Elastic Net task (v6-elastic-net-py), its
+    cohorts, and a description of where they come from.
+    """
+
+    task, result = _task_result(client, task_id)
+    name = task.get("name")
+
+    if not (isinstance(result, dict) and "selected_cpgs" in result):
+        raise ValueError(
+            f"Task {task_id} ('{name}') is not an Elastic Net result"
+        )
+
+    features = list(result["selected_cpgs"])
+
+    if not features:
+        raise ValueError(
+            f"Elastic Net task {task_id} ('{name}') selected no CpGs"
+        )
+
+    cohorts = result.get("cohorts")
+    provenance = {
+        "source": "task",
+        "task_id": int(task_id),
+        "task_name": name,
+        "algorithm": "Elastic Net",
+        "description": (
+            f"the {len(features)} CpGs selected by Elastic Net task "
+            f"{task_id} '{name}'"
+            + (f" ({', '.join(map(str, cohorts))})" if cohorts else "")
+        ),
+    }
+
+    return features, cohorts, provenance
+
+
+def _model_from_task(client, task_id):
+    """
+    A trained model (CpGs, cohorts, weights, biases, standardization) from
+    a finished SVM task, and a description of where it comes from.
+    """
+
+    task, result = _task_result(client, task_id)
+    name = task.get("name")
+
+    if not (
+        isinstance(result, dict)
+        and result.get("algorithm") == "federated_linear_svm"
+    ):
+        raise ValueError(f"Task {task_id} ('{name}') is not an SVM result")
+
+    model = {
+        "features": result["features"],
+        "classes": result["classes"],
+        "weights": [c["model"]["weights"] for c in result["comparisons"]],
+        "biases": [c["model"]["bias"] for c in result["comparisons"]],
+        "mean": result["model"]["standardization"]["mean"],
+        "std": result["model"]["standardization"]["std"],
+    }
+    provenance = {
+        "source": "task",
+        "task_id": int(task_id),
+        "task_name": name,
+        "algorithm": "Federated linear SVM",
+        "description": (
+            f"the SVM model of task {task_id} '{name}' "
+            f"({', '.join(map(str, model['classes']))}, "
+            f"{len(model['features'])} CpGs, C = {result['model']['C']})"
+        ),
+    }
+
+    return model, provenance
 
 
 # ---------------------------------------------------------------------
@@ -2030,8 +2173,9 @@ def _histograms_to_dict(histograms, comparison_names, classes):
 @algorithm_client
 def central(
     client: AlgorithmClient,
-    features,
     outcome_column,
+    features=None,
+    features_task_id=None,
     classes=None,
     reference_cohort=None,
     C_grid=None,
@@ -2045,6 +2189,7 @@ def central(
     sample_column="sample_label",
     value_column="beta",
     features_selected_on_same_samples=None,
+    organizations_to_include=None,
 ):
     """
     Federated Linear SVM for discovery and characterization of
@@ -2058,7 +2203,12 @@ def central(
     ----------
     features:
         CpGs to analyse (e.g. selected by Elastic Net, or from any previous
-        analysis).
+        analysis). Give either ``features`` or ``features_task_id``.
+
+    features_task_id:
+        Id of a finished Elastic Net task: its selected CpGs are used and,
+        if ``classes`` is not given, its cohorts. The result states where
+        the CpGs came from (``input``).
 
     outcome_column:
         Column with the predefined cohort label of each sample.
@@ -2116,6 +2266,10 @@ def central(
         ``probe_id`` column, as produced by v6-extractionIDAT-py): the
         sample column and the value column (e.g. "beta" or "m_value").
 
+    organizations_to_include:
+        Optional. Organizations (hospitals) to use; all of the
+        collaboration if not given.
+
     Returns
     -------
     dict
@@ -2130,6 +2284,35 @@ def central(
 
     if not classes:
         classes = None
+
+    if features and features_task_id not in (None, ""):
+        return {
+            "error": "Give either features or features_task_id, not both."
+        }
+
+    if features_task_id not in (None, ""):
+        features, task_cohorts, provenance = _features_from_task(
+            client, features_task_id
+        )
+        if classes is None and task_cohorts:
+            classes = list(task_cohorts)
+        # Elastic Net selected the CpGs on this collaboration's samples
+        if features_selected_on_same_samples is None:
+            features_selected_on_same_samples = True
+    elif features:
+        provenance = {
+            "source": "list",
+            "description": f"a given list of {len(features)} CpGs",
+        }
+    else:
+        return {
+            "error": (
+                "Give the CpGs: features (a list) or features_task_id (an "
+                "Elastic Net task)."
+            )
+        }
+
+    info(f"Input: {provenance['description']}")
 
     features = list(features)
     C_grid = sorted(float(C) for C in C_grid)
@@ -2148,10 +2331,7 @@ def central(
             "error": "n_folds must be at least 2."
         }
 
-    org_ids = [
-        organization["id"]
-        for organization in client.organization.list()
-    ]
+    org_ids = _select_organizations(client, organizations_to_include)
 
     if not org_ids:
         return {
@@ -2396,6 +2576,10 @@ def central(
     return {
         "algorithm": "federated_linear_svm",
 
+        # Where the CpGs came from.
+        "input": provenance,
+        "organizations": org_ids,
+
         "cohort_detection": cohort_detection,
 
         # Hospitals (organization ids) that could not take part in a step,
@@ -2527,5 +2711,213 @@ def central(
                     (summary["cohorts"][str(c)] for c in classes),
                 )
             },
+        },
+    }
+
+
+# ---------------------------------------------------------------------
+# APPLY A TRAINED MODEL
+# ---------------------------------------------------------------------
+
+@central_step
+@algorithm_client
+def apply_model(
+    client: AlgorithmClient,
+    outcome_column,
+    model_task_id=None,
+    model=None,
+    organizations_to_include=None,
+    min_samples=5,
+    sample_column="sample_label",
+    value_column="beta",
+):
+    """
+    Apply a trained SVM model, unchanged, to the samples of chosen hospitals
+    and report how well it classifies them.
+
+    This is the test step of a fair evaluation: train the whole pipeline
+    (candidate CpGs, Elastic Net, SVM) on some hospitals, then apply the
+    finished model here to a hospital that took no part in any of it.
+
+    Parameters
+    ----------
+    outcome_column:
+        Column with the cohort of each sample (the true label).
+
+    model_task_id:
+        Id of a finished SVM task whose model is applied. Give either this
+        or ``model``.
+
+    model:
+        Optional. A model as a dict with ``features``, ``classes``,
+        ``weights``, ``biases``, ``mean`` and ``std`` (as in an SVM
+        result), e.g. trained elsewhere.
+
+    organizations_to_include:
+        Organizations (hospitals) to evaluate; all if not given.
+
+    min_samples:
+        Minimum number of evaluated samples a hospital needs before it
+        returns its (pooled) counts.
+
+    sample_column, value_column:
+        Columns of long input (as for the SVM).
+
+    Returns
+    -------
+    dict
+        ``input`` (which model), per hospital and pooled over them: the
+        confusion matrix and the balanced accuracy with its 95% interval;
+        per comparison: sensitivity, specificity and balanced accuracy; and
+        the same as flat ``tables``. Only counts leave the hospitals.
+    """
+
+    if model and model_task_id not in (None, ""):
+        return {"error": "Give either model or model_task_id, not both."}
+
+    if model_task_id not in (None, ""):
+        model, provenance = _model_from_task(client, model_task_id)
+    elif model:
+        provenance = {
+            "source": "model",
+            "description": (
+                f"a given model ({len(model['features'])} CpGs, "
+                f"{', '.join(map(str, model['classes']))})"
+            ),
+        }
+    else:
+        return {
+            "error": "Give the model: model_task_id (an SVM task) or model."
+        }
+
+    info(f"Input: {provenance['description']}")
+
+    org_ids = _select_organizations(client, organizations_to_include)
+    classes = list(model["classes"])
+
+    base_args = {
+        "features": list(model["features"]),
+        "outcome_column": outcome_column,
+        "classes": classes,
+        "n_folds": 2,
+        "random_seed": 0,
+        "min_samples": min_samples,
+        "sample_column": sample_column,
+        "value_column": value_column,
+    }
+
+    fitted = {
+        "fold": None,
+        "weights": model["weights"],
+        "biases": model["biases"],
+        "mean": model["mean"],
+        "std": model["std"],
+    }
+
+    # One job per hospital and one pooled over them; each node evaluates
+    # only the jobs that list it.
+    jobs = [
+        {"id": f"org_{org_id}", "organizations": [org_id], "models": [fitted]}
+        for org_id in org_ids
+    ] + [{"id": "pooled", "organizations": org_ids, "models": [fitted]}]
+
+    evaluation = _evaluate(
+        client,
+        org_ids,
+        base_args,
+        jobs,
+        "apply model",
+        score_bins=SCORE_BINS,
+    )
+
+    targets = _targets(classes)
+    comparison_names = (
+        [f"{classes[1]} vs {classes[0]}"]
+        if len(classes) == 2
+        else [f"{target} vs rest" for target in targets]
+    )
+
+    def summarize(result):
+        return {
+            "n": int(result["n"]),
+            "metrics": _calculate_metrics(result["confusion_matrix"]),
+            "confusion_matrix": result["confusion_matrix"].tolist(),
+            "comparisons": [
+                {"comparison": name, **_comparison_metrics(matrix)}
+                for name, matrix in zip(
+                    comparison_names, result["comparison_confusion"]
+                )
+            ],
+        }
+
+    per_hospital = []
+    for org_id in org_ids:
+        result = evaluation.get(f"org_{org_id}")
+        per_hospital.append(
+            {"organization_id": org_id, "status": "evaluated", **summarize(result)}
+            if result is not None
+            else {
+                "organization_id": org_id,
+                "status": "not evaluated",
+                "reason": (
+                    "fewer than min_samples analysable samples, or CpGs "
+                    "missing at this hospital"
+                ),
+            }
+        )
+
+    pooled = evaluation.get("pooled")
+    pooled = summarize(pooled) if pooled is not None else None
+
+    def interval(metrics, side):
+        bounds = (metrics or {}).get("balanced_accuracy_interval")
+        return bounds[side] if bounds else None
+
+    performance = [
+        {
+            "hospitals": (
+                str(entry["organization_id"]) if "organization_id" in entry
+                else "pooled"
+            ),
+            "n": entry.get("n"),
+            "balanced_accuracy": (entry.get("metrics") or {}).get("balanced_accuracy"),
+            "ci_low": interval(entry.get("metrics"), 0),
+            "ci_high": interval(entry.get("metrics"), 1),
+            "accuracy": (entry.get("metrics") or {}).get("accuracy"),
+        }
+        for entry in per_hospital + ([pooled] if pooled else [])
+        if entry.get("n")
+    ]
+
+    if pooled:
+        info(
+            "Applied model: pooled balanced accuracy "
+            f"{pooled['metrics']['balanced_accuracy']:.3f} on {pooled['n']} samples"
+        )
+
+    return {
+        "algorithm": "federated_linear_svm_apply",
+        "input": provenance,
+        "classes": classes,
+        "features": list(model["features"]),
+        "organizations": org_ids,
+        "per_hospital": per_hospital,
+        "pooled": pooled,
+        "tables": {
+            "performance": performance,
+            "comparisons": (
+                [
+                    {
+                        "comparison": c["comparison"],
+                        "balanced_accuracy": c["balanced_accuracy"],
+                        "sensitivity": c["sensitivity"],
+                        "specificity": c["specificity"],
+                        "n": c["n"],
+                    }
+                    for c in pooled["comparisons"]
+                ]
+                if pooled
+                else []
+            ),
         },
     }

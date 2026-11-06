@@ -135,6 +135,25 @@ def rank_candidates(results: list, limit: int) -> list[str]:
     return best.sort_values(ascending=False, kind="stable").head(limit).index.tolist()
 
 
+# Output: the number of samples with a value for a probe is reported under a clearer
+# name, and values are rounded (Beta values lie in [0, 1]; 4 decimals are ample)
+OUTPUT_NAMES = {"n_samples_total": "n_samples_with_value"}
+OUTPUT_DECIMALS = 4
+OUTPUT_COLUMNS = [OUTPUT_NAMES.get(column, column) for column in CENTRAL_RESULT_COLUMNS]
+
+
+def select_organizations(client: AlgorithmClient, organizations_to_include: list[int] | None) -> list[int]:
+    """Organization ids of the collaboration, or only those in `organizations_to_include`."""
+    org_ids = [organization.get("id") for organization in client.organization.list()]
+    if not organizations_to_include:
+        return org_ids
+    wanted = [int(org_id) for org_id in organizations_to_include]
+    unknown = sorted(set(wanted) - set(org_ids))
+    if unknown:
+        raise ValueError(f"organizations_to_include: {unknown} are not in this collaboration ({org_ids})")
+    return [org_id for org_id in org_ids if org_id in wanted]
+
+
 def _run_subtask(client: AlgorithmClient, org_ids: list[int], method: str, arguments: dict,
                  name: str, description: str) -> list:
     task = client.task.create(
@@ -144,6 +163,11 @@ def _run_subtask(client: AlgorithmClient, org_ids: list[int], method: str, argum
         name=name,
         description=description,
     )
+    # HQ answers with a message instead of a task when it refuses one (e.g. the
+    # dataframe is missing at a node); waiting for it would never end
+    if not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise RuntimeError(f"HQ did not create the subtask '{name}': {message}")
     info(f"Waiting for results from subtask {task.get('id')} ({method})")
     results = client.wait_for_results(task_id=task.get("id"))
     info(f"Received results from {len(results)} organisations")
@@ -158,6 +182,7 @@ def central_function(
     min_samples: int = 2,
     probes: list[str] | None = None,
     top_n: int = 1000,
+    organizations_to_include: list[int] | None = None,
 ) -> Any:
     """Global per-cohort mean Beta and M values for selected probes.
 
@@ -177,13 +202,16 @@ def central_function(
     top_n : int
         Without `probes`: report the `top_n` probes (at most MAX_RESULT_PROBES) with
         the largest difference in mean Beta between cohorts (Δβ).
+    organizations_to_include : list[int] | None
+        Organizations (hospitals) to use; all of the collaboration if not given.
 
     Returns
     -------
     list[dict]
         One record per (cohort, probe_id) with beta_mean_global, m_mean_global,
-        n_samples_total, n_samples_cohort, coverage and the probe's delta_beta,
-        sorted by delta_beta.
+        n_samples_with_value (samples with a value for the probe), n_samples_cohort,
+        coverage and the probe's delta_beta, sorted by delta_beta; values rounded to
+        OUTPUT_DECIMALS decimals.
     """
     _validate_min_samples(min_samples)
     # The web interface sends a blank optional list as [] instead of leaving it out
@@ -193,8 +221,7 @@ def central_function(
     if requested is None:
         _validate_top_n(top_n)
 
-    organizations = client.organization.list()
-    org_ids = [organization.get("id") for organization in organizations]
+    org_ids = select_organizations(client, organizations_to_include)
     common = {"cohort_column": cohort_column, "min_samples": min_samples}
 
     if requested is None:
@@ -236,4 +263,4 @@ def central_function(
             f"Global summary: {result['cohort'].nunique()} cohort(s), "
             f"{result['probe_id'].nunique():,} probes, {len(result):,} rows"
         )
-    return result.to_dict(orient="records")
+    return result.rename(columns=OUTPUT_NAMES).round(OUTPUT_DECIMALS).to_dict(orient="records")

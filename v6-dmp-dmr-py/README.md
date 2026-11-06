@@ -41,6 +41,9 @@ test/EPIC-8v2-0_A2.csv`); probes are matched on the manifest's `IlmnID`, then on
 | `top_n` | `1000` | Number of DMPs returned (smallest p-value first), 1 to 10,000. All probes are still tested and corrected |
 | `moderate_variance` | `true` | Moderate each hospital's per-probe variances (limma empirical Bayes); see Statistics |
 | `meta_model` | `"random"` | `"random"` (DerSimonian-Laird random effects) or `"fixed"` (fixed effect) |
+| `organizations_to_include` | all | Hospitals to use (organization ids), e.g. to train on some hospitals and test on another; empty = all |
+
+If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not exist at one of the hospitals), the task stops at once with HQ's message instead of waiting.
 
 ### What each hospital shares
 

@@ -216,4 +216,96 @@ pkg_name = re.search(r'ARG PKG_NAME="([^"]+)"', (root / "Dockerfile").read_text(
 check(all(hasattr(import_module(pkg_name), f) for f in ("central", "partial_moments", "partial_gram")),
       f"PKG_NAME del Dockerfile ('{pkg_name}') es el modulo importable")
 
+# ---------------------------------------------------------------------------
+print("\n[11] Candidates from another task, one-vs-rest, hospitals, refused subtasks")
+from importlib import import_module as _im  # noqa: E402
+fed = _im("v6-elastic-net-py.federated")
+
+
+class _FakeClient:
+    """Lo minimo del AlgorithmClient para leer otra tarea."""
+    def __init__(self, tasks):
+        self._tasks = tasks
+        outer = self
+
+        class task:  # noqa: N801
+            @staticmethod
+            def get(task_id):
+                t = outer._tasks.get(task_id)
+                return {"id": task_id, "name": t[0]} if t else {"msg": f"Task id={task_id} does not exist!"}
+
+            @staticmethod
+            def create(**kwargs):
+                return {"msg": "The dataframe you selected is not present for the following organizations: 2, 3."}
+
+        class result:  # noqa: N801
+            @staticmethod
+            def from_task(task_id):
+                t = outer._tasks.get(task_id)
+                return [t[1]] if t else []
+
+        class organization:  # noqa: N801
+            @staticmethod
+            def list():
+                return [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        self.task, self.result, self.organization = task, result, organization
+
+
+dmp_result = {"comparison": {"cohort_a": "cohort_A", "cohort_b": "cohort_B"},
+              "global_dmps": [{"probe_id": f, "n_nodes": 3 if i != 1 else 2, "p_value": i / 100}
+                              for i, f in enumerate(FEATURES)]}
+beta_result = ([{"cohort": "cohort_A", "probe_id": f, "beta_mean_global": 0.1, "coverage": 1.0} for f in FEATURES]
+               + [{"cohort": "cohort_B", "probe_id": f, "beta_mean_global": 0.1 + i / 100,
+                   "coverage": 1.0 if i != 11 else 0.5} for i, f in enumerate(FEATURES)])
+fake = _FakeClient({10: ("dmp run", dmp_result), 11: ("beta run", beta_result), 12: ("running", None)})
+feats, prov = fed.candidates_from_task(fake, 10, 5, ["cohort_A", "cohort_B"])
+check(feats == [FEATURES[0]] + FEATURES[2:6] and prov["task_id"] == 10 and "DMP/DMR" in prov["description"],
+      "DMP/DMR task: the top DMPs present in all hospitals, smallest p-value first")
+feats, prov = fed.candidates_from_task(fake, 11, 3, ["cohort_A", "cohort_B"])
+check(feats == [FEATURES[10], FEATURES[9], FEATURES[8]] and "Beta and M values" in prov["description"],
+      "Beta and M values task: the largest difference with full coverage")
+for bad, text in ((99, "could not be read"), (12, "no result yet")):
+    try:
+        fed.candidates_from_task(fake, bad, 5, None)
+        check(False, f"task {bad} is rejected")
+    except ValueError as exc:
+        check(text in str(exc), f"task {bad}: {exc}")
+fake2 = _FakeClient({13: ("other", {"something": 1})})
+try:
+    fed.candidates_from_task(fake2, 13, 5, None)
+    check(False, "a task of another algorithm is rejected")
+except ValueError as exc:
+    check("is not a DMP/DMR or Beta and M values result" in str(exc), "a task of another algorithm is rejected")
+check(fed.select_organizations(fake, []) == [1, 2, 3] and fed.select_organizations(fake, [3, 1]) == [1, 3],
+      "organizations_to_include: empty = all, otherwise those hospitals")
+try:
+    fed.check_subtask(fake.task.create(), "x")
+    check(False, "a refused subtask stops the task")
+except RuntimeError as exc:
+    check("not present" in str(exc), "a refused subtask stops the task with HQ's message (instead of waiting forever)")
+
+both = run_central(nodes, candidates_task_id=10)
+check("error" in both and "not both" in both["error"], "features and candidates_task_id together are rejected")
+neither = run_central(nodes, features=[])
+check("error" in neither and "Give the candidate CpGs" in neither["error"], "no candidates at all is rejected")
+
+ab = dict(outcome_column="cohort", cohort_column="cohort")
+r_default = run_central([to_long(d) for d in nodes], cohorts=["cohort_A", "cohort_B"], **ab)
+r_explicit = run_central([to_long(d) for d in nodes], cohorts=["cohort_A", "cohort_B"], positive_value="cohort_B", **ab)
+check(r_default["outcome"]["positive_value"] == "cohort_B"
+      and np.allclose(r_default["coefficients"], r_explicit["coefficients"]),
+      "two cohorts without positive value: the second cohort is the positive one")
+check(r_explicit["input"]["source"] == "list", "the result says where its candidates came from")
+
+three = ["cohort_A", "cohort_B", "cohort_C"]
+ovr = run_central([to_long(d) for d in nodes], cohorts=three, min_samples=2, **ab)
+check(ovr.get("one_vs_rest") and sorted(ovr["per_cohort"]) == three, "three cohorts: one model per cohort")
+single = run_central([to_long(d) for d in nodes], cohorts=three, positive_value="cohort_C", min_samples=2, **ab)
+check(np.allclose(ovr["per_cohort"]["cohort_C"]["coefficients"], single["coefficients"]),
+      "each one-vs-rest model equals a separate run with that positive cohort")
+union = set().union(*(r["selected_cpgs"] for r in ovr["per_cohort"].values()))
+check(set(ovr["selected_cpgs"]) == union and all(e["cohorts"] for e in ovr["selected"]),
+      "selected_cpgs is the union, each with the cohort(s) that selected it")
+
 print("\nAll checks passed.")

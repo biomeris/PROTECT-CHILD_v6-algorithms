@@ -306,14 +306,99 @@ def partial_gram(
 
 
 # --------------------------------------------------------------------------
+# Helpers del central: nodos, subtareas, CpGs candidatas de otra tarea
+# --------------------------------------------------------------------------
+def select_organizations(client: AlgorithmClient, organizations_to_include: list | None) -> list:
+    """Ids de las organizaciones de la colaboracion, o solo las de `organizations_to_include`."""
+    org_ids = [o["id"] for o in client.organization.list()]
+    if not organizations_to_include:
+        return org_ids
+    wanted = [int(o) for o in organizations_to_include]
+    unknown = sorted(set(wanted) - set(org_ids))
+    if unknown:
+        raise ValueError(f"organizations_to_include: {unknown} are not in this collaboration ({org_ids})")
+    return [o for o in org_ids if o in wanted]
+
+
+def check_subtask(task: Any, name: str) -> int:
+    """Id de una subtarea creada. HQ responde con un mensaje en vez de una tarea cuando
+    la rechaza (p.ej. el dataframe no existe en un nodo); esperarla no terminaria nunca."""
+    if not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise RuntimeError(f"HQ did not create the subtask '{name}': {message}")
+    return task["id"]
+
+
+def task_result(client: AlgorithmClient, task_id: int) -> tuple:
+    """(tarea, resultado) de una tarea terminada de la colaboracion, o ValueError."""
+    task = client.task.get(int(task_id))
+    # Un cliente real devuelve la tarea o el mensaje de HQ; la red simulada de los
+    # tests no tiene detalles de tareas (None)
+    if task is None:
+        task = {"id": int(task_id), "name": None}
+    elif not isinstance(task, dict) or task.get("id") is None:
+        message = task.get("msg") if isinstance(task, dict) else task
+        raise ValueError(f"Task {task_id} could not be read: {message}")
+    results = [r for r in client.result.from_task(int(task_id)) if r is not None]
+    if not results:
+        raise ValueError(f"Task {task_id} ('{task.get('name')}') has no result yet: "
+                         "is it finished and did it succeed?")
+    return task, results[0]
+
+
+def candidates_from_task(client: AlgorithmClient, task_id: int, n_candidates: int,
+                         cohorts: list | None) -> tuple:
+    """CpGs candidatas leidas del resultado de otra tarea, y de donde vienen.
+
+    - DMP/DMR (v6-dmp-dmr-py): los `n_candidates` DMPs de menor p-valor presentes en
+      todos los hospitales.
+    - Beta y M por cohorte (v6-betavalues-py): las sondas con cobertura completa en
+      las cohortes elegidas y mayor diferencia de Beta medio entre ellas.
+    """
+    task, result = task_result(client, task_id)
+    name = task.get("name")
+    if isinstance(result, dict) and "global_dmps" in result:
+        dmps = pd.DataFrame(result["global_dmps"])
+        if dmps.empty:
+            raise ValueError(f"Task {task_id} ('{name}') has no DMPs")
+        everywhere = dmps[dmps["n_nodes"] == dmps["n_nodes"].max()].sort_values("p_value")
+        features = everywhere["probe_id"].head(n_candidates).tolist()
+        comparison = result.get("comparison", {})
+        contrast = f"{comparison.get('cohort_b')} vs {comparison.get('cohort_a')}"
+        description = (f"the {len(features)} top DMPs found in all hospitals of task {task_id} "
+                       f"'{name}' (DMP/DMR, {contrast})")
+        if cohorts and set(cohorts) != {comparison.get("cohort_a"), comparison.get("cohort_b")}:
+            warn(f"The DMP/DMR task compared {contrast}, not {', '.join(map(str, cohorts))}")
+        return features, {"source": "task", "task_id": int(task_id), "task_name": name,
+                          "algorithm": "DMP/DMR", "description": description}
+    rows = result if isinstance(result, list) else None
+    if rows and isinstance(rows[0], dict) and {"probe_id", "cohort", "beta_mean_global"} <= set(rows[0]):
+        means = pd.DataFrame(rows)
+        chosen = list(cohorts) if cohorts else sorted(means["cohort"].unique())
+        means = means[means["cohort"].isin(chosen)]
+        full = means.groupby("probe_id").filter(
+            lambda g: len(g) == len(chosen) and (g["coverage"] >= 1).all())
+        spread = full.groupby("probe_id")["beta_mean_global"].agg(lambda b: b.max() - b.min())
+        features = spread.sort_values(ascending=False).head(n_candidates).index.tolist()
+        description = (f"the {len(features)} probes with the largest difference in mean Beta "
+                       f"between {', '.join(map(str, chosen))} (full coverage) of task {task_id} "
+                       f"'{name}' (Beta and M values per cohort)")
+        return features, {"source": "task", "task_id": int(task_id), "task_name": name,
+                          "algorithm": "Beta and M values per cohort", "description": description}
+    raise ValueError(f"Task {task_id} ('{name}') is not a DMP/DMR or Beta and M values result")
+
+
+# --------------------------------------------------------------------------
 # Funcion CENTRAL (orquesta, NO ve datos)
 # --------------------------------------------------------------------------
 @central
 @algorithm_client
 def central(
     client: AlgorithmClient,
-    features: list,
     outcome_column: str,
+    features: list | None = None,
+    candidates_task_id: int | None = None,
+    n_candidates: int = 100,
     alpha: float = 0.01,
     l1_ratio: float = 0.5,
     max_iter: int = 1000,
@@ -326,31 +411,98 @@ def central(
     sample_column: str = "sample_label",
     value_column: str = "beta",
     positive_value: str | None = None,
+    organizations_to_include: list | None = None,
 ) -> dict:
     """Coordinador del Elastic Net federado (estadisticos suficientes, 2 rondas).
 
-    features: CpGs candidatas (como mucho MAX_FEATURES), p.ej. top DMPs.
+    CpGs candidatas: `features` (lista, como mucho MAX_FEATURES) o `candidates_task_id`:
+    una tarea DMP/DMR o Beta y M por cohorte terminada, de la que se toman
+    `n_candidates` CpGs (ver candidates_from_task). El resultado indica de donde
+    vienen (`input`).
     outcome_column/positive_value: outcome numerico, o 0/1 = (valor == positive_value).
+    Con `cohorts` y sin positive_value: dos cohortes -> la segunda es la positiva;
+    tres o mas -> un modelo por cohorte frente a las demas (one-vs-rest) y la union de
+    las CpGs seleccionadas.
     center_by: "hospital" (defecto, intercepto por hospital: elimina batch entre
     hospitales), "hospital_cohort" (intercepto por hospital×cohorte) o "global".
     cohort_column/cohorts: columna de cohorte y, opcionalmente, cohortes a incluir.
     sample_column/value_column: solo para entrada en formato largo.
+    organizations_to_include: hospitales a usar; todos si no se indica.
     """
     if center_by not in CENTER_MODES:
         return {"error": f"center_by must be one of {CENTER_MODES}"}
+    # La interfaz web envia los campos opcionales en blanco como listas vacias
+    cohorts = list(cohorts) if cohorts else None
+    if features and candidates_task_id not in (None, ""):
+        return {"error": "Give either features or candidates_task_id, not both"}
+    if candidates_task_id not in (None, ""):
+        features, provenance = candidates_from_task(client, candidates_task_id, int(n_candidates), cohorts)
+    elif features:
+        provenance = {"source": "list", "description": f"a given list of {len(features)} CpGs"}
+    else:
+        return {"error": "Give the candidate CpGs: features (a list) or candidates_task_id "
+                         "(a DMP/DMR or Beta and M values task)"}
+    info(f"Input: {provenance['description']}")
     features = list(dict.fromkeys(features))
     if not features or len(features) > MAX_FEATURES:
         return {"error": f"give between 1 and {MAX_FEATURES:,} features (got {len(features):,}); "
                          "pre-select CpGs, e.g. the top DMPs of v6-dmp-dmr-py"}
-    org_ids = [o["id"] for o in client.organization.list()]
+    org_ids = select_organizations(client, organizations_to_include)
     info(f"Federated Elastic Net | {len(org_ids)} nodos | {len(features)} features "
          f"| center_by={center_by}")
-    data_args = {"outcome_column": outcome_column,
-                 "min_samples": min_samples, "center_by": center_by,
-                 "cohort_column": cohort_column, "cohorts": cohorts,
-                 "sample_column": sample_column, "value_column": value_column,
-                 "positive_value": positive_value}
+    settings = dict(alpha=alpha, l1_ratio=l1_ratio, max_iter=max_iter, tol=tol,
+                    warn_gram_gb=warn_gram_gb, center_by=center_by)
 
+    def data_args(positive):
+        return {"outcome_column": outcome_column,
+                "min_samples": min_samples, "center_by": center_by,
+                "cohort_column": cohort_column, "cohorts": cohorts,
+                "sample_column": sample_column, "value_column": value_column,
+                "positive_value": positive}
+
+    if positive_value in (None, "") and cohorts and len(cohorts) == 2:
+        positive_value = cohorts[1]
+        info(f"Two cohorts and no positive value: {positive_value} is the positive cohort")
+    if positive_value in (None, "") and cohorts and len(cohorts) >= 3:
+        # One-vs-rest: un modelo por cohorte frente a las demas
+        per_cohort = {}
+        for positive in cohorts:
+            info(f"One-vs-rest: {positive} vs the other cohorts")
+            per_cohort[str(positive)] = _fit(client, org_ids, features, data_args(positive), **settings)
+        failed = {c: r["error"] for c, r in per_cohort.items() if "error" in r}
+        if failed:
+            return {"error": f"One-vs-rest failed for {failed}", "input": provenance}
+        union = {}
+        for c, r in per_cohort.items():
+            for s in r["selected"]:
+                entry = union.setdefault(s["feature"], {"feature": s["feature"], "cohorts": [],
+                                                        "max_abs_coefficient": 0.0})
+                entry["cohorts"].append(c)
+                entry["max_abs_coefficient"] = max(entry["max_abs_coefficient"], abs(s["coefficient"]))
+        selected = sorted(union.values(), key=lambda e: -e["max_abs_coefficient"])
+        for e in selected:
+            e["cohorts"] = ", ".join(e["cohorts"])
+        return {
+            "input": provenance,
+            "one_vs_rest": True,
+            "cohorts": cohorts,
+            "selected": selected,
+            "selected_cpgs": [e["feature"] for e in selected],
+            "per_cohort": per_cohort,
+            "n_features_requested": len(features),
+            "skipped": sorted({s for r in per_cohort.values() for s in r["skipped"]}),
+            "privacy_warnings": sorted({w for r in per_cohort.values() for w in r["privacy_warnings"]}),
+            "hyperparams": {"alpha": alpha, "l1_ratio": l1_ratio},
+        }
+
+    result = _fit(client, org_ids, features, data_args(positive_value), **settings)
+    return {"input": provenance, **result}
+
+
+def _fit(client: AlgorithmClient, org_ids: list, features: list, data_args: dict,
+         alpha: float, l1_ratio: float, max_iter: int, tol: float, warn_gram_gb: float,
+         center_by: str) -> dict:
+    """Un Elastic Net federado (2 rondas) para un outcome."""
     # Aviso de coste en memoria (solo lee el nº de features, no toca datos)
     _check_dimensionality(len(features), warn_gb=warn_gram_gb)
 
@@ -361,7 +513,7 @@ def central(
         organizations=org_ids,
         name="ElasticNet round 1 (moments)",
     )
-    results1 = client.wait_for_results(task_id=task1.get("id"))
+    results1 = client.wait_for_results(task_id=check_subtask(task1, "ElasticNet round 1 (moments)"))
     skipped = [r["error"] for r in results1 if "error" in r]
     r1 = [r for r in results1 if "error" not in r]
     if not r1:
@@ -403,7 +555,7 @@ def central(
         organizations=org_ids,
         name="ElasticNet round 2 (gram)",
     )
-    results2 = client.wait_for_results(task_id=task2.get("id"))
+    results2 = client.wait_for_results(task_id=check_subtask(task2, "ElasticNet round 2 (gram)"))
     r2 = [r for r in results2 if "error" not in r]
     if not r2:
         return {"error": "no valid nodes in round 2", "skipped": skipped}
@@ -443,7 +595,8 @@ def central(
         "skipped": skipped,
         "privacy_warnings": privacy_warnings,
         "center_by": center_by,
-        "cohorts": list(cohorts) if cohorts else None,
-        "outcome": {"column": outcome_column, "positive_value": positive_value},
+        "cohorts": list(data_args["cohorts"]) if data_args["cohorts"] else None,
+        "outcome": {"column": data_args["outcome_column"],
+                    "positive_value": data_args["positive_value"]},
         "hyperparams": {"alpha": alpha, "l1_ratio": l1_ratio},
     }

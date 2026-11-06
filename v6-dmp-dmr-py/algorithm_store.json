@@ -112,6 +112,15 @@
           "default_value": "random",
           "has_default_value": true,
           "is_frontend_only": false
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "display_name": "Hospitals",
+          "description": "Hospitals (organizations) to use; empty = all of the collaboration",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
         }
       ],
       "ui_visualizations": [

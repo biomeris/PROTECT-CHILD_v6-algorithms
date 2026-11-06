@@ -111,7 +111,7 @@ check(all(hasattr(module, f) for f in ("central", "partial_cohorts", "partial_su
 store = json.loads((ROOT / "algorithm_store.json").read_text())
 for function in store["functions"]:
     code = set(inspect.signature(getattr(module, function["name"])).parameters)
-    names = {a["name"] for a in function["arguments"]}
+    names = {a["name"] for a in function["arguments"] if not a.get("is_frontend_only")}
     check(names <= code, f"algorithm_store.json: {function['name']} arguments exist in the code")
 
 print("\n[5] Summary wording and interval")
@@ -158,6 +158,111 @@ ovr_text = " ".join(ovr["evidence_summary"])
 check("Higher methylation in" in ovr_text and "Lower methylation in" in ovr_text
       and "Contributing towards" not in ovr_text,
       "one-vs-rest: key CpGs grouped by higher / lower methylation in the target cohort")
+
+print("\n[6] Hospitals to include, inputs from other tasks, applying a trained model")
+
+
+def run_in(network, method, arguments):
+    """Run `method` as a central task in an existing mock network."""
+    client = network.user_client
+    with contextlib.redirect_stdout(io.StringIO()):
+        task = client.task.create(
+            method=method,
+            organizations=[network.organization_ids[0]],
+            arguments=arguments,
+            databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
+        )
+        result = client.result.from_task(task["id"])[0]
+    json.dumps(result)
+    return task["id"], result
+
+
+network = MockNetwork(module_name=MODULE,
+                      datasets=[{"db": {"database": f, "db_type": "csv"}} for f in WIDE])
+orgs = network.organization_ids
+common_args = {"outcome_column": "cohort", "classes": CLASSES}
+_, full = run_in(network, "central", {**common_args, "features": CPGS})
+check(full["input"]["source"] == "list" and full["organizations"] == orgs,
+      "the result states its input (a given list) and the hospitals used")
+train_id, trained = run_in(network, "central", {**common_args, "features": CPGS, "run_loho": False,
+                                                "organizations_to_include": orgs[:2]})
+check(trained["organizations"] == orgs[:2], "organizations_to_include trains on those hospitals only")
+_, applied = run_in(network, "apply_model", {"outcome_column": "cohort", "model_task_id": train_id,
+                                             "organizations_to_include": [orgs[2]]})
+loho_3 = [r for r in full["validation"]["loho"]["results"] if r["held_out_hospital"] == orgs[2]][0]
+check(applied["input"]["task_id"] == train_id
+      and applied["per_hospital"][0]["confusion_matrix"] == loho_3["confusion_matrix"],
+      "a model trained on hospitals 1-2 and applied to hospital 3 gives the LOHO result for hospital 3")
+check(applied["tables"]["performance"] and applied["tables"]["performance"][-1]["hospitals"] == "pooled",
+      "apply_model returns flat tables (per hospital and pooled)")
+_, everywhere = run_in(network, "apply_model", {"outcome_column": "cohort", "model_task_id": train_id})
+check(everywhere["pooled"]["n"] == sum(h["n"] for h in everywhere["per_hospital"] if h["status"] == "evaluated"),
+      "pooled counts are the sum of the hospitals' counts")
+model = {"features": trained["features"], "classes": trained["classes"],
+         "weights": [c["model"]["weights"] for c in trained["comparisons"]],
+         "biases": [c["model"]["bias"] for c in trained["comparisons"]],
+         "mean": trained["model"]["standardization"]["mean"],
+         "std": trained["model"]["standardization"]["std"]}
+_, from_json = run_in(network, "apply_model", {"outcome_column": "cohort", "model": model,
+                                               "organizations_to_include": [orgs[2]]})
+check(from_json["per_hospital"] == applied["per_hospital"], "a model given as JSON gives the same result")
+_, not_svm = run_in(network, "apply_model", {"outcome_column": "cohort", "model_task_id": train_id, "model": model})
+check("error" in not_svm, "model and model_task_id together are rejected")
+
+central_module = sys.modules[f"{MODULE}.central"]
+
+
+class _Fake:
+    def __init__(self, tasks):
+        outer = self
+        self._tasks = tasks
+
+        class task:  # noqa: N801
+            @staticmethod
+            def get(task_id):
+                t = outer._tasks.get(task_id)
+                return {"id": task_id, "name": t[0]} if t else {"msg": f"Task id={task_id} does not exist!"}
+
+            @staticmethod
+            def create(**kwargs):
+                return {"msg": "The dataframe you selected is not present for the following organizations: 2, 3."}
+
+        class result:  # noqa: N801
+            @staticmethod
+            def from_task(task_id):
+                t = outer._tasks.get(task_id)
+                return [t[1]] if t else []
+
+        class organization:  # noqa: N801
+            @staticmethod
+            def list():
+                return [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        self.task, self.result, self.organization = task, result, organization
+
+
+fake = _Fake({5: ("en", {"selected_cpgs": ["cgA", "cgB"], "cohorts": ["lipid", "highcardio"]}),
+              6: ("dmp", {"global_dmps": []})})
+feats, cohorts, prov = central_module._features_from_task(fake, 5)
+check(feats == ["cgA", "cgB"] and cohorts == ["lipid", "highcardio"] and prov["task_id"] == 5,
+      "features_task_id: the Elastic Net task's CpGs and cohorts")
+try:
+    central_module._features_from_task(fake, 6)
+    check(False, "a task of another algorithm is rejected")
+except ValueError as exc:
+    check("not an Elastic Net result" in str(exc), "a task of another algorithm is rejected")
+try:
+    central_module._features_from_task(fake, 99)
+    check(False, "an unknown task is rejected")
+except ValueError as exc:
+    check("could not be read" in str(exc), "an unknown task is rejected")
+check(central_module._select_organizations(fake, []) == [1, 2, 3]
+      and central_module._select_organizations(fake, [3]) == [3], "organizations_to_include: empty = all")
+try:
+    central_module._run_task(fake, "partial_cohorts", [1, 2, 3], {}, "test")
+    check(False, "a refused subtask stops the task")
+except RuntimeError as exc:
+    check("not present" in str(exc), "a refused subtask stops the task with HQ's message (instead of waiting forever)")
 
 print(f"\n{'All checks passed' if not failures else f'{len(failures)} check(s) failed'}")
 sys.exit(1 if failures else 0)

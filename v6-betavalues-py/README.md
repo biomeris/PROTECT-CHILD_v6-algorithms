@@ -46,6 +46,9 @@ Requests above 10,000 probes are rejected with a message instead of being tried.
 | `min_samples` | integer | `2` | Minimum number of samples a cohort needs on a node to be included. |
 | `probes` | list of strings | none | Probes to report (at most 10,000). When given, `top_n` is not used. |
 | `top_n` | integer | `1000` | Without `probes`: number of top probes by Δβ to report (1-10,000). |
+| `organizations_to_include` | list of organization ids | all | Hospitals to use, e.g. to train on some hospitals and test on another; empty = all |
+
+If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not exist at one of the hospitals), the task stops at once with HQ's message instead of waiting.
 
 ### How the top probes are found
 
@@ -77,7 +80,7 @@ requires a probe list of at most 20,000 probes.
 ### Output
 
 `central_function` returns one record per (cohort, probe), sorted by `delta_beta`
-(largest first):
+(largest first), with values rounded to 4 decimals:
 
 | Column | Description |
 | --- | --- |
@@ -85,9 +88,9 @@ requires a probe list of at most 20,000 probes.
 | `probe_id` | CpG probe identifier |
 | `beta_mean_global` | `sum(beta_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
 | `m_mean_global` | `sum(m_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
-| `n_samples_total` | `sum(n_samples_i)` over the nodes |
+| `n_samples_with_value` | Samples with a value for the probe: `sum(n_samples_i)` over the nodes |
 | `n_samples_cohort` | Samples of the cohort over all nodes (cohorts that pass `min_samples`) |
-| `coverage` | `n_samples_total / n_samples_cohort`: share of the cohort's samples behind the means. QC removes a probe in samples where it fails detection, so a probe can have coverage below 1; such probes are kept, and users can filter on coverage |
+| `coverage` | `n_samples_with_value / n_samples_cohort`: share of the cohort's samples behind the means. QC removes a probe in samples where it fails detection, so a probe can have coverage below 1; such probes are kept, and users can filter on coverage |
 | `delta_beta` | Δβ of the probe: largest minus smallest `beta_mean_global` over its cohorts (empty if the probe has only one cohort) |
 
 `federated_function` returns `summary` (one record per (cohort, probe) with
