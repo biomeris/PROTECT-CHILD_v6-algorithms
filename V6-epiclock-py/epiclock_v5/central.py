@@ -31,6 +31,18 @@ GLOBAL_RESULT_COLUMNS = [
     "mean_chronological_age_global",
     "mean_age_acceleration_global",
     "sd_age_acceleration_global",
+    "mean_abs_error_global",
+    "correlation_global",
+]
+
+ACCURACY_COLUMNS = [
+    "clock",
+    "n_with_age_total",
+    "n_cohorts",
+    "mean_abs_error_global",
+    "correlation_global",
+    "mean_age_acceleration_global",
+    "coverage_ok",
 ]
 
 
@@ -44,6 +56,61 @@ def pooled_mean_sd(n: np.ndarray, means: np.ndarray, sds: np.ndarray) -> tuple[f
     return mean, float(np.sqrt(sum_squares / (total_n - 1)))
 
 
+def pooled_accuracy(reported: pd.DataFrame) -> tuple[float | None, float | None]:
+    """Mean absolute error and Pearson correlation between predicted and chronological
+    age over all samples of `reported` (rows of node results with an age comparison).
+
+    Exact from per-row n, means and SDs: with acceleration a = predicted - real,
+    cov(predicted, real) = (var(predicted) + var(real) - var(a)) / 2, all pooled
+    with pooled_mean_sd. Rows from nodes without these fields (older versions) are
+    not used; then both are empty.
+    """
+    needed = ["sd_chronological_age", "sd_predicted_age_with_age", "mean_abs_error"]
+    if reported.empty or any(c not in reported for c in needed):
+        return None, None
+    reported = reported.dropna(subset=needed)
+    if reported.empty:
+        return None, None
+    n = reported["n_with_age"].to_numpy(dtype=float)
+    real = reported["mean_chronological_age"].to_numpy(dtype=float)
+    accel = reported["mean_age_acceleration"].to_numpy(dtype=float)
+    mae = float((n * reported["mean_abs_error"].to_numpy(dtype=float)).sum() / n.sum())
+    _, sd_real = pooled_mean_sd(n, real, reported["sd_chronological_age"].to_numpy(dtype=float))
+    _, sd_pred = pooled_mean_sd(n, real + accel, reported["sd_predicted_age_with_age"].to_numpy(dtype=float))
+    _, sd_accel = pooled_mean_sd(n, accel, reported["sd_age_acceleration"].to_numpy(dtype=float))
+    if not sd_real or not sd_pred or sd_accel is None:
+        return mae, None
+    cov = (sd_pred ** 2 + sd_real ** 2 - sd_accel ** 2) / 2
+    return mae, float(np.clip(cov / (sd_pred * sd_real), -1.0, 1.0))
+
+
+def clock_accuracy(combined: pd.DataFrame) -> pd.DataFrame:
+    """Per clock, over all cohorts and nodes: how close the predicted age is to the
+    chronological age (mean absolute error, correlation, mean acceleration)."""
+    rows = []
+    if "mean_age_acceleration" not in combined:
+        return pd.DataFrame(columns=ACCURACY_COLUMNS)
+    for clk, group in combined.groupby("clock"):
+        reported = group[pd.to_numeric(group["mean_age_acceleration"], errors="coerce").notna()]
+        if reported.empty:
+            continue
+        n = reported["n_with_age"].to_numpy(dtype=float)
+        accel_mean, _ = pooled_mean_sd(
+            n, reported["mean_age_acceleration"].to_numpy(dtype=float), np.zeros(len(n)))
+        mae, corr = pooled_accuracy(reported)
+        rows.append({
+            "clock": clk,
+            "n_with_age_total": int(n.sum()),
+            "n_cohorts": int(reported["cohort"].nunique()),
+            "mean_abs_error_global": mae,
+            "correlation_global": corr,
+            "mean_age_acceleration_global": accel_mean,
+            "coverage_ok": bool(group["coverage_ok"].astype(bool).all()),
+        })
+    table = pd.DataFrame(rows, columns=ACCURACY_COLUMNS)
+    return table.sort_values("mean_abs_error_global", na_position="last", kind="stable").reset_index(drop=True)
+
+
 def pooled_age_comparison(group: pd.DataFrame) -> dict:
     """Pool the chronological age and age acceleration of one (cohort, clock) over
     the nodes that reported them (weighted by n_with_age)."""
@@ -52,6 +119,8 @@ def pooled_age_comparison(group: pd.DataFrame) -> dict:
         "mean_chronological_age_global": None,
         "mean_age_acceleration_global": None,
         "sd_age_acceleration_global": None,
+        "mean_abs_error_global": None,
+        "correlation_global": None,
     }
     reported = group[pd.to_numeric(group["mean_age_acceleration"], errors="coerce").notna()]
     if reported.empty:
@@ -70,7 +139,23 @@ def pooled_age_comparison(group: pd.DataFrame) -> dict:
         "mean_age_acceleration_global": accel_mean,
         "sd_age_acceleration_global": accel_sd,
     })
+    fields["mean_abs_error_global"], fields["correlation_global"] = pooled_accuracy(reported)
     return fields
+
+
+def node_results_frame(results: list) -> pd.DataFrame:
+    """All nodes' (cohort, clock) records in one DataFrame."""
+    node_dfs = []
+    for r in results:
+        if isinstance(r, dict):
+            r = r.get("results", [])
+        if isinstance(r, pd.DataFrame):
+            node_dfs.append(r)
+        elif isinstance(r, list):
+            node_dfs.append(pd.DataFrame(r, columns=NODE_RESULT_COLUMNS))
+    if not node_dfs:
+        return pd.DataFrame(columns=NODE_RESULT_COLUMNS)
+    return pd.concat(node_dfs, ignore_index=True)
 
 
 def aggregate_cohort_results(results: list) -> pd.DataFrame:
@@ -99,23 +184,11 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
         n_samples_total, n_nodes, coverage_min, coverage_max (clock coverage over
         the nodes that contributed), coverage_ok (True only if every
         contributing node meets the coverage threshold), and n_with_age_total,
-        mean_chronological_age_global, mean_age_acceleration_global and
-        sd_age_acceleration_global (empty if no node reported ages)
+        mean_chronological_age_global, mean_age_acceleration_global,
+        sd_age_acceleration_global, mean_abs_error_global and correlation_global
+        (Pearson, predicted vs chronological age) (empty if no node reported ages)
     """
-    node_dfs = []
-    for r in results:
-        if isinstance(r, dict):
-            r = r.get("results", [])
-        if isinstance(r, pd.DataFrame):
-            node_dfs.append(r)
-        elif isinstance(r, list):
-            node_dfs.append(pd.DataFrame(r, columns=NODE_RESULT_COLUMNS))
-
-    combined = (
-        pd.concat(node_dfs, ignore_index=True)
-        if node_dfs
-        else pd.DataFrame(columns=NODE_RESULT_COLUMNS)
-    )
+    combined = node_results_frame(results)
     if combined.empty:
         return pd.DataFrame(columns=GLOBAL_RESULT_COLUMNS)
 
@@ -325,6 +398,7 @@ def central_function(
     info(f"Received aggregated results from {len(results)} organizations")
 
     global_summary = aggregate_cohort_results(results)
+    accuracy = clock_accuracy(node_results_frame(results))
     if global_summary.empty:
         warn("No cohort met the min_samples threshold on any node; no results to return")
     else:
@@ -351,5 +425,6 @@ def central_function(
         "clocks": lista_relojes,
         "results": global_summary.to_dict(orient="records"),
         "clock_coverage": coverage,
+        "clock_accuracy": accuracy.to_dict(orient="records"),
         "n_nodes_legacy_loci_mapping": n_mapped,
     }

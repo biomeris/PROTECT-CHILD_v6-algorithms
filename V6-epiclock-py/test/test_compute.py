@@ -684,6 +684,39 @@ check(
     and np.allclose(age_merged["sd_age_acceleration_global"], age_merged["accel_sd_ref"]),
     "pooled chronological age and age acceleration (mean, SD) equal the per-sample reference",
 )
+
+# Accuracy: mean absolute error and correlation, per cohort and per clock over all
+# cohorts, pooled from node aggregates, equal the per-sample values
+def accuracy_ref(g):
+    return pd.Series({"mae_ref": (g["predicted"] - g["real"]).abs().mean(),
+                      "corr_ref": np.corrcoef(g["predicted"], g["real"])[0, 1]})
+acc_ref = per_sample.groupby(["cohort", "clock"])[["predicted", "real"]].apply(accuracy_ref).reset_index()
+acc_merged = pooled.merge(acc_ref, on=["cohort", "clock"], validate="1:1")
+check(
+    np.allclose(acc_merged["mean_abs_error_global"], acc_merged["mae_ref"])
+    and np.allclose(acc_merged["correlation_global"], acc_merged["corr_ref"]),
+    "pooled mean absolute error and correlation per cohort equal the per-sample values",
+)
+from epiclock_v5.central import clock_accuracy, node_results_frame  # noqa: E402
+accuracy = clock_accuracy(node_results_frame([s.to_dict(orient="records") for s in node_aged]))
+clock_ref = per_sample.groupby("clock")[["predicted", "real"]].apply(accuracy_ref).reset_index()
+clock_merged = accuracy.merge(clock_ref, on="clock", validate="1:1")
+check(
+    len(clock_merged) == len(CLOCKS)
+    and np.allclose(clock_merged["mean_abs_error_global"], clock_merged["mae_ref"])
+    and np.allclose(clock_merged["correlation_global"], clock_merged["corr_ref"])
+    and (clock_merged["n_with_age_total"] == per_sample.groupby("clock").size().reindex(clock_merged["clock"]).to_numpy()).all()
+    and accuracy["mean_abs_error_global"].is_monotonic_increasing,
+    "clock accuracy over all cohorts equals the per-sample values, best clock first",
+)
+old_nodes = [s.drop(columns=["sd_chronological_age", "sd_predicted_age_with_age", "mean_abs_error"])
+             .to_dict(orient="records") for s in node_aged]
+old_pooled = aggregate_cohort_results(old_nodes)
+check(
+    old_pooled["mean_abs_error_global"].isna().all() and old_pooled["correlation_global"].isna().all()
+    and np.allclose(old_pooled["mean_age_acceleration_global"], pooled["mean_age_acceleration_global"]),
+    "results from nodes without the accuracy fields still pool; accuracy is then empty",
+)
 cohort_b3 = node_aged[2].query("cohort == 'cohort_B'")
 check(
     (cohort_b3["n_with_age"] == cohort_b3["n_samples"] - 1).all(),

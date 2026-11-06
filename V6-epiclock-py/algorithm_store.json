@@ -106,8 +106,29 @@
               "sd_age_global",
               "mean_chronological_age_global",
               "mean_age_acceleration_global",
+              "mean_abs_error_global",
+              "correlation_global",
               "n_samples_total",
               "n_nodes",
+              "coverage_ok"
+            ]
+          }
+        },
+        {
+          "name": "Clock accuracy",
+          "description": "How close each clock's predicted age is to the chronological age, over all samples with an age (best clock first): mean absolute error in years and correlation",
+          "type": "table",
+          "schema": {
+            "location": [
+              "clock_accuracy"
+            ],
+            "columns": [
+              "clock",
+              "mean_abs_error_global",
+              "correlation_global",
+              "mean_age_acceleration_global",
+              "n_with_age_total",
+              "n_cohorts",
               "coverage_ok"
             ]
           }

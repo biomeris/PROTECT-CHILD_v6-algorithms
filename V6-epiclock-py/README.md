@@ -125,12 +125,15 @@ writes the converted data if an output path is given.
 with one result record per (cohort, clock): `cohort`, `clock`, `n_samples`,
 `mean_age`, `sd_age` (sample standard deviation), `coverage` (share of the clock's
 CpGs present on this node, 0-1), `coverage_ok` (`coverage >= coverage_threshold`),
-`n_with_age`, `mean_chronological_age`, `mean_age_acceleration` and
-`sd_age_acceleration` (acceleration = predicted minus chronological age).
+`n_with_age`, `mean_chronological_age`, `mean_age_acceleration`,
+`sd_age_acceleration` (acceleration = predicted minus chronological age),
+`sd_chronological_age`, `sd_predicted_age_with_age` (SD of the predicted age of the
+samples with an age) and `mean_abs_error` (mean of |predicted - chronological|).
+These are aggregates over at least `min_samples` samples, like the other fields.
 In `clock_coverage`, a clock that failed to compute has the value `null`.
 
 `central_function` returns `{"results": [...], "clock_coverage": [...],
-"n_nodes_legacy_loci_mapping": n}`.
+"clock_accuracy": [...], "n_nodes_legacy_loci_mapping": n}`.
 `clock_coverage` has one record per clock with `coverage_min`, `coverage_max`,
 `n_nodes_reported`, `n_nodes_coverage_ok` (nodes meeting the threshold) and `n_nodes_failed` (nodes where the
 clock failed to compute). `results` has one record per (cohort, clock):
@@ -150,6 +153,16 @@ clock failed to compute). `results` has one record per (cohort, clock):
 | `mean_chronological_age_global` | Mean chronological age of those samples |
 | `mean_age_acceleration_global` | Mean of predicted minus chronological age, pooled exactly like the ages |
 | `sd_age_acceleration_global` | Standard deviation of the age acceleration |
+| `mean_abs_error_global` | Mean absolute error of the predicted age (years), weighted by `n_with_age` |
+| `correlation_global` | Pearson correlation between predicted and chronological age over those samples, exact from the node means and SDs: `cov = (var_pred + var_real - var_accel) / 2` |
+
+`clock_accuracy` has one record per clock, over all cohorts and nodes with an age
+comparison, sorted by mean absolute error (best first): `clock`,
+`n_with_age_total`, `n_cohorts`, `mean_abs_error_global`, `correlation_global`,
+`mean_age_acceleration_global` and `coverage_ok`. A clock is accurate when its error
+is small and its correlation high; within a single cohort the age range is narrow,
+so the correlation per cohort is less informative than over all cohorts. Results
+from nodes running an earlier version pool as before, with these fields empty.
 
 The pooled mean and SD do not depend on `coverage_threshold`.
 

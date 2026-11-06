@@ -24,6 +24,7 @@ DEFAULT_CLOCKS = ["horvath2013", "hannum", "pcphenoage", "pedbe"]
 NODE_RESULT_COLUMNS = [
     "cohort", "clock", "n_samples", "mean_age", "sd_age", "coverage", "coverage_ok",
     "n_with_age", "mean_chronological_age", "mean_age_acceleration", "sd_age_acceleration",
+    "sd_chronological_age", "sd_predicted_age_with_age", "mean_abs_error",
 ]
 
 
@@ -146,7 +147,9 @@ def federated_impl(
         standard deviation, ddof=1), coverage and coverage_ok, one row per
         (cohort, clock), plus n_with_age (samples with a predicted and a
         chronological age), mean_chronological_age, mean_age_acceleration and
-        sd_age_acceleration (acceleration = predicted minus chronological age).
+        sd_age_acceleration (acceleration = predicted minus chronological age),
+        sd_chronological_age, sd_predicted_age_with_age (SD of the predicted age of
+        those samples) and mean_abs_error (mean of |predicted - chronological|).
         The age fields are empty when fewer than ``min_samples`` samples have an
         age; the row is kept. ``.attrs["clock_coverage"]`` holds the coverage of each
         clock on this node (None if the clock failed to compute; failed clocks have
@@ -256,6 +259,9 @@ def federated_impl(
                 "mean_chronological_age": None,
                 "mean_age_acceleration": None,
                 "sd_age_acceleration": None,
+                "sd_chronological_age": None,
+                "sd_predicted_age_with_age": None,
+                "mean_abs_error": None,
             }
             if chronological is not None:
                 real = chronological.reindex(valid.index).dropna()
@@ -267,6 +273,13 @@ def federated_impl(
                         "mean_chronological_age": float(real.mean()),
                         "mean_age_acceleration": float(acceleration.mean()),
                         "sd_age_acceleration": float(acceleration.std(ddof=1)),
+                        # For the clock's accuracy: with these SDs the central step
+                        # pools the correlation exactly (cov = (var_pred + var_real
+                        # - var_accel) / 2); the mean predicted age of these samples
+                        # is mean_chronological_age + mean_age_acceleration
+                        "sd_chronological_age": float(real.std(ddof=1)),
+                        "sd_predicted_age_with_age": float(valid.loc[real.index].std(ddof=1)),
+                        "mean_abs_error": float(acceleration.abs().mean()),
                     })
             rows.append(row)
 
