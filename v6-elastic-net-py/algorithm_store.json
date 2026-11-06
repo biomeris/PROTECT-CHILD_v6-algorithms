@@ -18,9 +18,9 @@
       "arguments": [
         {
           "name": "features",
-          "type": "column_list",
-          "display_name": "CpG columns",
-          "description": "Candidate CpGs (at most 2,000), e.g. the top DMPs of v6-dmp-dmr-py; only those available in every node are used",
+          "type": "json",
+          "display_name": "CpGs",
+          "description": "Candidate CpG IDs as a JSON list, e.g. [\"cg14697761_TC21\", \"cg08640252_TC11\"] (at most 2,000; e.g. the top DMPs of a DMP/DMR result). Upload a .json file with the list. Only CpGs available in every hospital are used",
           "has_default_value": false
         },
         {
@@ -59,7 +59,7 @@
           "type": "float",
           "display_name": "Tolerance",
           "description": "Convergence threshold",
-          "default_value": 1e-08,
+          "default_value": "0.00000001",
           "has_default_value": true
         },
         {
@@ -173,8 +173,8 @@
       "arguments": [
         {
           "name": "features",
-          "type": "column_list",
-          "display_name": "CpG columns",
+          "type": "json",
+          "display_name": "CpGs",
           "description": "Predictor columns",
           "has_default_value": false
         },
@@ -258,8 +258,8 @@
       "arguments": [
         {
           "name": "features",
-          "type": "column_list",
-          "display_name": "CpG columns",
+          "type": "json",
+          "display_name": "CpGs",
           "description": "Predictor columns",
           "has_default_value": false
         },

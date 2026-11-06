@@ -19,9 +19,9 @@
       "arguments": [
         {
           "name": "features",
-          "type": "string_list",
+          "type": "json",
           "display_name": "CpGs",
-          "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
+          "description": "CpG IDs as a JSON list, e.g. the selected_cpgs of the elastic net result. Upload a .json file with the list. Every hospital needs all of them",
           "is_frontend_only": false,
           "has_default_value": false
         },
@@ -85,7 +85,7 @@
           "description": "Convergence tolerance on the gradient norm, relative to the initial one",
           "is_frontend_only": false,
           "has_default_value": true,
-          "default_value": 1e-09
+          "default_value": "0.000000001"
         },
         {
           "name": "random_seed",
@@ -205,7 +205,7 @@
       "arguments": [
         {
           "name": "features",
-          "type": "string_list",
+          "type": "json",
           "display_name": "CpGs",
           "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
           "is_frontend_only": false,
@@ -253,7 +253,7 @@
       "arguments": [
         {
           "name": "features",
-          "type": "string_list",
+          "type": "json",
           "display_name": "CpGs",
           "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
           "is_frontend_only": false,
@@ -336,7 +336,7 @@
       "arguments": [
         {
           "name": "features",
-          "type": "string_list",
+          "type": "json",
           "display_name": "CpGs",
           "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
           "is_frontend_only": false,
@@ -427,7 +427,7 @@
       "arguments": [
         {
           "name": "features",
-          "type": "string_list",
+          "type": "json",
           "display_name": "CpGs",
           "description": "CpGs to analyse, e.g. the selected_cpgs of v6-elastic-net-py; every hospital needs all of them",
           "is_frontend_only": false,
