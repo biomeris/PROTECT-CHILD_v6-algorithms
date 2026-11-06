@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "v6-lola-sandbox-py"
-version = "1.2.0"
+version = "1.2.1"
 description = "LOLA region set enrichment of the DMRs of a DMP/DMR result against LOLACore hg38 (sandbox version of v6-lola-py)."
 readme = "README.md"
 requires-python = ">=3.13"

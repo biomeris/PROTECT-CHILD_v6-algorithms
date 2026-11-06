@@ -339,10 +339,15 @@ def latest_task(client, accepts, image_hints, label: str, limit: int = 50) -> in
     session_id = getattr(client, "session_id", None)
     if session_id is None or not hasattr(client, "request"):
         raise ValueError(f"No session to look in: give the {label} task number")
+    # No status filter: HQ 5.0.3 fails on it (status is computed from the runs).
+    # Unfinished tasks have no result yet and are skipped below.
     response = client.request("task", params={
-        "session_id": session_id, "is_user_created": 1, "status": "completed",
-        "per_page": limit})
-    tasks = response.get("data", []) if isinstance(response, dict) else []
+        "session_id": session_id, "is_user_created": 1, "per_page": limit})
+    if not isinstance(response, dict) or "data" not in response:
+        message = response.get("msg") if isinstance(response, dict) else response
+        raise ValueError(f"The tasks of this session could not be listed ({message}): "
+                         f"give the {label} task number")
+    tasks = response["data"]
     tasks = sorted(tasks, key=lambda t: (not any(h in str(t.get("image", "")) for h in image_hints),
                                          -int(t["id"])))
     for task in tasks:

@@ -213,7 +213,9 @@ class _Session:
         self.task, self.result = task, result
 
     def request(self, endpoint, params=None):
-        assert endpoint == "task" and params["session_id"] == self.session_id and params["status"] == "completed"
+        assert endpoint == "task" and params["session_id"] == self.session_id and "status" not in params
+        if self.session_id == "broken":
+            return {"msg": "An unexpected error occurred!"}
         return {"data": [{"id": i, "name": t[0], "image": t[1]} for i, t in sorted(self._tasks.items(), reverse=True)]}
 
 
@@ -223,7 +225,8 @@ session = _Session({170: ("dmp old", "ghcr.io/x/dmp-dmr:2.2.0", dmp21), 172: ("d
 check(latest_task(session, is_dmp_result, ("dmp-dmr",), "DMP/DMR") == 173,
       "empty task field: the most recent DMP/DMR task (with universe) of the session; newer other tasks are skipped")
 for client, text in ((_Session({175: ("svm", "svm", {"algorithm": "svm"})}), "No finished DMP/DMR task in this session"),
-                     (_Session({}, session_id=None), "No session to look in")):
+                     (_Session({}, session_id=None), "No session to look in"),
+                     (_Session({}, session_id="broken"), "could not be listed (An unexpected error occurred!)")):
     try:
         latest_task(client, is_dmp_result, ("dmp-dmr",), "DMP/DMR")
         check(False, "no suitable task gives a clear message")

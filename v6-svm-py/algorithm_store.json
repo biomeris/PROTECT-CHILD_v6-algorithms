@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.5.0",
+  "image": "localhost:32000/protect-child/svm:1.5.1",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",

@@ -287,7 +287,9 @@ class _Session:
         self.task, self.result = task, result
 
     def request(self, endpoint, params=None):
-        assert endpoint == "task" and params["session_id"] == self.session_id and params["status"] == "completed"
+        assert endpoint == "task" and params["session_id"] == self.session_id and "status" not in params
+        if self.session_id == "broken":
+            return {"msg": "An unexpected error occurred!"}
         return {"data": [{"id": i, "name": t[0], "image": t[1]} for i, t in sorted(self._tasks.items(), reverse=True)]}
 
 
