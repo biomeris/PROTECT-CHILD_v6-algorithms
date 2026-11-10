@@ -18,6 +18,9 @@ column:
     Hospital B: cohort_B (2 samples)                        450K
     Hospital C: cohort_C (1 sample, GEO-style file name)     EPIC v2
 """
+import contextlib
+import io
+import re
 import shutil
 import sys
 import tempfile
@@ -121,6 +124,47 @@ check(
     epic["probe_id"].str.contains(EPIC_V2_SUFFIX).all() and per_sample.min() > 800_000,
     f"Hospital C: EPIC v2 data ({per_sample.min():,} probes per sample, EPIC v2 probe IDs)",
 )
+
+# ---------------------------------------------------------------------------
+# 2b. QC summary: counts from the Beta table, samples flagged (not removed)
+# ---------------------------------------------------------------------------
+print("\n[2b] QC summary")
+from extractionIDAT.extract import quality_summary  # noqa: E402
+toy = pd.DataFrame({
+    "s1": [0.1, np.nan, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.2],
+    "s2": [0.1, np.nan, np.nan, np.nan, 0.5, 0.6, 0.7, 0.8, 0.9, 0.2],
+}, index=[f"cg{i}" for i in range(10)])
+qc = quality_summary(toy, flag_fraction=0.10)
+check(
+    qc["n_probes"] == 10 and qc["masked_all"] == 1 and qc["dropped"] == 2 and qc["kept"] == 7,
+    "QC counts: 1 probe masked in all samples, 2 failed in one sample (left out), 7 kept",
+)
+check(
+    qc["failed_fraction"] == {"s1": 0.0, "s2": 2 / 9} and list(qc["flagged"]) == ["s2"],
+    "failed share per sample excludes probes masked everywhere; above 10% is flagged",
+)
+check(quality_summary(toy, flag_fraction=0.5)["flagged"] == {}, "the flag threshold is respected")
+
+with contextlib.redirect_stdout(io.StringIO()) as log:
+    qc_run = extraction_impl({}, idat_dir=str(current_path / "Hospital A"), qc_flag_fraction=0.0)
+log = log.getvalue()
+n_samples = qc_run["sample_label"].nunique()
+kept = int(re.search(r"([\d,]+) kept", log).group(1).replace(",", ""))
+check(kept * n_samples == len(qc_run) and qc_run.equals(extracted["Hospital A"]),
+      "the QC summary matches the extracted table, which is unchanged by the summary")
+check(log.count("QC flag: sample") == n_samples and "failed" in log,
+      "every sample above the threshold is flagged in the log, and all samples are kept")
+
+# Type I channel inference: optional; logs the switched probes and keeps valid values
+with contextlib.redirect_stdout(io.StringIO()) as log:
+    inferred = extraction_impl({}, idat_dir=str(current_path / "Hospital A"), infer_type1_channel=True)
+log = log.getvalue()
+switched = int(re.search(r"([\d,]+) probe\(s\) switched", log).group(1).replace(",", ""))
+common = inferred.merge(extracted["Hospital A"], on=["probe_id", "sample_label"], suffixes=("", "_default"))
+check(switched > 0 and inferred["beta"].between(0, 1).all() and list(inferred.columns) == OUTPUT_COLUMNS,
+      f"type I channel inference runs ({switched:,} probes switched) and gives valid Beta values")
+check(not np.allclose(common["beta"], common["beta_default"]) and len(common) > 0.95 * len(inferred),
+      "with channel inference the values change slightly; without it they are as before")
 
 # ---------------------------------------------------------------------------
 # 3. Extra sample sheet columns (e.g. age) are added to every row

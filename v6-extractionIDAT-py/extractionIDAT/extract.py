@@ -28,6 +28,9 @@ SAMPLE_SHEET_NAMES = ("samplesheet.csv", "sample_sheet.csv")
 OUTPUT_COLUMNS = ["probe_id", "sample_label", "cohort", "beta", "m_value"]
 # pylluminator index levels that describe the probe design, not the probe itself
 PROBE_DESIGN_COLUMNS = {"type", "channel", "probe_type"}
+# Samples with more than this share of probes failing detection are flagged in the
+# log (kept, not removed); ChAMP's default sample cut-off is 10%
+DEFAULT_QC_FLAG_FRACTION = 0.10
 
 
 def _find_idat_files(directory: Path) -> list[Path]:
@@ -222,20 +225,80 @@ def _pylluminator_sample_sheet(sample_labels: list[str]) -> pd.DataFrame:
     })
 
 
+def quality_summary(beta_all: pd.DataFrame, flag_fraction: float = DEFAULT_QC_FLAG_FRACTION) -> dict:
+    """QC counts from the probes x samples Beta table with masked values as NaN.
+
+    - masked_all: probes with no value in any sample (the probe masks: quality,
+      control, non-CpG, SNP, X/Y; or failing detection in every sample)
+    - failed_fraction: per sample, the share of the other probes without a value
+      (failed pOOBAH detection) in that sample
+    - dropped: probes missing in at least one, but not all, samples; the extraction
+      leaves them out at this hospital
+    - flagged: samples whose failed_fraction is above `flag_fraction`. They are
+      kept: the summary only flags them.
+    """
+    missing = beta_all.isna()
+    masked_all = missing.all(axis=1)
+    usable = missing[~masked_all]
+    failed = usable.mean() if len(usable) else pd.Series(0.0, index=beta_all.columns)
+    dropped = int(usable.any(axis=1).sum())
+    return {
+        "n_probes": int(len(beta_all)),
+        "masked_all": int(masked_all.sum()),
+        "dropped": dropped,
+        "kept": int(len(usable) - dropped),
+        "failed_fraction": {str(s): float(f) for s, f in failed.items()},
+        "flagged": {str(s): float(f) for s, f in failed.items() if f > flag_fraction},
+    }
+
+
+def report_quality(beta_all: pd.DataFrame, pvalue_threshold: float, flag_fraction: float) -> dict:
+    """Log the QC summary (the node log is where the user of a data extraction sees it)."""
+    qc = quality_summary(beta_all, flag_fraction)
+    info(
+        f"QC: {qc['n_probes']:,} probes read; {qc['masked_all']:,} masked in all samples "
+        f"(quality, control, non-CpG, SNP and X/Y probes, or failed in every sample); "
+        f"{qc['dropped']:,} failed detection in some samples and are left out at this hospital; "
+        f"{qc['kept']:,} kept"
+    )
+    failed = pd.Series(qc["failed_fraction"])
+    if not failed.empty:
+        info(
+            f"QC: probes failing detection (pOOBAH p > {pvalue_threshold}) per sample: median "
+            f"{failed.median():.2%}, highest {failed.max():.2%} ({failed.idxmax()})"
+        )
+        for sample, fraction in failed.sort_values(ascending=False).items():
+            info(f"QC:   {sample}: {fraction:.2%} failed")
+    for sample, fraction in qc["flagged"].items():
+        warn(
+            f"QC flag: sample {sample} has {fraction:.2%} of its probes failing detection "
+            f"(above {flag_fraction:.0%}); it is kept, check its quality"
+        )
+    if not qc["flagged"]:
+        info(f"QC: no sample above {flag_fraction:.0%} failed probes")
+    return qc
+
+
 def methylation_values(
     idat_dir: Path,
     sample_labels: list[str],
     pvalue_threshold: float = 0.05,
     min_beads: int = 1,
+    qc_flag_fraction: float = DEFAULT_QC_FLAG_FRACTION,
+    infer_type1_channel: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Read the IDATs with pylluminator and return (beta, m) tables (probes x samples).
 
-    Steps performed:
+    Steps performed (SeSAMe-style preprocessing, within each sample):
+    - optionally (`infer_type1_channel`), the colour channel of type I probes
+      inferred from the signal (SeSAMe's inferInfiniumIChannel)
     - pOOBAH detection p-values and masking (threshold: `pvalue_threshold`)
     - mask control, quality, non-CpG, SNP and sex-chromosome probes
     - non-linear dye-bias correction
     - NOOB background correction
     - Beta and M values of the probes that pass the masks
+    - a QC summary in the log: probes masked and dropped, failed probes per sample,
+      samples above `qc_flag_fraction` flagged (not removed)
     """
     info(f"Loading {len(sample_labels)} IDAT samples from {idat_dir}")
     samples = read_samples(
@@ -246,6 +309,14 @@ def methylation_values(
     if samples is None:
         error(f"pylluminator could not read the IDAT files in {idat_dir}")
         raise ValueError(f"Unable to read IDAT data from {idat_dir}")
+
+    if infer_type1_channel:
+        # SeSAMe's step C (prep "QCDPB"): set each type I probe's colour channel to the
+        # one with the higher signal, before pOOBAH and the dye-bias correction
+        switched = samples.infer_type1_channel()
+        n_switched = int(sum(n for (manifest, inferred), n in switched.items() if manifest != inferred))
+        info(f"Inferred the colour channel of type I probes: {n_switched:,} probe(s) switched "
+             f"from the manifest's channel")
 
     info(f"Running pOOBAH detection and masking (p-value threshold={pvalue_threshold})")
     samples.poobah(threshold=pvalue_threshold)
@@ -261,11 +332,16 @@ def methylation_values(
 
     info("Calculating beta and M values")
     samples.calculate_betas()
-    beta_df = samples.get_betas(drop_na=True, apply_mask=True)
+    # All probes, masked values as NaN: the QC summary is computed from this table;
+    # dropping the rows with any NaN gives exactly get_betas(drop_na=True)
+    beta_all = samples.get_betas(drop_na=False, apply_mask=True)
     m_df = samples.get_m_values(drop_na=True, apply_mask=True)
-    if beta_df is None or m_df is None:
+    if beta_all is None or m_df is None:
         error("Beta or M calculation failed")
         raise RuntimeError("Beta or M calculation returned None")
+    report_quality(beta_all, pvalue_threshold, qc_flag_fraction)
+    beta_df = beta_all.dropna()
+    del beta_all
 
     tables = []
     for df in (beta_df, m_df):
@@ -319,6 +395,8 @@ def data_extraction_function(
     sample_columns: list[str] | None = None,
     pvalue_threshold: float = 0.05,
     min_beads: int = 1,
+    qc_flag_fraction: float = DEFAULT_QC_FLAG_FRACTION,
+    infer_type1_channel: bool = False,
 ) -> Any:
     """Read the node's IDAT folder into a long table of Beta and M values.
 
@@ -330,6 +408,10 @@ def data_extraction_function(
     - sample_columns: other sample sheet columns to add to every row, e.g. ['Age']
     - pvalue_threshold: pOOBAH detection p-value threshold for masking probes
     - min_beads: minimum number of beads for a probe to be used
+    - qc_flag_fraction: samples with more than this share of probes failing
+      detection are flagged in the log (they are kept)
+    - infer_type1_channel: infer the colour channel of type I probes from the signal
+      before the other steps (SeSAMe's recommended step for EPIC); off by default
     """
     return extraction_impl(
         connection_details,
@@ -338,6 +420,8 @@ def data_extraction_function(
         sample_columns=sample_columns,
         pvalue_threshold=pvalue_threshold,
         min_beads=min_beads,
+        qc_flag_fraction=qc_flag_fraction,
+        infer_type1_channel=infer_type1_channel,
     )
 
 
@@ -349,6 +433,8 @@ def extraction_impl(
     sample_columns: list[str] | None = None,
     pvalue_threshold: float = 0.05,
     min_beads: int = 1,
+    qc_flag_fraction: float = DEFAULT_QC_FLAG_FRACTION,
+    infer_type1_channel: bool = False,
 ) -> pd.DataFrame:
     """Undecorated implementation for local testing (`idat_dir` overrides the URI).
 
@@ -358,7 +444,8 @@ def extraction_impl(
     folder = resolve_idat_folder(connection_details, idat_dir)
     metadata = sample_metadata(folder, cohort_column, sample_sheet_name, sample_columns)
     beta, m_values = methylation_values(
-        folder, metadata["sample_label"].tolist(), pvalue_threshold, min_beads
+        folder, metadata["sample_label"].tolist(), pvalue_threshold, min_beads, qc_flag_fraction,
+        infer_type1_channel,
     )
     result = to_long_format(beta, m_values, metadata)
     info(

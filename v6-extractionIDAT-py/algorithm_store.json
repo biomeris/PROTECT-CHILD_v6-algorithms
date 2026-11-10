@@ -8,7 +8,7 @@
   "functions": [
     {
       "name": "data_extraction_function",
-      "description": "Read the IDAT files and sample sheet of a node into a long table of Beta and M values per probe and sample, with the cohort of each sample",
+      "description": "Read the IDAT files and sample sheet of a node into a long table of Beta and M values per probe and sample, with the cohort of each sample. Quality control and normalisation (pylluminator, SeSAMe-style, within each sample): pOOBAH detection p-values (probes above the threshold masked), masking of quality, control, non-CpG, SNP and X/Y-chromosome probes, optionally inference of the colour channel of type I probes, non-linear dye-bias correction and NOOB background correction. Probes missing in any sample of the hospital are left out. No between-sample (e.g. BMIQ, quantile) or batch normalisation. The task log of each hospital has a QC summary: probes masked and left out, the share of failed probes per sample, and samples above the flag threshold (flagged, not removed).",
       "step_type": "data_extraction",
       "databases": [
         {
@@ -58,6 +58,24 @@
           "display_name": "Minimum number of beads",
           "description": "Probes measured with fewer beads are masked.",
           "default_value": 1,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "qc_flag_fraction",
+          "type": "float",
+          "display_name": "QC flag: share of failed probes",
+          "description": "Samples with more than this share of probes failing detection are flagged in the task log (they are kept). 0.1 = 10%, as ChAMP's sample cut-off.",
+          "default_value": 0.1,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "infer_type1_channel",
+          "type": "boolean",
+          "display_name": "Infer the colour channel of type I probes",
+          "description": "SeSAMe's recommended step for EPIC: set each type I probe's channel to the one with the higher signal, before the other steps. Off by default (the earlier results were computed without it).",
+          "default_value": false,
           "has_default_value": true,
           "is_frontend_only": false
         }

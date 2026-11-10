@@ -41,6 +41,20 @@ pOOBAH detection p-value masking, masking of quality, control, non-CpG, SNP and
 sex-chromosome probes, non-linear dye-bias correction, NOOB background correction,
 then Beta and M values of the probes that pass the masks (pylluminator).
 
+This is SeSAMe-style preprocessing, done within each sample at its hospital. With
+`infer_type1_channel` the colour channel of type I probes is first inferred from the
+signal (SeSAMe's prep "QCDPB"). There
+is no between-sample normalisation (e.g. BMIQ or quantile) and no batch correction
+between hospitals; the analyses account for hospitals themselves (DMP/DMR
+meta-analyses per hospital, elastic net has one intercept per hospital).
+
+**QC summary.** Each hospital's task log reports the probes read, the probes masked
+in all samples, the probes left out because they failed detection in some samples,
+the probes kept, and per sample the share of probes failing detection. Samples above
+`qc_flag_fraction` are flagged with a warning; they are kept, not removed. A data
+extraction returns a dataframe, not a result, so the log is where this is shown (in
+the web interface: the task, then the run of each hospital).
+
 ### Arguments (`data_extraction_function`)
 
 | Argument | Default | Description |
@@ -50,6 +64,8 @@ then Beta and M values of the probes that pass the masks (pylluminator).
 | `sample_columns` | none | Other sample sheet columns to add to every row, e.g. `["Site"]` (named in snake_case). Numeric columns become numbers; empty or `NA` values are kept as missing. An `Age` column (any capitalisation) is added automatically as `age` when the sample sheet has one, for the epigenetic clocks |
 | `pvalue_threshold` | `0.05` | pOOBAH detection p-value threshold |
 | `min_beads` | `1` | Minimum number of beads per probe |
+| `qc_flag_fraction` | `0.1` | Samples with more than this share of probes failing detection are flagged in the log (kept) |
+| `infer_type1_channel` | `false` | Infer the colour channel of type I probes from the signal before the other steps (SeSAMe's `inferInfiniumIChannel`, recommended for EPIC) |
 
 ### Output
 
