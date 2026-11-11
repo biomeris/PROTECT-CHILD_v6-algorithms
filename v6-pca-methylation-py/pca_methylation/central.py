@@ -27,7 +27,7 @@ its hospital.
 import numpy as np
 from scipy import stats
 
-from vantage6.algorithm.tools.util import info, warn
+from vantage6.algorithm.tools.util import error, info, warn
 from vantage6.algorithm.decorator.action import central as central_action
 from vantage6.algorithm.decorator.algorithm_client import algorithm_client
 from vantage6.algorithm.client import AlgorithmClient
@@ -357,6 +357,50 @@ def _round(value, digits=6):
 @central_action
 @algorithm_client
 def central(
+    client: AlgorithmClient,
+    n_features: int = DEFAULT_FEATURES,
+    features: list | None = None,
+    n_components: int = 5,
+    scale: bool = False,
+    cohort_column: str | None = "cohort",
+    cohorts: list | None = None,
+    sample_column: str = "sample_label",
+    value_column: str = "beta",
+    min_samples: int = 5,
+    outlier_sd: float = 3.0,
+    top_cpgs: int = 10,
+    organizations_to_include: list | None = None,
+) -> dict:
+    """
+    Federated PCA of methylation values (see ``_central`` for the
+    parameters).
+
+    The web interface only shows the result's tables, so the outcome is
+    always in a one-row ``status`` table (the summary, or the reason it
+    failed), and a failure is also written to the log.
+    """
+
+    try:
+        result = _central(
+            client, n_features=n_features, features=features,
+            n_components=n_components, scale=scale, cohort_column=cohort_column,
+            cohorts=cohorts, sample_column=sample_column, value_column=value_column,
+            min_samples=min_samples, outlier_sd=outlier_sd, top_cpgs=top_cpgs,
+            organizations_to_include=organizations_to_include,
+        )
+    except (ValueError, RuntimeError) as exception:
+        result = {"error": str(exception)}
+
+    if "error" in result:
+        error(f"Methylation PCA failed: {result['error']}")
+        result["status"] = [{"outcome": "failed", "message": result["error"]}]
+    else:
+        result["status"] = [{"outcome": "completed", "message": result["summary"]}]
+
+    return result
+
+
+def _central(
     client: AlgorithmClient,
     n_features: int = DEFAULT_FEATURES,
     features: list | None = None,

@@ -187,6 +187,8 @@ for h, org_id in enumerate(org_ids):
     check(np.isclose(mean, scores[hospital == h, 0].mean(), atol=1e-6),
           f"PC1 mean of hospital {h + 1}")
 
+check(result["status"] == [{"outcome": "completed", "message": result["summary"]}],
+      "Summary table holds the summary")
 check(variance["separable"].all(), "cohorts at several hospitals: hospital and cohort separable")
 X_pooled = wide[expected_features].to_numpy()
 for _, row in loadings[loadings["rank"] <= 3].iterrows():
@@ -255,6 +257,12 @@ too_many, _ = run(nodes, n_features=5000)
 check("error" in too_many, "n_features above 2,000 is refused")
 one, _ = run(nodes, n_features=50, min_samples=1)
 check("error" in one and "at least 2" in one["error"], "min_samples = 1 is refused")
+check(one["status"] == [{"outcome": "failed", "message": one["error"]}], "the reason is in the Summary table")
+zero, _ = run(nodes, n_features=50, min_samples=0)
+check(zero["status"][0]["outcome"] == "failed", "min_samples = 0 (empty field) is refused")
+unknown, _ = run(nodes, n_features=50, organizations_to_include=[999])
+check(unknown["status"][0]["outcome"] == "failed" and "999" in unknown["error"],
+      "an unknown hospital gives a readable failure")
 
 print("\n[7] Each reported cohort at one hospital: not separable")
 # Hospital 1 has only "case" samples and hospital 2 only "control" ones

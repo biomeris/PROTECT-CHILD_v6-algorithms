@@ -1,6 +1,6 @@
 {
   "name": "Methylation PCA",
-  "image": "localhost:32000/protect-child/pca-methylation:1.0.2",
+  "image": "localhost:32000/protect-child/pca-methylation:1.0.3",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -94,7 +94,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned. At least 2; do not leave empty",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -128,6 +128,20 @@
         }
       ],
       "ui_visualizations": [
+        {
+          "name": "Summary",
+          "description": "Outcome of the run: a plain-text reading of the result, or the reason it failed",
+          "type": "table",
+          "schema": {
+            "location": [
+              "status"
+            ],
+            "columns": [
+              "outcome",
+              "message"
+            ]
+          }
+        },
         {
           "name": "Variance explained",
           "description": "Per component: share of variance, and how much of it hospital and cohort explain (R squared, F-test p-values). hospital_effect flags a hospital effect beyond cohort (p < 0.05); separable is false when every reported cohort is at a single hospital, so hospital and cohort cannot be told apart. A component is a weighted combination of all the CpGs used, not one variable: top_cpgs names the CpGs with the largest weights and their correlation (r) with the component.",
