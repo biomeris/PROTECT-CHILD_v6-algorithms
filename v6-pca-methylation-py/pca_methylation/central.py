@@ -47,8 +47,13 @@ VARIANCE_COLUMNS = [
     "r2_hospital", "p_hospital", "r2_cohort", "p_cohort",
     "r2_hospital_beyond_cohort", "p_hospital_beyond_cohort",
     "r2_cohort_beyond_hospital", "main_factor", "hospital_effect",
-    "separable", "samples_with_cohort",
+    "separable", "samples_with_cohort", "top_cpgs",
 ]
+SCREE_COLUMNS = ["component_number", "component", "explained_variance_ratio", "cumulative_ratio"]
+# Components in the scree plot (eigenvalues only, so more than n_components)
+SCREE_COMPONENTS = 20
+# CpGs named per component in the variance table
+TOP_CPGS_NAMED = 3
 GROUP_COLUMNS = ["organization_id", "cohort", "component", "n", "mean", "sd"]
 LOADING_COLUMNS = ["component", "rank", "probe_id", "weight", "correlation"]
 HOSPITAL_COLUMNS = [
@@ -510,6 +515,7 @@ def central(
         p_batch = raw["p_hospital_beyond_cohort"] if with_cohort else raw["p_hospital"]
         row["hospital_effect"] = bool(np.isfinite(p_batch) and p_batch < SIGNIFICANCE)
         row["separable"] = bool(effects["separable"]) if with_cohort else None
+        row["top_cpgs"] = None  # filled below from the top CpGs table
         variance_rows.append({column: row[column] for column in VARIANCE_COLUMNS})
 
     group_rows = []
@@ -541,6 +547,26 @@ def central(
                 "weight": _round(vectors[i, j]),
                 "correlation": _round(vectors[i, j] * np.sqrt(values[j]) / cpg_sd[i]),
             })
+
+    # A component is a weighted combination of all the CpGs used; name the
+    # CpGs with the largest weights, with their correlation with the component
+    for row in variance_rows:
+        top = [r for r in loading_rows if r["component"] == row["component"]][:TOP_CPGS_NAMED]
+        row["top_cpgs"] = "; ".join(
+            f"{r['probe_id']} (r = {r['correlation']:+.2f})" for r in top
+        )
+
+    # Scree plot: share of variance of the first components (line chart)
+    n_scree = min(SCREE_COMPONENTS, len(chosen), n_scatter - 1)
+    scree_rows = [
+        {
+            "component_number": j + 1,
+            "component": f"PC{j + 1}",
+            "explained_variance_ratio": _round(ratios[j]),
+            "cumulative_ratio": _round(ratios[: j + 1].sum()),
+        }
+        for j in range(n_scree)
+    ]
 
     hospitals = _hospital_rows(org_ids, status, moments, scatters, scores)
     batch_components = [r["component"] for r in variance_rows if r["hospital_effect"]]
@@ -593,6 +619,7 @@ def central(
     return {
         "summary": " ".join(notes),
         "variance_explained": variance_rows,
+        "scree": scree_rows,
         "group_scores": group_rows,
         "top_loadings": loading_rows,
         "hospitals": hospitals,

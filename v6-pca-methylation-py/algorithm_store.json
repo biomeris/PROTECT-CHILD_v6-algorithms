@@ -1,6 +1,6 @@
 {
   "name": "Methylation PCA",
-  "image": "localhost:32000/protect-child/pca-methylation:1.0.1",
+  "image": "localhost:32000/protect-child/pca-methylation:1.0.2",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -130,7 +130,7 @@
       "ui_visualizations": [
         {
           "name": "Variance explained",
-          "description": "Per component: share of variance, and how much of it hospital and cohort explain (R squared, F-test p-values). hospital_effect flags a hospital effect beyond cohort (p < 0.05); separable is false when every reported cohort is at a single hospital, so hospital and cohort cannot be told apart.",
+          "description": "Per component: share of variance, and how much of it hospital and cohort explain (R squared, F-test p-values). hospital_effect flags a hospital effect beyond cohort (p < 0.05); separable is false when every reported cohort is at a single hospital, so hospital and cohort cannot be told apart. A component is a weighted combination of all the CpGs used, not one variable: top_cpgs names the CpGs with the largest weights and their correlation (r) with the component.",
           "type": "table",
           "schema": {
             "location": [
@@ -150,8 +150,36 @@
               "main_factor",
               "hospital_effect",
               "separable",
-              "samples_with_cohort"
+              "samples_with_cohort",
+              "top_cpgs"
             ]
+          }
+        },
+        {
+          "name": "Scree plot",
+          "description": "Share of the variance explained by each of the first components (up to 20)",
+          "type": "line",
+          "schema": {
+            "location": [
+              "scree"
+            ],
+            "x": "component_number",
+            "y": "explained_variance_ratio",
+            "y_axis_min": 0
+          }
+        },
+        {
+          "name": "Cumulative variance",
+          "description": "Share of the variance explained by the first k components together",
+          "type": "line",
+          "schema": {
+            "location": [
+              "scree"
+            ],
+            "x": "component_number",
+            "y": "cumulative_ratio",
+            "y_axis_min": 0,
+            "y_axis_max": 1
           }
         },
         {

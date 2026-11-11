@@ -196,6 +196,16 @@ for _, row in loadings[loadings["rank"] <= 3].iterrows():
     check(np.isclose(row["correlation"], np.corrcoef(X_pooled[:, i], scores[:, j])[0, 1], atol=2e-6),
           f"{row['component']} correlation of {row['probe_id']} with its scores")
 
+scree = pd.DataFrame(result["scree"])
+check(list(scree["component_number"]) == list(range(1, 21)), "scree plot: first 20 components")
+check(np.allclose(scree["explained_variance_ratio"], values[:20] / values.sum(), atol=2e-6),
+      "scree plot equals pooled eigenvalues")
+check(np.allclose(scree["cumulative_ratio"], np.cumsum(values[:20]) / values.sum(), atol=2e-6),
+      "cumulative variance")
+first = loadings[loadings["component"] == "PC1"].head(3)
+check(variance.loc[0, "top_cpgs"].split("; ")[0].startswith(first.iloc[0]["probe_id"])
+      and variance.loc[0, "top_cpgs"].count("r = ") == 3, "top_cpgs names PC1's three largest weights")
+
 text = json.dumps(result)
 check(not any(label in text for label in wide.index.get_level_values("sample")),
       "no sample label in the result")
