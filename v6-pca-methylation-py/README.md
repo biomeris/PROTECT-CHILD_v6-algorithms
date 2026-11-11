@@ -1,4 +1,4 @@
-# v6-pca-methylation-py
+# v6-pca-methylation-py — Methylation PCA
 
 Federated PCA of DNA methylation for vantage6 v5, for **quality control and
 batch checks**: does the main variation in the data follow the hospital
@@ -32,9 +32,9 @@ hospital.
 
 | Table | Content |
 |---|---|
-| Variance explained | Per component: share of variance; R² and F-test p-value of hospital, of cohort, of hospital beyond cohort, of cohort beyond hospital; `main_factor` (cohort / hospital / cohort and hospital / not separable / neither); `hospital_effect` flag (hospital beyond cohort, p < 0.05) |
+| Variance explained | Per component: share of variance; R² and F-test p-value of hospital, of cohort, of hospital beyond cohort, of cohort beyond hospital; `main_factor` (cohort / hospital / cohort and hospital / not separable / neither); `hospital_effect` flag (hospital beyond cohort, p < 0.05); `separable` (false when every reported cohort is at a single hospital) |
 | Scores by hospital and cohort | Mean and SD of each component per hospital (`all`) and per cohort |
-| Top CpGs per component | Largest loadings |
+| Top CpGs per component | CpGs with the largest `weight` (coefficient in the unit-length component) and their `correlation` with the component's scores |
 | Hospitals | Status, samples, CpGs measured in every sample, outliers, suppressed cohorts |
 | Input | Data used |
 
@@ -44,7 +44,10 @@ scaled, components, explained variance) to project new samples later.
 **Reading it.** "Hospital beyond cohort" compares a model with cohort only to
 one with each hospital × cohort cell, so a hospital effect is not mistaken
 for an unequal mix of cohorts between hospitals. If a cohort is present at a
-single hospital only, the two cannot be separated for it; the table says so.
+single hospital only, the two cannot be separated for it. If that holds for
+every reported cohort (e.g. `min_samples` hides the smaller cohorts),
+`separable` is false, `main_factor` says "not separable" and the cohort R² is
+then also a comparison of hospitals.
 
 ## Arguments (central)
 
@@ -57,7 +60,7 @@ single hospital only, the two cannot be separated for it; the table says so.
 | `cohort_column` | `cohort` | empty: PCA without cohorts (hospital effects only) |
 | `cohorts` | all | cohorts to include |
 | `value_column` | `beta` | or `m_value` |
-| `min_samples` | 5 | privacy threshold per hospital and per hospital × cohort |
+| `min_samples` | 5 | privacy threshold per hospital and per hospital × cohort; at least 2 (also enforced at the hospitals) |
 | `outlier_sd` | 3 | outlier threshold in SDs of a component |
 | `top_cpgs` | 10 | CpGs listed per component |
 | `organizations_to_include` | all | hospitals |
@@ -73,6 +76,7 @@ Synthetic data for three hospitals: federated selection, eigenvalues,
 components and R² equal the same computation on the pooled data; a batch at
 one hospital is flagged and absent without it; correlation PCA on M values;
 CpGs missing at a hospital; cohort filter; hospitals and cohorts below
-`min_samples`.
+`min_samples`; weights and CpG–component correlations; `min_samples = 1`
+refused; hospital and cohort not separable.
 
 See [docs/privacy.md](docs/privacy.md) for what leaves each hospital.

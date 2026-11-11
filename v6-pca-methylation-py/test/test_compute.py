@@ -187,6 +187,15 @@ for h, org_id in enumerate(org_ids):
     check(np.isclose(mean, scores[hospital == h, 0].mean(), atol=1e-6),
           f"PC1 mean of hospital {h + 1}")
 
+check(variance["separable"].all(), "cohorts at several hospitals: hospital and cohort separable")
+X_pooled = wide[expected_features].to_numpy()
+for _, row in loadings[loadings["rank"] <= 3].iterrows():
+    j = int(row["component"][2:]) - 1
+    i = expected_features.index(row["probe_id"])
+    check(np.isclose(row["weight"], fed_vectors[i, j], atol=2e-6), f"{row['component']} weight of {row['probe_id']}")
+    check(np.isclose(row["correlation"], np.corrcoef(X_pooled[:, i], scores[:, j])[0, 1], atol=2e-6),
+          f"{row['component']} correlation of {row['probe_id']} with its scores")
+
 text = json.dumps(result)
 check(not any(label in text for label in wide.index.get_level_values("sample")),
       "no sample label in the result")
@@ -234,5 +243,18 @@ check(status[ids[0]] == "included" and status[ids[2]] == "included", "other hosp
 print("\n[6] Argument checks")
 too_many, _ = run(nodes, n_features=5000)
 check("error" in too_many, "n_features above 2,000 is refused")
+one, _ = run(nodes, n_features=50, min_samples=1)
+check("error" in one and "at least 2" in one["error"], "min_samples = 1 is refused")
+
+print("\n[7] Each reported cohort at one hospital: not separable")
+# Hospital 1 has only "case" samples and hospital 2 only "control" ones
+confounded = [nodes[0][nodes[0]["cohort"] == "case"], nodes[1][nodes[1]["cohort"] == "control"]]
+single, _ = run(confounded, n_features=50, n_components=2, min_samples=5)
+single_variance = pd.DataFrame(single["variance_explained"])
+print(single_variance[["component", "r2_hospital", "r2_cohort", "main_factor", "separable"]].to_string(index=False))
+check(not single_variance["separable"].any(), "separable is false")
+check(single_variance["main_factor"].str.startswith("not separable").all(), "main factor says not separable")
+check(single_variance["r2_hospital_beyond_cohort"].isna().all(), "no hospital-beyond-cohort R2")
+check("cannot be separated" in single["summary"], "summary explains it")
 
 print("\nPASS: federated methylation PCA")

@@ -39,16 +39,18 @@ from .federated import decode_array
 MAX_FEATURES = 2000
 DEFAULT_FEATURES = 1000
 SIGNIFICANCE = 0.05
+# A group of one sample would return that sample's own scores
+MIN_SAMPLES_FLOOR = 2
 
 VARIANCE_COLUMNS = [
     "component", "explained_variance_ratio", "cumulative_ratio",
     "r2_hospital", "p_hospital", "r2_cohort", "p_cohort",
     "r2_hospital_beyond_cohort", "p_hospital_beyond_cohort",
     "r2_cohort_beyond_hospital", "main_factor", "hospital_effect",
-    "samples_with_cohort",
+    "separable", "samples_with_cohort",
 ]
 GROUP_COLUMNS = ["organization_id", "cohort", "component", "n", "mean", "sd"]
-LOADING_COLUMNS = ["component", "rank", "probe_id", "loading"]
+LOADING_COLUMNS = ["component", "rank", "probe_id", "weight", "correlation"]
 HOSPITAL_COLUMNS = [
     "organization_id", "status", "n_samples", "n_cpgs_complete",
     "n_outliers", "suppressed_cohorts", "p_exceeds_n",
@@ -243,6 +245,7 @@ def decompose(scores, k, with_cohort):
         "p_hospital": _f_test(ss_hospital, ss_total - ss_hospital,
                               n_hospitals - 1, n_all - n_hospitals),
         "samples_with_cohort": np.full(k, np.nan),
+        "separable": False,
     }
 
     nan = np.full(k, np.nan)
@@ -300,6 +303,9 @@ def decompose(scores, k, with_cohort):
             (ss_cells - ss_hosp_rep) / ss_rep if n_cells > n_hosp_rep else nan
         ),
         "samples_with_cohort": np.full(k, n_rep / n_all),
+        # Hospital and cohort can only be told apart if some cohort is
+        # reported at two or more hospitals
+        "separable": n_cells > n_cohorts,
     })
 
     return out
@@ -315,11 +321,12 @@ def _main_factor(row, with_cohort):
     if not with_cohort:
         return "hospital" if significant("p_hospital") else "neither"
 
+    if not row["separable"]:
+        return "not separable (each cohort reported at one hospital)"
+
     cohort = significant("p_cohort")
     hospital_beyond = significant("p_hospital_beyond_cohort")
 
-    if not np.isfinite(row["p_hospital_beyond_cohort"]) and significant("p_hospital"):
-        return "not separable (each cohort at one hospital)"
     if cohort and hospital_beyond:
         return "cohort and hospital"
     if cohort:
@@ -399,6 +406,13 @@ def central(
         return {"error": f"n_features must be between 2 and {MAX_FEATURES}"}
     if n_components < 1:
         return {"error": "n_components must be at least 1"}
+    if int(min_samples) < MIN_SAMPLES_FLOOR:
+        return {
+            "error": (
+                f"min_samples must be at least {MIN_SAMPLES_FLOOR}: with 1, the "
+                "summaries of a group of one sample are that sample's scores"
+            )
+        }
 
     org_ids = _select_organizations(client, organizations_to_include)
 
@@ -490,10 +504,12 @@ def central(
                     "r2_hospital_beyond_cohort", "p_hospital_beyond_cohort",
                     "r2_cohort_beyond_hospital", "samples_with_cohort"):
             row[key] = _round(effects[key][j])
-        raw = {key: effects[key][j] for key in effects}
+        raw = {key: effects[key][j] for key in effects if key != "separable"}
+        raw["separable"] = effects["separable"]
         row["main_factor"] = _main_factor(raw, with_cohort)
         p_batch = raw["p_hospital_beyond_cohort"] if with_cohort else raw["p_hospital"]
         row["hospital_effect"] = bool(np.isfinite(p_batch) and p_batch < SIGNIFICANCE)
+        row["separable"] = bool(effects["separable"]) if with_cohort else None
         variance_rows.append({column: row[column] for column in VARIANCE_COLUMNS})
 
     group_rows = []
@@ -511,18 +527,24 @@ def central(
                     "n": n, "mean": _round(means[j]), "sd": _round(sds[j]),
                 })
 
+    # weight: the CpG's coefficient in the (unit-length) component.
+    # correlation: correlation between the CpG and the component's scores,
+    # weight * sqrt(eigenvalue) / SD of the CpG (in the PCA's units).
+    cpg_sd = np.ones(len(chosen)) if scale else sd
     loading_rows = []
 
     for j, name in enumerate(names):
         order = np.argsort(-np.abs(vectors[:, j]), kind="stable")[: int(top_cpgs)]
         for rank, i in enumerate(order, start=1):
             loading_rows.append({
-                "component": name, "rank": rank,
-                "probe_id": chosen[i], "loading": _round(vectors[i, j]),
+                "component": name, "rank": rank, "probe_id": chosen[i],
+                "weight": _round(vectors[i, j]),
+                "correlation": _round(vectors[i, j] * np.sqrt(values[j]) / cpg_sd[i]),
             })
 
     hospitals = _hospital_rows(org_ids, status, moments, scatters, scores)
     batch_components = [r["component"] for r in variance_rows if r["hospital_effect"]]
+    n_with_cohort = sum(g["n"] for reply in scores.values() for g in reply["groups"])
     p_exceeds_n = any(reply.get("p_exceeds_n") for reply in scatters.values())
 
     notes = [
@@ -542,11 +564,20 @@ def central(
     else:
         notes.append(f"No component shows a hospital effect (p < {SIGNIFICANCE}).")
 
-    if with_cohort and any(r["main_factor"].startswith("not separable") for r in variance_rows):
+    if with_cohort and not effects["separable"]:
         notes.append(
-            "Some cohorts are present at a single hospital only (or smaller cohorts were "
-            "suppressed), so hospital and cohort cannot be separated on some components."
+            "Hospital and cohort cannot be separated: every reported cohort is at a single "
+            "hospital (cohorts with fewer than min_samples samples at a hospital are not "
+            "reported), so the cohort R2 is also a comparison of hospitals. Lower "
+            "min_samples, if allowed, or add samples."
         )
+    elif with_cohort:
+        missing = 1 - n_with_cohort / n_scatter
+        if missing > 0:
+            notes.append(
+                f"{missing:.0%} of the samples are in cohorts too small to report at their "
+                "hospital and are left out of the cohort comparisons."
+            )
     if p_exceeds_n:
         notes.append(
             "At some hospital the number of CpGs is at least the number of samples: "

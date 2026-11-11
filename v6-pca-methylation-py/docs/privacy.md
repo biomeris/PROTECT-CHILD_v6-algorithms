@@ -16,6 +16,8 @@ scores: only the tables and the PCA model (CpG means, components).
 
 ## Guards
 
+- `min_samples` is at least 2, checked centrally and again at each hospital,
+  so no summary ever describes a single sample.
 - A hospital with fewer than `min_samples` samples returns an error and is
   left out (with the reason in the Hospitals table).
 - A cohort with fewer than `min_samples` samples at a hospital is not

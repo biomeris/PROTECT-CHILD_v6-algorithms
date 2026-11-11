@@ -34,6 +34,8 @@ from vantage6.algorithm.decorator.data import dataframe
 
 
 PROBE_COLUMN = "probe_id"
+# Never summarise a single sample, whatever min_samples a request carries
+MIN_SAMPLES_FLOOR = 2
 
 
 # ---------------------------------------------------------------------
@@ -71,6 +73,8 @@ def _local_long(df, cohort_column, cohorts, sample_column, value_column,
 
     if df is None or df.empty:
         return {"error": "empty dataframe"}
+
+    min_samples = max(int(min_samples), MIN_SAMPLES_FLOOR)
 
     if PROBE_COLUMN not in df.columns:
         return {
@@ -299,6 +303,7 @@ def partial_scores(
         return prepared
 
     X, labels = prepared
+    min_samples = max(int(min_samples), MIN_SAMPLES_FLOOR)
     Z = X - np.asarray(mean, dtype=float)
 
     if scale is not None:

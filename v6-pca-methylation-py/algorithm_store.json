@@ -1,6 +1,6 @@
 {
   "name": "Methylation PCA",
-  "image": "localhost:32000/protect-child/pca-methylation:1.0.0",
+  "image": "localhost:32000/protect-child/pca-methylation:1.0.1",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -8,8 +8,8 @@
   "functions": [
     {
       "name": "central",
-      "display_name": "Methylation PCA (QC and batch check)",
-      "description": "Exact federated PCA of the most variable CpGs over all hospitals, for quality control: how much of each component is explained by hospital (batch) and by cohort (biology), per-hospital and per-cohort score summaries, outlier counts and top CpGs per component. Sample scores and the covariance matrix never leave the hospitals.",
+      "display_name": "Methylation PCA",
+      "description": "Exact federated PCA of the most variable CpGs measured in every hospital. For each component: the share of variance explained by hospital (batch) and by cohort (biology), per-hospital and per-cohort score summaries, outlier counts and the CpGs with the largest weights. Sample scores and the covariance matrix never leave the hospitals.",
       "step_type": "central_compute",
       "standalone": true,
       "databases": [
@@ -94,7 +94,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -130,7 +130,7 @@
       "ui_visualizations": [
         {
           "name": "Variance explained",
-          "description": "Per component: share of variance, and how much of it hospital and cohort explain (R squared, F-test p-values). hospital_effect flags a hospital effect beyond cohort (p < 0.05).",
+          "description": "Per component: share of variance, and how much of it hospital and cohort explain (R squared, F-test p-values). hospital_effect flags a hospital effect beyond cohort (p < 0.05); separable is false when every reported cohort is at a single hospital, so hospital and cohort cannot be told apart.",
           "type": "table",
           "schema": {
             "location": [
@@ -149,6 +149,7 @@
               "r2_cohort_beyond_hospital",
               "main_factor",
               "hospital_effect",
+              "separable",
               "samples_with_cohort"
             ]
           }
@@ -173,7 +174,7 @@
         },
         {
           "name": "Top CpGs per component",
-          "description": "CpGs with the largest loadings",
+          "description": "CpGs with the largest weights per component. weight: coefficient of the CpG in the component (unit-length eigenvector); correlation: correlation between the CpG's values and the component's scores.",
           "type": "table",
           "schema": {
             "location": [
@@ -183,7 +184,8 @@
               "component",
               "rank",
               "probe_id",
-              "loading"
+              "weight",
+              "correlation"
             ]
           }
         },
@@ -289,7 +291,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -373,7 +375,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -482,7 +484,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
