@@ -98,15 +98,20 @@ def run(nodes, **arguments):
     )
     client = network.user_client
     org_ids = [o["id"] for o in client.organization.list()]
-    # The mock runs the task when it is created: its log is hidden
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        task = client.task.create(
-            method="central",
-            arguments={"min_samples": MIN_SAMPLES, **arguments},
-            organizations=[org_ids[0]],
-            databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
-        )
-        results = client.wait_for_results(task["id"])
+    # The mock runs the task when it is created: its log is hidden. A run
+    # that raises makes the mock exit; it is returned as {"failed": log}.
+    log = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+            task = client.task.create(
+                method="central",
+                arguments={"min_samples": MIN_SAMPLES, **arguments},
+                organizations=[org_ids[0]],
+                databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
+            )
+            results = client.wait_for_results(task["id"])
+    except SystemExit:
+        return {"failed": log.getvalue()}, org_ids
     result = results[0]
     json.dumps(result)
     return result, org_ids
@@ -254,15 +259,13 @@ check(status[ids[0]] == "included" and status[ids[2]] == "included", "other hosp
 
 print("\n[6] Argument checks")
 too_many, _ = run(nodes, n_features=5000)
-check("error" in too_many, "n_features above 2,000 is refused")
+check("n_features must be between" in too_many.get("failed", ""), "n_features above 2,000 fails the run")
 one, _ = run(nodes, n_features=50, min_samples=1)
-check("error" in one and "at least 2" in one["error"], "min_samples = 1 is refused")
-check(one["status"] == [{"outcome": "failed", "message": one["error"]}], "the reason is in the Summary table")
+check("min_samples must be at least 2" in one.get("failed", ""), "min_samples = 1 fails the run, reason in the log")
 zero, _ = run(nodes, n_features=50, min_samples=0)
-check(zero["status"][0]["outcome"] == "failed", "min_samples = 0 (empty field) is refused")
+check("min_samples must be at least 2" in zero.get("failed", ""), "min_samples = 0 fails the run")
 unknown, _ = run(nodes, n_features=50, organizations_to_include=[999])
-check(unknown["status"][0]["outcome"] == "failed" and "999" in unknown["error"],
-      "an unknown hospital gives a readable failure")
+check("999" in unknown.get("failed", ""), "an unknown hospital fails the run, reason in the log")
 
 print("\n[7] Each reported cohort at one hospital: not separable")
 # Hospital 1 has only "case" samples and hospital 2 only "control" ones

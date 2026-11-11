@@ -94,7 +94,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned. At least 2; do not leave empty",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2; a lower value fails the run)",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -130,7 +130,7 @@
       "ui_visualizations": [
         {
           "name": "Summary",
-          "description": "Outcome of the run: a plain-text reading of the result, or the reason it failed",
+          "description": "Plain-text reading of the result. A run that cannot produce a result fails, with the reason in its log",
           "type": "table",
           "schema": {
             "location": [

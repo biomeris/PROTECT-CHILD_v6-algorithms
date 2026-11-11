@@ -375,27 +375,29 @@ def central(
     Federated PCA of methylation values (see ``_central`` for the
     parameters).
 
-    The web interface only shows the result's tables, so the outcome is
-    always in a one-row ``status`` table (the summary, or the reason it
-    failed), and a failure is also written to the log.
+    A run that cannot produce a result (invalid settings, no hospital with
+    data) raises an error, so vantage6 marks it as failed and the reason is
+    in its log. A hospital left out (e.g. too few samples) does not fail the
+    run: it is listed in the Hospitals table and in the summary. A completed
+    run has the summary in a one-row ``status`` table, which the web
+    interface shows (it only shows tables).
     """
 
-    try:
-        result = _central(
-            client, n_features=n_features, features=features,
-            n_components=n_components, scale=scale, cohort_column=cohort_column,
-            cohorts=cohorts, sample_column=sample_column, value_column=value_column,
-            min_samples=min_samples, outlier_sd=outlier_sd, top_cpgs=top_cpgs,
-            organizations_to_include=organizations_to_include,
-        )
-    except (ValueError, RuntimeError) as exception:
-        result = {"error": str(exception)}
+    result = _central(
+        client, n_features=n_features, features=features,
+        n_components=n_components, scale=scale, cohort_column=cohort_column,
+        cohorts=cohorts, sample_column=sample_column, value_column=value_column,
+        min_samples=min_samples, outlier_sd=outlier_sd, top_cpgs=top_cpgs,
+        organizations_to_include=organizations_to_include,
+    )
 
     if "error" in result:
+        for row in result.get("hospitals", []):
+            error(f"organization {row['organization_id']}: {row['status']}")
         error(f"Methylation PCA failed: {result['error']}")
-        result["status"] = [{"outcome": "failed", "message": result["error"]}]
-    else:
-        result["status"] = [{"outcome": "completed", "message": result["summary"]}]
+        raise ValueError(result["error"])
+
+    result["status"] = [{"outcome": "completed", "message": result["summary"]}]
 
     return result
 
