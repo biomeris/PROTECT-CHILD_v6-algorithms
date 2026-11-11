@@ -1,0 +1,493 @@
+{
+  "name": "Methylation PCA",
+  "image": "localhost:32000/protect-child/pca-methylation:1.0.0",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "functions": [
+    {
+      "name": "central",
+      "display_name": "Methylation PCA (QC and batch check)",
+      "description": "Exact federated PCA of the most variable CpGs over all hospitals, for quality control: how much of each component is explained by hospital (batch) and by cohort (biology), per-hospital and per-cohort score summaries, outlier counts and top CpGs per component. Sample scores and the covariance matrix never leave the hospitals.",
+      "step_type": "central_compute",
+      "standalone": true,
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "n_features",
+          "type": "integer",
+          "display_name": "Number of CpGs",
+          "description": "The most variable CpGs over all hospitals, among those measured in every hospital (2 to 2,000)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 1000
+        },
+        {
+          "name": "features",
+          "type": "json",
+          "display_name": "CpGs to choose from (file)",
+          "description": "Optional JSON list of CpG IDs (e.g. DMPs); the most variable of them are used",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "n_components",
+          "type": "integer",
+          "display_name": "Components",
+          "description": "Number of principal components reported",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "scale",
+          "type": "boolean",
+          "display_name": "Scale CpGs",
+          "description": "Divide each CpG by its SD (correlation PCA); off is usual for beta values",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": false
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the cohort of each sample; empty for a PCA without cohorts",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "cohort"
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column",
+          "description": "Column with the sample label",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column",
+          "description": "beta or m_value",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "outlier_sd",
+          "type": "float",
+          "display_name": "Outlier threshold (SD)",
+          "description": "Samples further than this many SDs on a component are counted as outliers at their hospital",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 3.0
+        },
+        {
+          "name": "top_cpgs",
+          "type": "integer",
+          "display_name": "Top CpGs per component",
+          "description": "CpGs with the largest loadings listed per component",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 10
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "display_name": "Hospitals",
+          "description": "Hospitals (organizations) to use; empty = all of the collaboration",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Variance explained",
+          "description": "Per component: share of variance, and how much of it hospital and cohort explain (R squared, F-test p-values). hospital_effect flags a hospital effect beyond cohort (p < 0.05).",
+          "type": "table",
+          "schema": {
+            "location": [
+              "variance_explained"
+            ],
+            "columns": [
+              "component",
+              "explained_variance_ratio",
+              "cumulative_ratio",
+              "r2_hospital",
+              "p_hospital",
+              "r2_cohort",
+              "p_cohort",
+              "r2_hospital_beyond_cohort",
+              "p_hospital_beyond_cohort",
+              "r2_cohort_beyond_hospital",
+              "main_factor",
+              "hospital_effect",
+              "samples_with_cohort"
+            ]
+          }
+        },
+        {
+          "name": "Scores by hospital and cohort",
+          "description": "Mean and SD of each component per hospital ('all') and per cohort with at least min_samples samples there",
+          "type": "table",
+          "schema": {
+            "location": [
+              "group_scores"
+            ],
+            "columns": [
+              "organization_id",
+              "cohort",
+              "component",
+              "n",
+              "mean",
+              "sd"
+            ]
+          }
+        },
+        {
+          "name": "Top CpGs per component",
+          "description": "CpGs with the largest loadings",
+          "type": "table",
+          "schema": {
+            "location": [
+              "top_loadings"
+            ],
+            "columns": [
+              "component",
+              "rank",
+              "probe_id",
+              "loading"
+            ]
+          }
+        },
+        {
+          "name": "Hospitals",
+          "description": "Status, samples, CpGs measured in every sample and outlier count per hospital",
+          "type": "table",
+          "schema": {
+            "location": [
+              "hospitals"
+            ],
+            "columns": [
+              "organization_id",
+              "status",
+              "n_samples",
+              "n_cpgs_complete",
+              "n_outliers",
+              "suppressed_cohorts",
+              "p_exceeds_n"
+            ]
+          }
+        },
+        {
+          "name": "Input",
+          "description": "Data used",
+          "type": "table",
+          "schema": {
+            "location": [
+              "input"
+            ],
+            "columns": [
+              "n_samples",
+              "n_hospitals",
+              "n_cpgs_common",
+              "n_cpgs_used",
+              "cpg_source",
+              "value_column",
+              "scaled",
+              "min_samples"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "probe_moments",
+      "display_name": "PCA CpG moments",
+      "description": "Per-CpG count, sum and sum of squares",
+      "step_type": "federated_compute",
+      "standalone": false,
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "features",
+          "type": "json",
+          "display_name": "features",
+          "description": "Optional CpG list",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the cohort of each sample; empty for a PCA without cohorts",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "cohort"
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column",
+          "description": "Column with the sample label",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column",
+          "description": "beta or m_value",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        }
+      ]
+    },
+    {
+      "name": "partial_scatter",
+      "display_name": "PCA covariance",
+      "description": "Z^T Z of the selected CpGs, centred on the global mean",
+      "step_type": "federated_compute",
+      "standalone": false,
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "features",
+          "type": "json",
+          "display_name": "features",
+          "description": "features",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "mean",
+          "type": "json",
+          "display_name": "mean",
+          "description": "mean",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "scale",
+          "type": "json",
+          "display_name": "scale",
+          "description": "Global SD per CpG, or null",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the cohort of each sample; empty for a PCA without cohorts",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "cohort"
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column",
+          "description": "Column with the sample label",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column",
+          "description": "beta or m_value",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        }
+      ]
+    },
+    {
+      "name": "partial_scores",
+      "display_name": "PCA score summaries",
+      "description": "Count, sum and sum of squares of the component scores per hospital and cohort",
+      "step_type": "federated_compute",
+      "standalone": false,
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "features",
+          "type": "json",
+          "display_name": "features",
+          "description": "features",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "mean",
+          "type": "json",
+          "display_name": "mean",
+          "description": "mean",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "components",
+          "type": "json",
+          "display_name": "components",
+          "description": "components",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "sd_components",
+          "type": "json",
+          "display_name": "sd_components",
+          "description": "sd components",
+          "is_frontend_only": false,
+          "has_default_value": false
+        },
+        {
+          "name": "scale",
+          "type": "json",
+          "display_name": "scale",
+          "description": "Global SD per CpG, or null",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "outlier_sd",
+          "type": "float",
+          "display_name": "outlier_sd",
+          "description": "Outlier threshold in SDs",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 3.0
+        },
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the cohort of each sample; empty for a PCA without cohorts",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "cohort"
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts",
+          "description": "Cohorts to include; empty = all",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "sample_column",
+          "type": "string",
+          "display_name": "Sample column",
+          "description": "Column with the sample label",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "sample_label"
+        },
+        {
+          "name": "value_column",
+          "type": "string",
+          "display_name": "Value column",
+          "description": "beta or m_value",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "beta"
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples (privacy)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-pca-methylation-py"
+version = "1.0.0"
+description = "Federated PCA of DNA methylation for quality control and batch checks (vantage6 v5), adapted from v6-pca-py"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0",
+  "numpy",
+  "pandas",
+  "scipy",
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning", "pca", "methylation"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["pca_methylation"]
+
+[dependency-groups]
+dev = ["pytest"]
