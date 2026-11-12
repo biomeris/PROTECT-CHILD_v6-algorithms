@@ -775,9 +775,15 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
 # FEDERATED EVALUATION
 # ---------------------------------------------------------------------
 
-def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None):
+def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None,
+              errors=None):
     """
     Evaluate models at the nodes and aggregate the pooled results.
+
+    If ``errors`` is a list, the nodes' errors (a whole node, or one of its
+    jobs) are added to it with the node's ``organization_id`` and the
+    ``job`` (None for the whole node). Each aggregate also lists the CpGs
+    that were missing at any of its nodes (``missing_features``).
     """
 
     n_classes = len(base_args["classes"])
@@ -788,13 +794,19 @@ def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None):
     if score_bins is not None:
         arguments["score_bins"] = score_bins
 
+    node_errors = [] if errors is not None else None
+
     results = _run_task(
         client,
         "partial_evaluate",
         org_ids,
         arguments,
         f"SVM evaluation ({label})",
+        errors=node_errors,
     )
+
+    if errors is not None:
+        errors.extend({**error, "job": None} for error in node_errors)
 
     aggregates = {}
 
@@ -802,6 +814,12 @@ def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None):
         for job_id, job_result in result["jobs"].items():
 
             if "error" in job_result:
+                if errors is not None:
+                    errors.append({
+                        "organization_id": job_result.get("organization_id"),
+                        "job": job_id,
+                        "reason": job_result["error"],
+                    })
                 continue
 
             aggregate = aggregates.setdefault(
@@ -828,6 +846,9 @@ def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None):
             )
 
             aggregate["n"] += job_result["n"]
+            aggregate.setdefault("missing_features", set()).update(
+                job_result.get("missing_features", [])
+            )
             aggregate["confusion_matrix"] += np.asarray(
                 job_result["confusion_matrix"],
                 dtype=int,
@@ -2781,6 +2802,7 @@ def apply_model(
     min_samples=5,
     sample_column="sample_label",
     value_column="beta",
+    max_missing_fraction=0.2,
 ):
     """
     Apply a trained SVM model, unchanged, to the samples of chosen hospitals
@@ -2814,6 +2836,14 @@ def apply_model(
 
     sample_column, value_column:
         Columns of long input (as for the SVM).
+
+    max_missing_fraction:
+        A hospital's quality control may have removed some of the model's
+        CpGs. Up to this share of them (default 0.2) the model is still
+        applied, with each missing CpG at its training mean so that it adds
+        nothing to the decision score; the result reports which CpGs were
+        missing (``missing_cpgs``). Above it, the hospital is not evaluated
+        and the result says why.
 
     Returns
     -------
@@ -2866,7 +2896,12 @@ def apply_model(
         "min_samples": min_samples,
         "sample_column": sample_column,
         "value_column": value_column,
+        "allow_missing_features": True,
+        "max_missing_fraction": float(max_missing_fraction),
     }
+
+    if not 0 <= float(max_missing_fraction) < 1:
+        return {"error": "max_missing_fraction must be at least 0 and below 1"}
 
     fitted = {
         "fold": None,
@@ -2883,6 +2918,7 @@ def apply_model(
         for org_id in org_ids
     ] + [{"id": "pooled", "organizations": org_ids, "models": [fitted]}]
 
+    errors = []
     evaluation = _evaluate(
         client,
         org_ids,
@@ -2890,7 +2926,17 @@ def apply_model(
         jobs,
         "apply model",
         score_bins=SCORE_BINS,
+        errors=errors,
     )
+
+    def reason(org_id):
+        """The hospital's own reason for not being evaluated."""
+        own = [
+            e["reason"] for e in errors
+            if e.get("organization_id") == org_id
+            and e.get("job") in (None, f"org_{org_id}")
+        ]
+        return own[0] if own else "no result from this hospital"
 
     targets = _targets(classes)
     comparison_names = (
@@ -2900,8 +2946,11 @@ def apply_model(
     )
 
     def summarize(result):
+        missing = sorted(result.get("missing_features", set()))
         return {
             "n": int(result["n"]),
+            "n_missing_cpgs": len(missing),
+            "missing_cpgs": missing,
             "metrics": _calculate_metrics(result["confusion_matrix"]),
             "confusion_matrix": result["confusion_matrix"].tolist(),
             "comparisons": [
@@ -2921,12 +2970,19 @@ def apply_model(
             else {
                 "organization_id": org_id,
                 "status": "not evaluated",
-                "reason": (
-                    "fewer than min_samples analysable samples, or CpGs "
-                    "missing at this hospital"
-                ),
+                "reason": reason(org_id),
             }
         )
+
+    for entry in per_hospital:
+        if entry["status"] != "evaluated":
+            warn(f"Hospital {entry['organization_id']} not evaluated: {entry['reason']}")
+        elif entry["n_missing_cpgs"]:
+            warn(
+                f"Hospital {entry['organization_id']}: {entry['n_missing_cpgs']} of the "
+                f"{len(model['features'])} CpGs missing ({', '.join(entry['missing_cpgs'])}); "
+                "applied with them at their training mean"
+            )
 
     pooled = evaluation.get("pooled")
     pooled = summarize(pooled) if pooled is not None else None
@@ -2946,9 +3002,11 @@ def apply_model(
             "ci_low": interval(entry.get("metrics"), 0),
             "ci_high": interval(entry.get("metrics"), 1),
             "accuracy": (entry.get("metrics") or {}).get("accuracy"),
+            "missing_cpgs": entry.get("n_missing_cpgs"),
+            "status": entry.get("status", "evaluated"),
+            "reason": entry.get("reason"),
         }
         for entry in per_hospital + ([pooled] if pooled else [])
-        if entry.get("n")
     ]
 
     if pooled:
@@ -2965,6 +3023,7 @@ def apply_model(
         "organizations": org_ids,
         "per_hospital": per_hospital,
         "pooled": pooled,
+        "max_missing_fraction": float(max_missing_fraction),
         "tables": {
             "performance": performance,
             "comparisons": (

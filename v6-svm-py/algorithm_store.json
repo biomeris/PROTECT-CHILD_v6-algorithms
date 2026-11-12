@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.5.1",
+  "image": "localhost:32000/protect-child/svm:1.6.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -316,6 +316,15 @@
           "default_value": 5
         },
         {
+          "name": "max_missing_fraction",
+          "type": "float",
+          "display_name": "Maximum share of missing CpGs",
+          "description": "A hospital's quality control may have removed some of the model's CpGs. Up to this share (0-1, default 0.2) the model is still applied, each missing CpG at its training mean (it then adds nothing to the score), and the result lists them; above it the hospital is not evaluated and the result says why.",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 0.2
+        },
+        {
           "name": "sample_column",
           "type": "string",
           "display_name": "Sample column (long data)",
@@ -347,7 +356,7 @@
         },
         {
           "name": "Performance",
-          "description": "Balanced accuracy with 95% interval per hospital and pooled",
+          "description": "Balanced accuracy with 95% interval per hospital and pooled; missing_cpgs: model CpGs missing at the hospital (applied at their training mean); status and reason for hospitals not evaluated",
           "type": "table",
           "schema": {
             "location": [
@@ -687,6 +696,24 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": "beta"
+        },
+        {
+          "name": "allow_missing_features",
+          "type": "boolean",
+          "display_name": "allow_missing_features",
+          "description": "Apply a trained model even if some of its CpGs are missing here",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": false
+        },
+        {
+          "name": "max_missing_fraction",
+          "type": "float",
+          "display_name": "max_missing_fraction",
+          "description": "Maximum share of the model's CpGs that may be missing",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 0.0
         }
       ],
       "standalone": false

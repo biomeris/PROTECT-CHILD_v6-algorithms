@@ -209,6 +209,45 @@ check(from_json["per_hospital"] == applied["per_hospital"], "a model given as JS
 _, not_svm = run_in(network, "apply_model", {"outcome_column": "cohort", "model_task_id": train_id, "model": model})
 check("error" in not_svm, "model and model_task_id together are rejected")
 
+# A test hospital whose quality control removed some of the model's CpGs
+check(everywhere["per_hospital"][0]["n_missing_cpgs"] == 0 and applied["tables"]["performance"][0]["missing_cpgs"] == 0,
+      "with every CpG present, no CpG is reported missing")
+lost = trained["features"][0]
+partial = [WIDE[0], WIDE[1], WIDE[2].drop(columns=[lost])]
+net_missing = MockNetwork(module_name=MODULE,
+                          datasets=[{"db": {"database": f, "db_type": "csv"}} for f in partial])
+_, missing_one = run_in(net_missing, "apply_model", {"outcome_column": "cohort", "model": model,
+                                                     "organizations_to_include": [orgs[2]]})
+h3 = missing_one["per_hospital"][0]
+test_rows = WIDE[2][WIDE[2]["cohort"].isin(model["classes"])]
+# complete samples over the CpGs still present (as the hospital does)
+test_rows = test_rows.dropna(subset=[c for c in model["features"] if c != lost])
+z = (test_rows[model["features"]].to_numpy(float) - np.asarray(model["mean"])) / np.asarray(model["std"])
+z[:, model["features"].index(lost)] = 0.0  # the missing CpG at its training mean
+score = z @ np.asarray(model["weights"][0]) + model["biases"][0]
+predicted = np.where(score >= 0, model["classes"][1], model["classes"][0])
+expected = [[int(((test_rows["cohort"] == t) & (predicted == q)).sum()) for q in model["classes"]]
+            for t in model["classes"]]
+check(h3["status"] == "evaluated" and h3["n_missing_cpgs"] == 1 and h3["missing_cpgs"] == [lost]
+      and h3["confusion_matrix"] == expected,
+      f"1 of {len(model['features'])} CpGs missing at the test hospital: applied with it at its training mean "
+      "(equals a hand calculation) and reported")
+check(missing_one["tables"]["performance"][0]["missing_cpgs"] == 1, "the Performance table shows the missing CpGs")
+_, strict = run_in(net_missing, "apply_model", {"outcome_column": "cohort", "model": model,
+                                                "organizations_to_include": [orgs[2]], "max_missing_fraction": 0})
+check(strict["per_hospital"][0]["status"] == "not evaluated"
+      and "more than the maximum of 0%" in strict["per_hospital"][0]["reason"]
+      and lost in strict["per_hospital"][0]["reason"],
+      "max_missing_fraction=0: not evaluated, with the hospital's own reason naming the missing CpG")
+many = model["features"][: int(len(model["features"]) * 0.5)]
+net_many = MockNetwork(module_name=MODULE, datasets=[{"db": {"database": f, "db_type": "csv"}}
+                                                     for f in [WIDE[0], WIDE[1], WIDE[2].drop(columns=many)]])
+_, too_many = run_in(net_many, "apply_model", {"outcome_column": "cohort", "model": model,
+                                               "organizations_to_include": [orgs[2]]})
+check(too_many["per_hospital"][0]["status"] == "not evaluated" and too_many["pooled"] is None
+      and "more than the maximum of 20%" in too_many["per_hospital"][0]["reason"],
+      f"{len(many)} of {len(model['features'])} CpGs missing (above the default 20%): not evaluated, reason given")
+
 central_module = sys.modules[f"{MODULE}.central"]
 
 

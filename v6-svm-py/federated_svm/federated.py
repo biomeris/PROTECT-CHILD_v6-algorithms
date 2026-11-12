@@ -81,12 +81,15 @@ def _job_applies(job, organization_id):
     return organization_id in organizations
 
 
-def _local_frame(df, features, outcome_column, sample_column, value_column):
+def _local_frame(df, features, outcome_column, sample_column, value_column,
+                 allow_missing=False):
     """
     One row per sample with the requested CpGs and the cohort label.
 
     Long data (a ``probe_id`` column) are pivoted for the requested CpGs
-    only. Returns the frame or an error dictionary.
+    only. Returns the frame or an error dictionary. With ``allow_missing``
+    (applying a trained model), CpGs this hospital lacks are kept as empty
+    columns instead of being an error.
     """
 
     if "probe_id" in df.columns:
@@ -126,13 +129,18 @@ def _local_frame(df, features, outcome_column, sample_column, value_column):
             "error": f"missing columns: {[outcome_column]}"
         }
 
-    # After quality control a hospital may lack some probes. The SVM needs
-    # every CpG, so the hospital is left out, with the reason.
+    # After quality control a hospital may lack some probes. Training needs
+    # every CpG, so the hospital is left out, with the reason. Applying a
+    # trained model can do without a few (see partial_evaluate).
     missing = [
         feature
         for feature in features
         if feature not in df.columns or df[feature].isna().all()
     ]
+
+    if missing and allow_missing:
+        df = df.reindex(columns=list(dict.fromkeys(list(df.columns) + list(features))))
+        return df[list(features) + [outcome_column]]
 
     if missing:
         warn(f"{len(missing)} CpG(s) not available at this node")
@@ -147,12 +155,15 @@ def _local_frame(df, features, outcome_column, sample_column, value_column):
 
 
 def _prepare(df, features, outcome_column, classes, min_samples,
-             sample_column="sample_label", value_column="beta"):
+             sample_column="sample_label", value_column="beta",
+             allow_missing=False):
     """
     Validate the local dataframe and keep only complete observations that
     belong to one of the analysed cohorts.
 
-    Returns ``(X, labels)`` or an error dictionary.
+    Returns ``(X, labels)`` or an error dictionary. With ``allow_missing``
+    returns ``(X, labels, missing)``: CpGs this hospital lacks are empty
+    (NaN) columns of ``X`` and ``missing`` lists their positions.
     """
 
     frame = _local_frame(
@@ -161,12 +172,22 @@ def _prepare(df, features, outcome_column, classes, min_samples,
         outcome_column,
         sample_column,
         value_column,
+        allow_missing=allow_missing,
     )
 
     if isinstance(frame, dict):
         return frame
 
-    sub = frame.dropna()
+    missing = [
+        index for index, feature in enumerate(features)
+        if frame[feature].isna().all()
+    ] if allow_missing else []
+    present = [
+        feature for index, feature in enumerate(features)
+        if index not in missing
+    ]
+
+    sub = frame.dropna(subset=present + [outcome_column])
 
     # Samples from cohorts that are not part of this comparison (e.g. an
     # "other" cohort stored at the same hospital) must not be used as
@@ -184,6 +205,9 @@ def _prepare(df, features, outcome_column, classes, min_samples,
 
     X = sub[list(features)].to_numpy(dtype=float)
     labels = sub[outcome_column].to_numpy()
+
+    if allow_missing:
+        return X, labels, missing
 
     return X, labels
 
@@ -560,6 +584,8 @@ def partial_evaluate(
     score_bins=None,
     sample_column="sample_label",
     value_column="beta",
+    allow_missing_features=False,
+    max_missing_fraction=0.0,
 ):
     """
     Evaluate models locally and return only pooled aggregates.
@@ -582,6 +608,13 @@ def partial_evaluate(
       per true cohort, counts of decision scores in the given bins.
 
     A job is only reported when it pools at least ``min_samples`` samples.
+
+    With ``allow_missing_features`` (applying a trained model to a new
+    hospital), CpGs this hospital lacks after its quality control are set to
+    the model's training mean, so they add nothing to the decision score,
+    as long as they are at most ``max_missing_fraction`` of the model's
+    CpGs. Each job result then lists them in ``missing_features`` (probe
+    IDs only).
     """
 
     prepared = _prepare(
@@ -592,12 +625,36 @@ def partial_evaluate(
         min_samples,
         sample_column,
         value_column,
+        allow_missing=allow_missing_features,
     )
 
     if isinstance(prepared, dict):
         return {**prepared, "organization_id": _organization_id()}
 
-    X, labels = prepared
+    if allow_missing_features:
+        X, labels, missing = prepared
+    else:
+        (X, labels), missing = prepared, []
+
+    missing_features = [features[index] for index in missing]
+
+    if missing:
+        share = len(missing) / len(features)
+        warn(
+            f"{len(missing)} of the {len(features)} CpGs of the model are not "
+            f"available at this node: {missing_features}"
+        )
+        if share > max_missing_fraction:
+            return {
+                "error": (
+                    f"{len(missing)} of the {len(features)} CpGs of the model "
+                    f"({share:.0%}) are not available at this hospital, more "
+                    f"than the maximum of {max_missing_fraction:.0%} "
+                    f"(e.g. {missing_features[:5]})"
+                ),
+                "missing_features": missing_features,
+                "organization_id": _organization_id(),
+            }
 
     fold_ids = _make_stratified_folds(
         labels,
@@ -651,6 +708,8 @@ def partial_evaluate(
                 continue
 
             Xs = _standardize(X[mask], model["mean"], model["std"])
+            # A missing CpG at its training mean: 0 after standardizing
+            Xs[:, missing] = 0.0
             true_labels = labels[mask]
 
             W = np.asarray(model["weights"], dtype=float)
@@ -712,7 +771,8 @@ def partial_evaluate(
 
         if n_evaluated < min_samples:
             results[job["id"]] = {
-                "error": f"fewer than {min_samples} evaluated samples"
+                "error": f"fewer than {min_samples} evaluated samples",
+                "organization_id": organization_id,
             }
             continue
 
@@ -720,6 +780,7 @@ def partial_evaluate(
             "n": n_evaluated,
             "confusion_matrix": confusion.tolist(),
             "comparison_confusion": comparison_confusion.tolist(),
+            "missing_features": missing_features,
         }
 
         if histograms is not None:

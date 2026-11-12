@@ -48,6 +48,18 @@ train the pipeline on some hospitals, apply the model to a hospital that took no
 part. A model trained on hospitals 1-2 and applied to hospital 3 gives exactly
 the SVM's leave-one-hospital-out result for hospital 3 (tested).
 
+**CpGs missing at the test hospital.** A hospital's quality control may have
+removed some of the model's CpGs (on real data this is expected: each hospital
+drops the probes that fail in any of its samples). Up to `max_missing_fraction`
+of them (default 0.2) the model is still applied: each missing CpG is set to its
+training mean, so after standardisation it is 0 and adds nothing to the decision
+score, and the other CpGs decide. The result reports them per hospital
+(`n_missing_cpgs`, `missing_cpgs`; `missing_cpgs` in the Performance table), and
+the log warns. Above the limit the hospital is not evaluated, and its own reason
+is reported (e.g. "12 of the 23 CpGs of the model (52%) are not available at this
+hospital, more than the maximum of 20%"). Training still requires every CpG at
+every training hospital.
+
 If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not
 exist at one of the hospitals), the task stops at once with HQ's message.
 
