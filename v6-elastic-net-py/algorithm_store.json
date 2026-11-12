@@ -45,7 +45,7 @@
           "name": "n_candidates",
           "type": "integer",
           "display_name": "Number of candidates",
-          "description": "How many candidate CpGs to take from that task",
+          "description": "How many candidate CpGs to take from that task. The task must return at least this many: DMP/DMR and Beta and M values return 50 by default, so set them to 100 for the default here.",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 100,
@@ -115,7 +115,7 @@
           "name": "warn_gram_gb",
           "type": "float",
           "display_name": "Gram memory warning (GB)",
-          "description": "Warn if the p×p Gram matrix exceeds this size",
+          "description": "Warn if the p\u00d7p Gram matrix exceeds this size",
           "default_value": 1.0,
           "has_default_value": true
         },
@@ -218,7 +218,7 @@
     },
     {
       "name": "partial_moments",
-      "display_name": "Elastic Net — local moments (round 1)",
+      "display_name": "Elastic Net \u2014 local moments (round 1)",
       "description": "Per-node: local sums/sums-of-squares for global standardization. Returns aggregates only.",
       "databases": [
         {
@@ -303,7 +303,7 @@
     },
     {
       "name": "partial_gram",
-      "display_name": "Elastic Net — local Gram (round 2)",
+      "display_name": "Elastic Net \u2014 local Gram (round 2)",
       "description": "Per-node: sufficient statistics G_k = Xs^T Xs and b_k = Xs^T yc on globally-standardized data. Returns aggregates only.",
       "databases": [
         {

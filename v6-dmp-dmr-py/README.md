@@ -38,7 +38,7 @@ test/EPIC-8v2-0_A2.csv`); probes are matched on the manifest's `IlmnID`, then on
 | `dmr_max_gap` | `1000` | Maximum bp between neighbouring probes of a DMR (1,000 bp is the default window of DMRcate, Peters et al. 2015; pylluminator's DMR method has no bp gap: it cuts regions by beta-value distance and needs per-sample values, so it cannot run federated) |
 | `dmr_fdr` | `0.05` | Probe `adj_p_value` threshold for DMR probes |
 | `dmr_min_probes` | `2` | Minimum probes per DMR |
-| `top_n` | `50` | Number of DMPs returned (smallest p-value first), 1 to 10,000. All probes are still tested and corrected |
+| `top_n` | `50` | Number of DMPs returned (smallest p-value first), 1 to 10,000. All probes are still tested and corrected. For a later Elastic Net analysis we recommend 100 (it takes its candidates from this list, 100 by default) |
 | `moderate_variance` | `true` | Moderate each hospital's per-probe variances (limma empirical Bayes); see Statistics |
 | `meta_model` | `"random"` | `"random"` (DerSimonian-Laird random effects) or `"fixed"` (fixed effect) |
 | `organizations_to_include` | all | Hospitals to use (organization ids), e.g. to train on some hospitals and test on another; empty = all |

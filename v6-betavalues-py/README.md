@@ -35,6 +35,8 @@ UI can show. The result is therefore limited to at most **10,000 probes**:
   Requested probes that no node has are skipped (the log says how many).
 - **Overview** (no `probes`): the `top_n` probes (default 50) with the largest
   difference in mean Beta between cohorts, Δβ = largest minus smallest cohort mean.
+  For a later Elastic Net analysis we recommend `top_n = 100`: the Elastic Net takes
+  its candidate CpGs from this list (100 by default).
 
 Requests above 10,000 probes are rejected with a message instead of being tried.
 
