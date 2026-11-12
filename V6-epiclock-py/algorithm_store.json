@@ -63,15 +63,6 @@
           "is_frontend_only": false
         },
         {
-          "name": "coverage_threshold",
-          "type": "float",
-          "display_name": "Coverage threshold",
-          "description": "Minimum coverage (share of a clock's CpGs present in a node's data, 0-1) for a result to be flagged coverage_ok. EPIC v2 lacks some clock CpGs and pyaging fills them with reference values or 0, which can bias the age. It only sets the flag; no clock or result is removed.",
-          "default_value": 0.9,
-          "has_default_value": true,
-          "is_frontend_only": false
-        },
-        {
           "name": "age_column",
           "type": "column",
           "display_name": "Age column",
@@ -93,7 +84,7 @@
       "ui_visualizations": [
         {
           "name": "Epigenetic age per cohort",
-          "description": "Mean predicted age, chronological age and age acceleration per clock and cohort",
+          "description": "Mean predicted age, chronological age and age acceleration per clock and cohort. coverage_pct_min / max: share (%) of the clock's CpGs present, over the hospitals that contributed",
           "type": "table",
           "schema": {
             "location": [
@@ -110,7 +101,8 @@
               "correlation_global",
               "n_samples_total",
               "n_nodes",
-              "coverage_ok"
+              "coverage_pct_min",
+              "coverage_pct_max"
             ]
           }
         },
@@ -129,13 +121,13 @@
               "mean_age_acceleration_global",
               "n_with_age_total",
               "n_cohorts",
-              "coverage_ok"
+              "coverage_pct_min"
             ]
           }
         },
         {
           "name": "Clock coverage",
-          "description": "Share of each clock's CpGs present in the data",
+          "description": "Share (%) of each clock's CpGs present in the data: lowest and highest over the hospitals. EPIC v2 lacks some clock CpGs and pyaging fills them in; there is no threshold, judge whether the coverage is enough",
           "type": "table",
           "schema": {
             "location": [
@@ -143,10 +135,9 @@
             ],
             "columns": [
               "clock",
-              "coverage_min",
-              "coverage_max",
+              "coverage_pct_min",
+              "coverage_pct_max",
               "n_nodes_reported",
-              "n_nodes_coverage_ok",
               "tissue",
               "population"
             ]
@@ -191,15 +182,6 @@
           "display_name": "Minimum samples per cohort",
           "description": "Minimum number of samples a cohort needs on a node to be included in that node's result (at least 2). Cohorts below this threshold are dropped on the node.",
           "default_value": 3,
-          "has_default_value": true,
-          "is_frontend_only": false
-        },
-        {
-          "name": "coverage_threshold",
-          "type": "float",
-          "display_name": "Coverage threshold",
-          "description": "Minimum coverage (share of a clock's CpGs present in a node's data, 0-1) for a result to be flagged coverage_ok. EPIC v2 lacks some clock CpGs and pyaging fills them with reference values or 0, which can bias the age. It only sets the flag; no clock or result is removed.",
-          "default_value": 0.9,
           "has_default_value": true,
           "is_frontend_only": false
         },

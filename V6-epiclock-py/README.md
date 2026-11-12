@@ -39,7 +39,6 @@ EPIC v2 tables of ~870k probes.
 | `lista_relojes` | list of strings | `horvath2013`, `hannum`, `pcphenoage`, `pedbe` | pyaging clocks to calculate (empty = the defaults). The web interface offers the 142 clocks of the image as a list; [docs/clocks.md](docs/clocks.md) describes what each predicts, for which tissue and population, and which need extra inputs |
 | `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample |
 | `min_samples` | integer (>= 2) | `3` | Minimum number of samples a cohort needs on a node to be included |
-| `coverage_threshold` | float (0-1) | `0.9` | Minimum coverage for a result to be flagged `coverage_ok`; only sets the flag, never removes results |
 | `age_column` | string | `"age"` | Column with the chronological age; used to report the age acceleration (predicted minus chronological age). `null` skips it |
 | `organizations_to_include` | list of organization ids | all | `central_function` only: hospitals to use; empty = all |
 
@@ -86,10 +85,10 @@ pyaging fills missing CpGs with reference values or, for clocks without them
 (such as `hannum`), with 0, which can bias the predicted age. Each node therefore
 measures the coverage of each clock (the share of its CpGs present) on its own data,
 after QC, which removes more probes. No clock is ever skipped because of low
-coverage: every result carries its coverage and a `coverage_ok` flag (`true` when
-the coverage is at least `coverage_threshold`), so results can be judged or
-filtered afterwards. With the default 0.9, `hannum` is at the limit on EPIC v2 and
-will often have `coverage_ok = false`. A clock that fails to compute on a node gives no results for
+coverage: every result carries its coverage, in %, and there is no threshold or
+pass/fail flag. EPIC v2 always lacks some clock CpGs, so the user judges whether a
+clock's coverage is enough for the question at hand (`hannum`, for example, is
+around 90% on EPIC v2). A clock that fails to compute on a node gives no results for
 that node and is counted as failed in `clock_coverage`.
 
 To check or convert a file before running the algorithm:
@@ -124,7 +123,7 @@ writes the converted data if an output path is given.
 "legacy_loci_mapping": true/false}`,
 with one result record per (cohort, clock): `cohort`, `clock`, `n_samples`,
 `mean_age`, `sd_age` (sample standard deviation), `coverage` (share of the clock's
-CpGs present on this node, 0-1), `coverage_ok` (`coverage >= coverage_threshold`),
+CpGs present on this node, 0-1),
 `n_with_age`, `mean_chronological_age`, `mean_age_acceleration`,
 `sd_age_acceleration` (acceleration = predicted minus chronological age),
 `sd_chronological_age`, `sd_predicted_age_with_age` (SD of the predicted age of the
@@ -134,8 +133,9 @@ In `clock_coverage`, a clock that failed to compute has the value `null`.
 
 `central_function` returns `{"results": [...], "clock_coverage": [...],
 "clock_accuracy": [...], "n_nodes_legacy_loci_mapping": n}`.
-`clock_coverage` has one record per clock with `coverage_min`, `coverage_max`,
-`n_nodes_reported`, `n_nodes_coverage_ok` (nodes meeting the threshold) and `n_nodes_failed` (nodes where the
+`clock_coverage` has one record per clock with `coverage_pct_min`, `coverage_pct_max`
+(lowest and highest coverage over the nodes, in %), `n_nodes_reported` and
+`n_nodes_failed` (nodes where the
 clock failed to compute). `results` has one record per (cohort, clock):
 
 | Column | Description |
@@ -146,9 +146,8 @@ clock failed to compute). `results` has one record per (cohort, clock):
 | `sd_age_global` | Standard deviation of all the cohort's samples, combined exactly from the node N, mean and SD |
 | `n_samples_total` | `sum(n_i)` over the nodes |
 | `n_nodes` | Number of nodes that contributed to the cohort |
-| `coverage_min` | Lowest clock coverage over the nodes that contributed to this cohort and clock |
-| `coverage_max` | Highest clock coverage over those nodes |
-| `coverage_ok` | `true` only if every contributing node meets `coverage_threshold` |
+| `coverage_pct_min` | Lowest clock coverage (% of its CpGs present) over the nodes that contributed to this cohort and clock |
+| `coverage_pct_max` | Highest clock coverage (%) over those nodes |
 | `n_with_age_total` | Samples with a predicted and a chronological age, over the nodes that reported the comparison |
 | `mean_chronological_age_global` | Mean chronological age of those samples |
 | `mean_age_acceleration_global` | Mean of predicted minus chronological age, pooled exactly like the ages |
@@ -159,12 +158,11 @@ clock failed to compute). `results` has one record per (cohort, clock):
 `clock_accuracy` has one record per clock, over all cohorts and nodes with an age
 comparison, sorted by mean absolute error (best first): `clock`,
 `n_with_age_total`, `n_cohorts`, `mean_abs_error_global`, `correlation_global`,
-`mean_age_acceleration_global` and `coverage_ok`. A clock is accurate when its error
+`mean_age_acceleration_global` and `coverage_pct_min` (lowest coverage, %, over the
+nodes behind the comparison). A clock is accurate when its error
 is small and its correlation high; within a single cohort the age range is narrow,
 so the correlation per cohort is less informative than over all cohorts. Results
 from nodes running an earlier version pool as before, with these fields empty.
-
-The pooled mean and SD do not depend on `coverage_threshold`.
 
 ### Testing
 

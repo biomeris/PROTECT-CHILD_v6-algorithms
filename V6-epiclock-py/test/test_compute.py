@@ -23,14 +23,16 @@ of the node means differs from the correct sample-weighted mean.
 Clock coverage: the nodes hold different shares of each clock's CpGs. For the
 default clocks:
 
-    hannum       100% on nodes 1, 2, 3   -> coverage_ok for cohort_A, cohort_B, cohort_C
-    horvath2013  100% on nodes 2, 3      -> coverage_ok for cohort_B, cohort_C
-    pedbe        100% on node 3          -> coverage_ok for cohort_C
-    pcphenoage   < 1% everywhere         -> coverage_ok for no cohort
+    hannum       100% on nodes 1, 2, 3
+    horvath2013  100% on nodes 2, 3
+    pedbe        100% on node 3
+    pcphenoage   < 1% everywhere
+
+Every result is returned with its coverage in %; there is no threshold or flag.
 
 The other clocks (dnamphenoage, zhangen, weidner, lin, bocklandt, corticalclock)
 have a few CpGs per node. Cohorts pooled from two nodes therefore have different
-coverage_min and coverage_max. Section [5] checks the coverage reporting and the
+coverage_pct_min and coverage_pct_max. Section [5] checks the coverage reporting and the
 EPIC v2 identifiers.
 """
 import contextlib
@@ -316,87 +318,41 @@ for clk in CLOCKS:
     per_node = [cov[clk] for cov in node_coverage]
     row = coverage_summary.loc[clk]
     check(
-        np.isclose(row["coverage_min"], min(per_node)) and np.isclose(row["coverage_max"], max(per_node))
-        and row["n_nodes_reported"] == 3 and row["n_nodes_failed"] == 0
-        and row["n_nodes_coverage_ok"] == sum(v >= 0.9 for v in per_node),
-        f"{clk}: per-clock summary {min(per_node):.2%}-{max(per_node):.2%}, "
-        f"{sum(v >= 0.9 for v in per_node)} node(s) with coverage_ok, none failed",
+        np.isclose(row["coverage_pct_min"], round(100 * min(per_node), 1))
+        and np.isclose(row["coverage_pct_max"], round(100 * max(per_node), 1))
+        and row["n_nodes_reported"] == 3 and row["n_nodes_failed"] == 0,
+        f"{clk}: per-clock coverage {100 * min(per_node):.1f}%-{100 * max(per_node):.1f}% over the nodes, none failed",
     )
+check(all("n_nodes_coverage_ok" not in r for r in coverage_summary.reset_index().to_dict("records")),
+      "no pass/fail count in the coverage table (there is no threshold)")
 
-# With the default threshold (0.9) low-coverage clocks are still returned, flagged
+# Every clock is returned with its coverage, whatever the coverage (no flag, no threshold)
 for i, summary in enumerate(node_results, start=1):
     expected = summary["clock"].map(node_coverage[i - 1])
-    ok = sorted(c for c, v in node_coverage[i - 1].items() if v >= 0.9)
     check(
         set(summary["clock"]) == set(CLOCKS)
         and np.allclose(summary["coverage"].astype(float), expected)
-        and (summary["coverage_ok"].astype(bool) == (expected >= 0.9)).all(),
-        f"node {i}: every clock returned with its coverage; coverage_ok=True exactly for {ok}",
+        and "coverage_ok" not in summary.columns,
+        f"node {i}: every clock returned with its coverage, including "
+        f"{sorted(c for c, v in node_coverage[i - 1].items() if v < 0.9)} below 90%",
     )
-expected_ok = [
-    all(node_coverage[n][clk] >= 0.9 for n in {"cohort_A": [0, 1], "cohort_B": [1, 2], "cohort_C": [2]}[cohort])
-    for cohort, clk in zip(global_summary["cohort"], global_summary["clock"])
-]
 check(
-    len(global_summary) == 3 * len(CLOCKS) and list(global_summary["coverage_ok"]) == expected_ok,
-    f"global result keeps all {3 * len(CLOCKS)} (cohort, clock) rows; coverage_ok is true exactly where "
-    "every contributing node reaches 0.9",
+    len(global_summary) == 3 * len(CLOCKS) and "coverage_ok" not in global_summary.columns,
+    f"global result keeps all {3 * len(CLOCKS)} (cohort, clock) rows and has no coverage_ok column",
 )
-designed = {
-    "cohort_A": {"hannum"},
-    "cohort_B": {"hannum", "horvath2013"},
-    "cohort_C": {"hannum", "horvath2013", "pedbe"},
-}
-default_chosen = [c for c in DEFAULT_CLOCKS if c in CLOCKS]
-ok_pairs = global_summary[global_summary["coverage_ok"] & global_summary["clock"].isin(default_chosen)]
-for cohort, clocks in designed.items():
-    expected = clocks & set(default_chosen)
-    got = set(ok_pairs.loc[ok_pairs["cohort"] == cohort, "clock"])
-    check(got == expected, f"{cohort}: coverage_ok for {sorted(expected) or 'no'} default clock(s)")
 
-# Cohorts pooled from two nodes report the lowest and highest coverage of those nodes
+# Cohorts pooled from two nodes report the lowest and highest coverage (%) of those nodes
 cohort_nodes = {"cohort_A": [0, 1], "cohort_B": [1, 2], "cohort_C": [2]}
 for cohort, node_ids in cohort_nodes.items():
     for clk in CLOCKS:
         row = global_summary[(global_summary["cohort"] == cohort) & (global_summary["clock"] == clk)].iloc[0]
         values = [node_coverage[n][clk] for n in node_ids]
         check(
-            np.isclose(row["coverage_min"], min(values)) and np.isclose(row["coverage_max"], max(values))
-            and (min(values) == max(values) or row["coverage_min"] < row["coverage_max"]),
-            f"{cohort} / {clk}: coverage_min {min(values):.2%}, coverage_max {max(values):.2%} "
+            np.isclose(row["coverage_pct_min"], round(100 * min(values), 1))
+            and np.isclose(row["coverage_pct_max"], round(100 * max(values), 1)),
+            f"{cohort} / {clk}: coverage {100 * min(values):.1f}%-{100 * max(values):.1f}% "
             f"(nodes {[n + 1 for n in node_ids]})",
         )
-
-
-def run_central(**arguments):
-    network = MockNetwork(datasets=[{DATABASE_LABEL: {"database": df}} for df in nodes], module_name="epiclock_v5")
-    client = network.user_client
-    task = client.task.create(
-        method="central_function",
-        arguments={"lista_relojes": CLOCKS, "cohort_column": "cohort", "min_samples": MIN_SAMPLES, **arguments},
-        organizations=[client.organization.list()[0]["id"]],
-        databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
-    )
-    return pd.DataFrame(quiet(client.wait_for_results, task.get("id"))[0][0]["results"])
-
-
-# The threshold only sets the flag: true only if every contributing node reaches it.
-# Use a chosen clock whose coverage is higher on node 3 than on node 2, and a
-# threshold in between: cohort_C (node 3 only) is coverage_ok, cohort_A (nodes 1-2)
-# and cohort_B (nodes 2-3) are not.
-clk = next((c for c in CLOCKS if node_coverage[2][c] > node_coverage[1][c]), None)
-threshold = (node_coverage[1][clk] + node_coverage[2][clk]) / 2 if clk else 0.5
-mid = run_central(coverage_threshold=threshold)
-flags = mid.set_index(["cohort", "clock"])["coverage_ok"]
-if clk:
-    check(
-        not flags[("cohort_A", clk)] and not flags[("cohort_B", clk)] and flags[("cohort_C", clk)],
-        f"threshold {threshold:.3f}: {clk} coverage_ok only for cohort_C (node 3 only, "
-        f"{node_coverage[2][clk]:.3f}), not for cohorts with a node below it",
-    )
-else:
-    print("  (no chosen clock has higher coverage on node 3 than on node 2; skipping the threshold check)")
-all_ok = run_central(coverage_threshold=0.0)
 
 network = MockNetwork(datasets=[{DATABASE_LABEL: {"database": df}} for df in nodes], module_name="epiclock_v5")
 client = network.user_client
@@ -424,21 +380,22 @@ check(
     and _DEFAULT_SET == f"Default ({', '.join(DEFAULT_CLOCKS)})",
     "algorithm_store.json offers the clock sets as a dropdown, with the default clocks (DEFAULT_CLOCKS) first",
 )
-check(all_ok["coverage_ok"].all(), "threshold 0 -> every result coverage_ok, nothing removed")
-
-# The pooled means and SDs do not depend on the threshold and equal the reference
-pooled = ["cohort", "clock", "mean_age_global", "sd_age_global", "n_samples_total", "n_nodes",
-          "coverage_min", "coverage_max"]
+store_text = json.dumps(store)
+check("coverage_threshold" not in store_text and "coverage_ok" not in store_text,
+      "algorithm_store.json has no coverage threshold argument and no coverage_ok column")
 check(
-    all_ok[pooled].equals(global_summary[pooled]) and mid[pooled].equals(global_summary[pooled]),
-    "global means, SDs, counts and coverage are identical for threshold 0, the default and in between",
+    all(column in results_table["schema"]["columns"] for column in ("coverage_pct_min", "coverage_pct_max")
+        for results_table in central_store["ui_visualizations"] if results_table["name"] == "Epigenetic age per cohort"),
+    "the per-cohort table shows the coverage in %",
 )
-vs_reference = all_ok.merge(reference, on=["cohort", "clock"], validate="1:1")
+
+# The pooled means and SDs equal the pooled per-sample means and SDs of the raw data
+vs_reference = global_summary.merge(reference, on=["cohort", "clock"], validate="1:1")
 check(
     len(vs_reference) == len(reference)
     and np.allclose(vs_reference["mean_age_global"], vs_reference["mean_ref"])
     and np.allclose(vs_reference["sd_age_global"], vs_reference["sd_ref"]),
-    "and they still equal the pooled per-sample means and SDs of the raw data",
+    "global means and SDs equal the pooled per-sample means and SDs of the raw data",
 )
 
 # A clock that fails to compute produces no results and is reported as failed
@@ -446,20 +403,13 @@ fake_results = [
     {"results": [], "clock_coverage": {"horvath2013": 0.95, "broken_clock": None}},
     {"results": [], "clock_coverage": {"horvath2013": 0.50, "broken_clock": None}},
 ]
-summary_rows = {r["clock"]: r for r in summarise_clock_coverage(fake_results, ["horvath2013", "broken_clock"], 0.9)}
+summary_rows = {r["clock"]: r for r in summarise_clock_coverage(fake_results, ["horvath2013", "broken_clock"])}
 check(
-    summary_rows["broken_clock"]["n_nodes_failed"] == 2 and summary_rows["broken_clock"]["n_nodes_coverage_ok"] == 0
-    and summary_rows["broken_clock"]["coverage_min"] is None
-    and summary_rows["horvath2013"]["n_nodes_failed"] == 0 and summary_rows["horvath2013"]["n_nodes_coverage_ok"] == 1,
-    "failed clocks are counted as failed; nodes meeting the threshold are counted separately",
+    summary_rows["broken_clock"]["n_nodes_failed"] == 2 and summary_rows["broken_clock"]["coverage_pct_min"] is None
+    and summary_rows["horvath2013"]["n_nodes_failed"] == 0
+    and summary_rows["horvath2013"]["coverage_pct_min"] == 50.0 and summary_rows["horvath2013"]["coverage_pct_max"] == 95.0,
+    "failed clocks are counted as failed; coverage is reported as the lowest and highest % over the nodes",
 )
-
-try:
-    federated_impl(nodes[0], CLOCKS, min_samples=MIN_SAMPLES, coverage_threshold=1.5)
-except ValueError:
-    check(True, "coverage_threshold outside [0, 1] is rejected")
-else:
-    raise AssertionError("coverage_threshold=1.5 did not raise")
 
 # ---------------------------------------------------------------------------
 # 6. Renamed EPIC v2 CpGs: mapping to 450K / EPIC v1 identifiers via the manifest

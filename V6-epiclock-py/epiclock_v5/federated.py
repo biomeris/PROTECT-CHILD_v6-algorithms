@@ -22,7 +22,7 @@ from .epicv2 import adapt_long, default_legacy_map, to_clock_ids
 DEFAULT_CLOCKS = ["horvath2013", "hannum", "pcphenoage", "pedbe"]
 
 NODE_RESULT_COLUMNS = [
-    "cohort", "clock", "n_samples", "mean_age", "sd_age", "coverage", "coverage_ok",
+    "cohort", "clock", "n_samples", "mean_age", "sd_age", "coverage",
     "n_with_age", "mean_chronological_age", "mean_age_acceleration", "sd_age_acceleration",
     "sd_chronological_age", "sd_predicted_age_with_age", "mean_abs_error",
 ]
@@ -109,7 +109,6 @@ def federated_impl(
     lista_relojes: List[str] | None = None,
     cohort_column: str = "cohort",
     min_samples: int = 3,
-    coverage_threshold: float = 0.9,
     age_column: str | None = "age",
 ) -> pd.DataFrame:
     """
@@ -131,11 +130,6 @@ def federated_impl(
         Name of the column in ``df1`` that holds the cohort of each sample
     min_samples : int
         Minimum number of samples a cohort needs on this node to be included
-    coverage_threshold : float
-        Minimum coverage (share of a clock's CpGs present in this node's data, 0-1)
-        for a result to be flagged ``coverage_ok``. pyaging fills missing CpGs with
-        reference values or 0, which can bias the age. It only sets the flag; no
-        result is removed.
     age_column : str | None
         Column with each sample's chronological age (e.g. 'age' from the IDAT
         extraction's sample_columns). If present, the result also compares the
@@ -144,7 +138,9 @@ def federated_impl(
     Returns:
     --------
     pd.DataFrame : Columns cohort, clock, n_samples, mean_age, sd_age (sample
-        standard deviation, ddof=1), coverage and coverage_ok, one row per
+        standard deviation, ddof=1) and coverage (share of the clock's CpGs present
+        on this node, 0-1; pyaging fills missing CpGs with reference values or 0,
+        so the user judges whether a coverage is enough), one row per
         (cohort, clock), plus n_with_age (samples with a predicted and a
         chronological age), mean_chronological_age, mean_age_acceleration and
         sd_age_acceleration (acceleration = predicted minus chronological age),
@@ -157,10 +153,6 @@ def federated_impl(
     """
     if not isinstance(min_samples, int) or isinstance(min_samples, bool) or min_samples < 2:
         raise ValueError(f"min_samples must be an integer of at least 2, got {min_samples!r}")
-    if not 0 <= coverage_threshold <= 1:
-        raise ValueError(
-            f"coverage_threshold must be between 0 and 1, got {coverage_threshold!r}"
-        )
 
     empty = pd.DataFrame(columns=NODE_RESULT_COLUMNS)
 
@@ -230,11 +222,7 @@ def federated_impl(
     # Clocks that failed to compute have no coverage and produce no rows
     clocks_used = [clk for clk in lista_relojes if coverage[clk] is not None]
     for clk in clocks_used:
-        if coverage[clk] < coverage_threshold:
-            warn(
-                f"Clock '{clk}': only {coverage[clk]:.1%} of its CpGs are present on this "
-                f"node (below {coverage_threshold:.0%}); results have coverage_ok=False"
-            )
+        info(f"Clock '{clk}': {coverage[clk]:.1%} of its CpGs present on this node")
     ages["cohort"] = data.groupby("sample_label")["cohort"].first().reindex(ages.index)
 
     rows = []
@@ -254,7 +242,6 @@ def federated_impl(
                 "mean_age": float(valid.mean()),
                 "sd_age": float(valid.std(ddof=1)),
                 "coverage": float(coverage[clk]),
-                "coverage_ok": bool(coverage[clk] >= coverage_threshold),
                 "n_with_age": 0,
                 "mean_chronological_age": None,
                 "mean_age_acceleration": None,
@@ -297,14 +284,13 @@ def federated_function(
     lista_relojes: List[str] | None = None,
     cohort_column: str = "cohort",
     min_samples: int = 3,
-    coverage_threshold: float = 0.9,
     age_column: str | None = "age",
 ) -> Any:
     """
     Calculate per-cohort epigenetic age statistics on this node.
 
     Returns ``{"results": [records with cohort, clock, n_samples, mean_age,
-    sd_age, coverage, coverage_ok, n_with_age, mean_chronological_age,
+    sd_age, coverage, n_with_age, mean_chronological_age,
     mean_age_acceleration, sd_age_acceleration], "clock_coverage": {clock: share of its CpGs
     present, or None if the clock failed}, "legacy_loci_mapping": whether renamed
     EPIC v2 CpGs were mapped}``.
@@ -312,7 +298,7 @@ def federated_function(
     """
     summary = federated_impl(
         df1, lista_relojes, cohort_column=cohort_column, min_samples=min_samples,
-        coverage_threshold=coverage_threshold, age_column=age_column,
+        age_column=age_column,
     )
     return {
         "results": summary.to_dict(orient="records"),

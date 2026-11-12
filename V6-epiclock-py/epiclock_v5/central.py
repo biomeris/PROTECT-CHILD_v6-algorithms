@@ -24,9 +24,8 @@ GLOBAL_RESULT_COLUMNS = [
     "sd_age_global",
     "n_samples_total",
     "n_nodes",
-    "coverage_min",
-    "coverage_max",
-    "coverage_ok",
+    "coverage_pct_min",
+    "coverage_pct_max",
     "n_with_age_total",
     "mean_chronological_age_global",
     "mean_age_acceleration_global",
@@ -42,8 +41,18 @@ ACCURACY_COLUMNS = [
     "mean_abs_error_global",
     "correlation_global",
     "mean_age_acceleration_global",
-    "coverage_ok",
+    "coverage_pct_min",
 ]
+
+
+def coverage_pct(value) -> float | None:
+    """A coverage (share of a clock's CpGs present, 0-1) as a percentage, 1 decimal.
+
+    There is no threshold: EPIC v2 lacks some clock CpGs, and the user judges
+    whether a clock's coverage is enough."""
+    if value is None or pd.isna(value):
+        return None
+    return round(100 * float(value), 1)
 
 
 def pooled_mean_sd(n: np.ndarray, means: np.ndarray, sds: np.ndarray) -> tuple[float, float | None]:
@@ -105,7 +114,7 @@ def clock_accuracy(combined: pd.DataFrame) -> pd.DataFrame:
             "mean_abs_error_global": mae,
             "correlation_global": corr,
             "mean_age_acceleration_global": accel_mean,
-            "coverage_ok": bool(group["coverage_ok"].astype(bool).all()),
+            "coverage_pct_min": coverage_pct(group["coverage"].min()),
         })
     table = pd.DataFrame(rows, columns=ACCURACY_COLUMNS)
     return table.sort_values("mean_abs_error_global", na_position="last", kind="stable").reset_index(drop=True)
@@ -181,9 +190,9 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
     Returns:
     --------
     pd.DataFrame : Columns cohort, clock, mean_age_global, sd_age_global,
-        n_samples_total, n_nodes, coverage_min, coverage_max (clock coverage over
-        the nodes that contributed), coverage_ok (True only if every
-        contributing node meets the coverage threshold), and n_with_age_total,
+        n_samples_total, n_nodes, coverage_pct_min, coverage_pct_max (lowest and
+        highest clock coverage, in %, over the nodes that contributed), and
+        n_with_age_total,
         mean_chronological_age_global, mean_age_acceleration_global,
         sd_age_acceleration_global, mean_abs_error_global and correlation_global
         (Pearson, predicted vs chronological age) (empty if no node reported ages)
@@ -208,9 +217,8 @@ def aggregate_cohort_results(results: list) -> pd.DataFrame:
             "sd_age_global": sd_global,
             "n_samples_total": int(total_n),
             "n_nodes": int(len(group)),
-            "coverage_min": float(group["coverage"].min()),
-            "coverage_max": float(group["coverage"].max()),
-            "coverage_ok": bool(group["coverage_ok"].astype(bool).all()),
+            "coverage_pct_min": coverage_pct(group["coverage"].min()),
+            "coverage_pct_max": coverage_pct(group["coverage"].max()),
             **pooled_age_comparison(group),
         })
 
@@ -234,11 +242,10 @@ def check_requested_clocks(lista_relojes: List[str], bundle: dict | None) -> Non
 
 
 def summarise_clock_coverage(
-    results: list, lista_relojes: List[str], coverage_threshold: float,
-    bundle: dict | None = None,
+    results: list, lista_relojes: List[str], bundle: dict | None = None,
 ) -> list[dict]:
-    """Per clock: coverage over the nodes, on how many nodes it meets the coverage
-    threshold and on how many it failed to compute (those nodes have no results).
+    """Per clock: lowest and highest coverage (in %) over the nodes, and on how many
+    nodes it failed to compute (those nodes have no results).
     With a clock bundle, also the clock's non-CpG inputs (``extra_features``, which
     the algorithm does not provide; pyaging fills them with reference values or 0),
     tissue and population from pyaging's catalogue."""
@@ -252,10 +259,9 @@ def summarise_clock_coverage(
         measured = [v for v in values if v is not None]
         rows.append({
             "clock": clk,
-            "coverage_min": min(measured) if measured else None,
-            "coverage_max": max(measured) if measured else None,
+            "coverage_pct_min": coverage_pct(min(measured)) if measured else None,
+            "coverage_pct_max": coverage_pct(max(measured)) if measured else None,
             "n_nodes_reported": len(values),
-            "n_nodes_coverage_ok": sum(v >= coverage_threshold for v in measured),
             "n_nodes_failed": sum(v is None for v in values),
         })
         if bundle is not None and clk in bundle["clocks"]:
@@ -318,7 +324,6 @@ def central_function(
     clock_set: str | None = None,
     cohort_column: str = "cohort",
     min_samples: int = 3,
-    coverage_threshold: float = 0.9,
     age_column: str | None = "age",
     organizations_to_include: List[int] | None = None,
 ) -> Any:
@@ -346,11 +351,6 @@ def central_function(
     min_samples : int, optional
         Minimum number of samples a cohort needs on a node to be included in that
         node's result (default: 3)
-    coverage_threshold : float, optional
-        Minimum coverage (share of a clock's CpGs present in a node's data, 0-1) for
-        results to be flagged ``coverage_ok`` (default: 0.9). EPIC v2 lacks some clock
-        CpGs and pyaging fills them with reference values or 0, which can bias the
-        age. It only sets the flag; no clock or result is removed.
     age_column : str, optional
         Column in each node's data with the chronological age of each sample
         (default: "age", added by the IDAT extraction's sample_columns). Nodes that
@@ -362,10 +362,11 @@ def central_function(
     Returns:
     --------
     dict : ``{"results": [one record per (cohort, clock) with mean_age_global,
-        sd_age_global, n_samples_total, n_nodes, coverage_min, coverage_max,
-        coverage_ok, n_with_age_total, mean_chronological_age_global,
-        mean_age_acceleration_global and sd_age_acceleration_global], "clock_coverage": [one record per clock with coverage_min,
-        coverage_max, n_nodes_reported, n_nodes_coverage_ok and n_nodes_failed],
+        sd_age_global, n_samples_total, n_nodes, coverage_pct_min, coverage_pct_max
+        (clock coverage in %: EPIC v2 lacks some clock CpGs; there is no threshold,
+        the user judges it), n_with_age_total, mean_chronological_age_global,
+        mean_age_acceleration_global and sd_age_acceleration_global], "clock_coverage": [one record per clock with coverage_pct_min,
+        coverage_pct_max, n_nodes_reported and n_nodes_failed],
         "n_nodes_legacy_loci_mapping": nodes that mapped renamed EPIC v2 CpGs (packaged
         mapping or $MANIFEST_PATH)}``
     """
@@ -387,7 +388,6 @@ def central_function(
             "lista_relojes": lista_relojes,
             "cohort_column": cohort_column,
             "min_samples": min_samples,
-            "coverage_threshold": coverage_threshold,
             "age_column": age_column,
         },
     )
@@ -406,17 +406,13 @@ def central_function(
             f"Global summary: {global_summary['cohort'].nunique()} cohort(s), "
             f"{global_summary['clock'].nunique()} clock(s)"
         )
-    coverage = summarise_clock_coverage(results, lista_relojes, coverage_threshold, bundle)
+    coverage = summarise_clock_coverage(results, lista_relojes, bundle)
     for row in coverage:
         if row.get("extra_features"):
             warn(f"Clock {row['clock']} also needs {row['extra_features']}, which this algorithm "
                  "does not provide; pyaging fills them with reference values or 0")
         if row["n_nodes_failed"]:
             warn(f"Clock {row['clock']} failed to compute on {row['n_nodes_failed']} node(s)")
-        n_below = row["n_nodes_reported"] - row["n_nodes_failed"] - row["n_nodes_coverage_ok"]
-        if n_below:
-            warn(f"Clock {row['clock']}: coverage below {coverage_threshold:.0%} on "
-                 f"{n_below} node(s); those results have coverage_ok=False")
     n_mapped = sum(bool(r.get("legacy_loci_mapping")) for r in results if isinstance(r, dict))
     if n_mapped < len(results):
         info(f"{len(results) - n_mapped} node(s) did not map renamed EPIC v2 CpGs (mapping disabled or missing)")
