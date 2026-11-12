@@ -40,7 +40,7 @@ MAX_FEATURES = 2000
 DEFAULT_FEATURES = 1000
 SIGNIFICANCE = 0.05
 # A group of one sample would return that sample's own scores
-MIN_SAMPLES_FLOOR = 2
+MIN_SAMPLES_FLOOR = 3
 
 VARIANCE_COLUMNS = [
     "component", "explained_variance_ratio", "cumulative_ratio",
@@ -460,8 +460,8 @@ def _central(
     if int(min_samples) < MIN_SAMPLES_FLOOR:
         return {
             "error": (
-                f"min_samples must be at least {MIN_SAMPLES_FLOOR}: with 1, the "
-                "summaries of a group of one sample are that sample's scores"
+                f"min_samples must be at least {MIN_SAMPLES_FLOOR}: the count, mean "
+                "and SD of 1 or 2 samples give their individual values"
             )
         }
 
@@ -602,17 +602,17 @@ def _central(
             f"{r['probe_id']} (r = {r['correlation']:+.2f})" for r in top
         )
 
-    # Scree plot: share of variance of the first components (line chart)
+    # Scree plot: share of variance of the first components. The web
+    # interface's line chart only reads pandas' column format
+    # ({column: {row: value}}, as DataFrame.to_dict()), not a list of rows.
     n_scree = min(SCREE_COMPONENTS, len(chosen), n_scatter - 1)
-    scree_rows = [
-        {
-            "component_number": j + 1,
-            "component": f"PC{j + 1}",
-            "explained_variance_ratio": _round(ratios[j]),
-            "cumulative_ratio": _round(ratios[: j + 1].sum()),
-        }
-        for j in range(n_scree)
-    ]
+    rows = range(n_scree)
+    scree_rows = {
+        "component_number": {str(j): j + 1 for j in rows},
+        "component": {str(j): f"PC{j + 1}" for j in rows},
+        "explained_variance_ratio": {str(j): _round(ratios[j]) for j in rows},
+        "cumulative_ratio": {str(j): _round(ratios[: j + 1].sum()) for j in rows},
+    }
 
     hospitals = _hospital_rows(org_ids, status, moments, scatters, scores)
     batch_components = [r["component"] for r in variance_rows if r["hospital_effect"]]

@@ -1,6 +1,6 @@
 {
   "name": "Methylation PCA",
-  "image": "localhost:32000/protect-child/pca-methylation:1.0.3",
+  "image": "localhost:32000/protect-child/pca-methylation:1.0.4",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -94,7 +94,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2; a lower value fails the run)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 3; a lower value fails the run). If the hidden cohorts at a hospital add up to fewer, the next smallest cohort is hidden too",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -333,7 +333,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 3; a lower value fails the run). If the hidden cohorts at a hospital add up to fewer, the next smallest cohort is hidden too",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -417,7 +417,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 3; a lower value fails the run). If the hidden cohorts at a hospital add up to fewer, the next smallest cohort is hidden too",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
@@ -526,7 +526,7 @@
           "name": "min_samples",
           "type": "integer",
           "display_name": "Minimum samples (privacy)",
-          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 2)",
+          "description": "Minimum samples a hospital, and a cohort at a hospital, needs before any summary of it is returned (at least 3; a lower value fails the run). If the hidden cohorts at a hospital add up to fewer, the next smallest cohort is hidden too",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5

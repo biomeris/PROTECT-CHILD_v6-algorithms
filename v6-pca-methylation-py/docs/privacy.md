@@ -16,12 +16,17 @@ scores: only the tables and the PCA model (CpG means, components).
 
 ## Guards
 
-- `min_samples` is at least 2, checked centrally and again at each hospital,
-  so no summary ever describes a single sample.
+- `min_samples` is at least 3, checked centrally and again at each hospital:
+  the count, mean and SD of 2 samples give both of their values.
 - A hospital with fewer than `min_samples` samples returns an error and is
   left out (with the reason in the Hospitals table).
 - A cohort with fewer than `min_samples` samples at a hospital is not
   summarised; only its name is returned.
+- **Complementary suppression.** The hospital total is also returned, so the
+  hidden cohorts' summary is the total minus the reported cohorts. If the
+  hidden cohorts add up to fewer than `min_samples` samples, the smallest
+  reported cohorts are hidden too until they reach `min_samples`. The test
+  checks this subtraction at every hospital.
 - At most 2,000 CpGs (size of ZᵀZ, ~43 MB per hospital).
 
 ## Residual risks (to decide with the consortium)

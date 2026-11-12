@@ -34,8 +34,9 @@ from vantage6.algorithm.decorator.data import dataframe
 
 
 PROBE_COLUMN = "probe_id"
-# Never summarise a single sample, whatever min_samples a request carries
-MIN_SAMPLES_FLOOR = 2
+# Never summarise fewer than 3 samples, whatever min_samples a request
+# carries: the count, mean and SD of 2 samples give both of their values
+MIN_SAMPLES_FLOOR = 3
 
 
 # ---------------------------------------------------------------------
@@ -153,6 +154,31 @@ def _local_matrix(df, features, cohort_column, cohorts, sample_column,
 # ---------------------------------------------------------------------
 # FEDERATED FUNCTIONS
 # ---------------------------------------------------------------------
+
+def _reportable_cohorts(labels, min_samples):
+    """
+    Cohorts whose summaries can be returned, and those that are hidden.
+
+    Cohorts with fewer than ``min_samples`` samples are hidden. The hospital
+    total is also returned, so the hidden samples' summary is the total
+    minus the reported cohorts: if fewer than ``min_samples`` samples are
+    hidden, the smallest reported cohorts are hidden as well until at least
+    ``min_samples`` are (complementary suppression).
+    """
+
+    labels = np.asarray(labels).astype(str)
+    sizes = {cohort: int((labels == cohort).sum()) for cohort in sorted(set(labels))}
+    hidden = [cohort for cohort, n in sizes.items() if n < min_samples]
+    shown = sorted((c for c in sizes if c not in hidden), key=lambda c: (sizes[c], c))
+    n_hidden = sum(sizes[c] for c in hidden)
+
+    while 0 < n_hidden < min_samples and shown:
+        cohort = shown.pop(0)
+        hidden.append(cohort)
+        n_hidden += sizes[cohort]
+
+    return sorted(shown), sorted(hidden)
+
 
 @federated
 @dataframe(1)
@@ -318,14 +344,11 @@ def partial_scores(
             "sumsq": (rows ** 2).sum(axis=0).tolist(),
         }
 
-    groups, suppressed = [], []
-
-    for cohort in sorted(set(labels)):
-        rows = scores[labels == cohort]
-        if rows.shape[0] < min_samples:
-            suppressed.append(str(cohort))
-            continue
-        groups.append({"cohort": str(cohort), **summary(rows)})
+    groups, suppressed = _reportable_cohorts(labels, min_samples)
+    groups = [
+        {"cohort": cohort, **summary(scores[labels == cohort])}
+        for cohort in groups
+    ]
 
     sd = np.asarray(sd_components, dtype=float)
     sd = np.where(sd > 0, sd, np.inf)

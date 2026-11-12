@@ -35,6 +35,8 @@ hospital.
 | Variance explained | Per component: share of variance; R² and F-test p-value of hospital, of cohort, of hospital beyond cohort, of cohort beyond hospital; `main_factor` (cohort / hospital / cohort and hospital / not separable / neither); `hospital_effect` flag (hospital beyond cohort, p < 0.05); `separable` (false when every reported cohort is at a single hospital) |
 | Scores by hospital and cohort | Mean and SD of each component per hospital (`all`) and per cohort |
 | Top CpGs per component | CpGs with the largest `weight` (coefficient in the unit-length component) and their `correlation` with the component's scores |
+| Summary | Plain-text reading of the result |
+| Scree plot, Cumulative variance | Line charts of the first 20 components (sent in pandas column format, which is what the web interface's line chart reads) |
 | Hospitals | Status, samples, CpGs measured in every sample, outliers, suppressed cohorts |
 | Input | Data used |
 
@@ -60,7 +62,7 @@ then also a comparison of hospitals.
 | `cohort_column` | `cohort` | empty: PCA without cohorts (hospital effects only) |
 | `cohorts` | all | cohorts to include |
 | `value_column` | `beta` | or `m_value` |
-| `min_samples` | 5 | privacy threshold per hospital and per hospital × cohort; at least 2 (also enforced at the hospitals) |
+| `min_samples` | 5 | privacy threshold per hospital and per hospital × cohort; at least 3 (also enforced at the hospitals). If the hidden cohorts at a hospital add up to fewer samples, the next smallest cohort is hidden too |
 | `outlier_sd` | 3 | outlier threshold in SDs of a component |
 | `top_cpgs` | 10 | CpGs listed per component |
 | `organizations_to_include` | all | hospitals |

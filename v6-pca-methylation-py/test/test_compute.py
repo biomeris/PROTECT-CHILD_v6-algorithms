@@ -35,7 +35,10 @@ N_PROBES = 300
 # (cohort, samples) per hospital
 LAYOUT = [
     [("case", 8), ("control", 6)],
-    [("case", 5), ("control", 9), ("rare", 2)],   # "rare" is below min_samples
+    # "rare" is below min_samples; hiding only its 2 samples would let the
+    # hospital total minus the other cohorts reveal them, so "case" (the next
+    # smallest) is hidden too
+    [("case", 5), ("control", 9), ("rare", 2)],
     [("case", 7), ("control", 7)],
 ]
 MIN_SAMPLES = 3
@@ -171,9 +174,9 @@ hospital = wide.index.get_level_values("hospital").to_numpy()
 cohort = wide.index.get_level_values("cohort").to_numpy()
 check(close(variance["r2_hospital"], r2(scores, hospital)), "R2 hospital equals pooled scores")
 
-reported = cohort != "rare"
+reported = ~((hospital == 1) & np.isin(cohort, ["rare", "case"]))
 check(close(variance["r2_cohort"], r2(scores[reported], cohort[reported])),
-      "R2 cohort equals pooled scores (suppressed cohort left out)")
+      "R2 cohort equals pooled scores (hidden cohorts left out)")
 cells = np.char.add(hospital.astype(str), cohort.astype(str))
 expected_beyond = r2(scores[reported], cells[reported]) - r2(scores[reported], cohort[reported])
 check(close(variance["r2_hospital_beyond_cohort"], expected_beyond), "R2 hospital beyond cohort")
@@ -184,8 +187,16 @@ check(variance["hospital_effect"].any(), "the batch at hospital 3 is flagged")
 check("Hospital effect beyond cohort" in result["summary"], "summary mentions the hospital effect")
 
 h2 = groups[(groups["organization_id"] == org_ids[1]) & (groups["component"] == "PC1")]
-check(set(h2["cohort"]) == {"all", "case", "control"}, "cohort below min_samples is not reported")
-check(hospitals.loc[1, "suppressed_cohorts"] == "rare", "suppressed cohort listed by name only")
+check(set(h2["cohort"]) == {"all", "control"}, "small cohort and its complement are not reported")
+check(hospitals.loc[1, "suppressed_cohorts"] == "case, rare", "hidden cohorts listed by name only")
+
+# Differencing attack: hospital total minus its reported cohorts must never
+# describe fewer than min_samples samples
+for org_id in org_ids:
+    block = groups[(groups["organization_id"] == org_id) & (groups["component"] == "PC1")]
+    hidden_n = block.loc[block["cohort"] == "all", "n"].iloc[0] - block.loc[block["cohort"] != "all", "n"].sum()
+    check(hidden_n == 0 or hidden_n >= MIN_SAMPLES,
+          f"total minus reported cohorts at organization {org_id}: {hidden_n} samples")
 all_pc1 = groups[(groups["cohort"] == "all") & (groups["component"] == "PC1")]
 for h, org_id in enumerate(org_ids):
     mean = all_pc1.loc[all_pc1["organization_id"] == org_id, "mean"].iloc[0]
@@ -203,6 +214,8 @@ for _, row in loadings[loadings["rank"] <= 3].iterrows():
     check(np.isclose(row["correlation"], np.corrcoef(X_pooled[:, i], scores[:, j])[0, 1], atol=2e-6),
           f"{row['component']} correlation of {row['probe_id']} with its scores")
 
+check(all(isinstance(column, dict) for column in result["scree"].values()),
+      "scree in pandas column format (what the UI line chart reads)")
 scree = pd.DataFrame(result["scree"])
 check(list(scree["component_number"]) == list(range(1, 21)), "scree plot: first 20 components")
 check(np.allclose(scree["explained_variance_ratio"], values[:20] / values.sum(), atol=2e-6),
@@ -261,11 +274,28 @@ print("\n[6] Argument checks")
 too_many, _ = run(nodes, n_features=5000)
 check("n_features must be between" in too_many.get("failed", ""), "n_features above 2,000 fails the run")
 one, _ = run(nodes, n_features=50, min_samples=1)
-check("min_samples must be at least 2" in one.get("failed", ""), "min_samples = 1 fails the run, reason in the log")
+check("min_samples must be at least 3" in one.get("failed", ""), "min_samples = 1 fails the run, reason in the log")
+two, _ = run(nodes, n_features=50, min_samples=2)
+check("min_samples must be at least 3" in two.get("failed", ""), "min_samples = 2 fails the run (2 samples are revealed by mean and SD)")
 zero, _ = run(nodes, n_features=50, min_samples=0)
-check("min_samples must be at least 2" in zero.get("failed", ""), "min_samples = 0 fails the run")
+check("min_samples must be at least 3" in zero.get("failed", ""), "min_samples = 0 fails the run")
 unknown, _ = run(nodes, n_features=50, organizations_to_include=[999])
 check("999" in unknown.get("failed", ""), "an unknown hospital fails the run, reason in the log")
+
+print("\n[6b] Complementary suppression")
+from pca_methylation.federated import _reportable_cohorts  # noqa: E402
+cases = [
+    # 1 hidden sample: the only other cohort is hidden too (total = 9 >= 3)
+    (["a"] * 8 + ["b"] * 1, 3, ([], ["a", "b"])),
+    # c (1) hidden, then b (5), the next smallest: 6 hidden
+    (["a"] * 8 + ["b"] * 5 + ["c"] * 1, 3, (["a"], ["b", "c"])),
+    # c (2) + d (1) = 3 hidden: enough
+    (["a"] * 8 + ["b"] * 5 + ["c"] * 2 + ["d"] * 1, 3, (["a", "b"], ["c", "d"])),
+    # nothing hidden
+    (["a"] * 8 + ["b"] * 5, 3, (["a", "b"], [])),
+]
+for labels, k, expected in cases:
+    check(_reportable_cohorts(labels, k) == expected, f"{ {c: labels.count(c) for c in sorted(set(labels))} } -> shown {expected[0]}, hidden {expected[1]}")
 
 print("\n[7] Each reported cohort at one hospital: not separable")
 # Hospital 1 has only "case" samples and hospital 2 only "control" ones
