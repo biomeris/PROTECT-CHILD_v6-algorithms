@@ -136,7 +136,7 @@ global_summary = pd.DataFrame(results[0])
 print(f"\nGlobal summary:\n{global_summary}")
 
 check(list(global_summary.columns) == OUTPUT_COLUMNS, f"output columns are {OUTPUT_COLUMNS}")
-check(global_summary["probe_id"].nunique() == raw_all["probe_id"].nunique(), "default top_n (1000) covers all 5 mock probes")
+check(global_summary["probe_id"].nunique() == raw_all["probe_id"].nunique(), "default top_n (50) covers all 5 mock probes")
 check(
     set(global_summary["cohort"]) == {"cohort_A", "cohort_B", "cohort_C"},
     "global result contains cohort_A, cohort_B and cohort_C",

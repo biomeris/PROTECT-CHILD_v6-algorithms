@@ -181,7 +181,7 @@ def central_function(
     cohort_column: str = "cohort",
     min_samples: int = 2,
     probes: list[str] | None = None,
-    top_n: int = 1000,
+    top_n: int = 50,
     organizations_to_include: list[int] | None = None,
 ) -> Any:
     """Global per-cohort mean Beta and M values for selected probes.

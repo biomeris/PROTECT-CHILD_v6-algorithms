@@ -47,8 +47,8 @@
           "name": "top_n",
           "type": "integer",
           "display_name": "Number of top probes",
-          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta).",
-          "default_value": 1000,
+          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta). Default 50.",
+          "default_value": 50,
           "has_default_value": true,
           "is_frontend_only": false
         },
@@ -157,8 +157,8 @@
           "name": "top_n",
           "type": "integer",
           "display_name": "Number of top probes",
-          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta).",
-          "default_value": 1000,
+          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta). Default 50.",
+          "default_value": 50,
           "has_default_value": true,
           "is_frontend_only": false
         }

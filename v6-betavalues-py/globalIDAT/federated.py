@@ -212,7 +212,7 @@ def top_probes_impl(
     df1: pd.DataFrame,
     cohort_column: str = "cohort",
     min_samples: int = 2,
-    top_n: int = 1000,
+    top_n: int = 50,
 ) -> pd.DataFrame:
     """The node's `top_n` probes with the largest difference between its cohorts.
 
@@ -260,7 +260,7 @@ def federated_top_probes(
     df1: pd.DataFrame,
     cohort_column: str = "cohort",
     min_samples: int = 2,
-    top_n: int = 1000,
+    top_n: int = 50,
 ) -> Any:
     """Return the IDs (and node Δβ) of this node's candidate probes for a top-N query."""
     candidates = top_probes_impl(

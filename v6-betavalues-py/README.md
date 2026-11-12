@@ -33,7 +33,7 @@ UI can show. The result is therefore limited to at most **10,000 probes**:
   gene. A CpG name such as `cg00000029` also selects its EPIC v2 replicates
   (`cg00000029_TC21`, `cg00000029_BC11`), so 450K/EPIC probe lists work on EPIC v2.
   Requested probes that no node has are skipped (the log says how many).
-- **Overview** (no `probes`): the `top_n` probes (default 1,000) with the largest
+- **Overview** (no `probes`): the `top_n` probes (default 50) with the largest
   difference in mean Beta between cohorts, Δβ = largest minus smallest cohort mean.
 
 Requests above 10,000 probes are rejected with a message instead of being tried.
