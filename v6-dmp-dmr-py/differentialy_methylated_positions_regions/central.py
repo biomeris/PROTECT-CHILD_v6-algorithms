@@ -71,7 +71,7 @@ from .federated import NODE_RESULT_COLUMNS, decode_table, encode_table
 # can store as one result (1 GB) or the UI can show. The correction for multiple
 # testing and the DMRs still use every probe; only what is returned is limited.
 MAX_RESULT_ROWS = 10_000
-DEFAULT_TOP_N = 1000
+DEFAULT_TOP_N = 50
 # The universe of a DMP/DMR run: every tested probe with an hg38 location (the probes
 # that could have been in a DMR), the background that enrichment analyses of the
 # DMRs (e.g. LOLA) need

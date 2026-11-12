@@ -63,7 +63,7 @@
           "name": "dmr_max_gap",
           "type": "integer",
           "display_name": "DMR maximum gap (bp)",
-          "description": "Maximum distance between neighbouring probes of a DMR.",
+          "description": "Maximum distance between neighbouring probes of a DMR. Default 1,000 bp, the default window of DMRcate (Peters et al. 2015).",
           "default_value": 1000,
           "has_default_value": true,
           "is_frontend_only": false
@@ -99,8 +99,8 @@
           "name": "top_n",
           "type": "integer",
           "display_name": "Number of DMPs returned",
-          "description": "DMPs with the smallest p-value to return, 1 to 10,000. All probes are still tested and corrected for multiple testing.",
-          "default_value": 1000,
+          "description": "DMPs with the smallest p-value to return, 1 to 10,000. All probes are still tested and corrected for multiple testing. Default 50.",
+          "default_value": 50,
           "has_default_value": true,
           "is_frontend_only": false
         },

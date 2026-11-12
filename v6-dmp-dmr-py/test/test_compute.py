@@ -164,8 +164,9 @@ client = network.user_client
 org_ids = [org["id"] for org in client.organization.list()]
 task = client.task.create(
     method="central_methylation_analysis",
+    # top_n above the 108 mock probes, so the full table can be compared
     arguments={"cohort_a": A, "cohort_b": B, "min_samples": MIN_SAMPLES,
-               "moderate_variance": False, "meta_model": "fixed"},
+               "moderate_variance": False, "meta_model": "fixed", "top_n": 1000},
     organizations=[org_ids[0]],
     databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
 )
@@ -424,7 +425,7 @@ check(
     and epic_output["summary"]["n_probes_annotated"] == 108,
     "EPIC v2 IlmnIDs are annotated (matched on IlmnID, not on Name)",
 )
-default_dmps = pd.DataFrame(aggregate_results(list(node_results.values()), A, B)["global_dmps"]).set_index("probe_id")
+default_dmps = pd.DataFrame(aggregate_results(list(node_results.values()), A, B, top_n=1000)["global_dmps"]).set_index("probe_id")
 plain = default_dmps.reset_index().assign(probe_id=lambda d: d["probe_id"].map(to_ilmn)).set_index("probe_id")
 check(
     np.allclose(epic_dmps.set_index("probe_id")["estimate"].astype(float), plain.loc[epic_dmps["probe_id"], "estimate"].astype(float))
@@ -554,8 +555,8 @@ for h, (n, sd) in enumerate([(6, 0.3), (3, 0.3)]):
                                       "m_value": m, "beta": 1 / (1 + 2.0 ** -m)}))
     artefact.append(pd.concat(rows, ignore_index=True))
 naive = aggregate_results([compute_methylation_impl(df, A, B, moderate_variance=False) for df in artefact],
-                          A, B, meta_model="fixed")
-robust = aggregate_results([compute_methylation_impl(df, A, B) for df in artefact], A, B)
+                          A, B, meta_model="fixed", top_n=1000)
+robust = aggregate_results([compute_methylation_impl(df, A, B) for df in artefact], A, B, top_n=1000)
 p_naive = pd.DataFrame(naive["global_dmps"]).set_index("probe_id").loc["cg00000000", "adj_p_value"]
 p_robust = pd.DataFrame(robust["global_dmps"]).set_index("probe_id").loc["cg00000000", "adj_p_value"]
 check(
@@ -573,6 +574,10 @@ for bad in ("mixed", ""):
 
 # ---------------------------------------------------------------------------
 # 13. Universe export: every mapped tested probe, for enrichment of the DMRs
+default_top = aggregate_results(list(node_results.values()), A, B)
+check(len(default_top["global_dmps"]) == 50 and default_top["summary"]["n_probes_tested"] == 108,
+      "default top_n is 50: 50 of the 108 tested probes are returned")
+
 # ---------------------------------------------------------------------------
 print("\n[13] Universe export")
 from differentialy_methylated_positions_regions.central import UNIVERSE_COLUMNS  # noqa: E402
