@@ -31,7 +31,7 @@ reference region set the 2x2 table is
 
 ## Function
 
-`central_function(dmp_task_id=None, dmrs=None, universe=None, collections=None, direction="enrichment", min_overlap=1, top_n=1000)`
+`central_function(dmp_task_id=None, dmrs=None, universe=None, collections=None, direction="enrichment", min_overlap=1, top_n=50)`
 
 - `dmp_task_id`: id of a finished DMP/DMR task (2.1.0 or later). Its DMRs and
   universe are read from that task's result, so nothing has to be copied.
@@ -48,7 +48,7 @@ reference region set the 2x2 table is
   `cistrome_epigenome` (the hg38 caches of LOLACoreCaches_180412;
   `encode_segmentation` has no cache there).
 - `direction`: `enrichment` (one-sided Fisher, upper tail) or `depletion`.
-- `top_n`: region sets returned, smallest p-value first (1 to 10,000).
+- `top_n`: region sets returned, smallest p-value first (1 to 10,000, default 50).
 
 Result: `input` (where the DMRs and universe came from), `summary` (DMRs, universe CpGs, DMR CpGs, region sets tested and
 significant at q < 0.05), `warnings`, and `results`, one record per region set:

@@ -79,7 +79,7 @@ def lola_enrichment(
     collections: tuple[str, ...] = COLLECTIONS,
     direction: str = "enrichment",
     min_overlap: int = 1,
-    top_n: int = 1000,
+    top_n: int = 50,
     region_db: str = REGION_DB,
     known: tuple[str, ...] = COLLECTIONS,
 ) -> dict:
@@ -219,7 +219,7 @@ def central_function(
     collections: list[str] | None = None,
     direction: Literal["enrichment", "depletion"] = "enrichment",
     min_overlap: int = 1,
-    top_n: int = 1000,
+    top_n: int = 50,
 ) -> Any:
     """LOLA enrichment of the DMRs of a DMP/DMR result, against LOLACore hg38.
 
