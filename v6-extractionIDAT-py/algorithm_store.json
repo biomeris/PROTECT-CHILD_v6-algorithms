@@ -1,6 +1,6 @@
 {
   "name": "extractionIDAT",
-  "image": "ghcr.io/vantage6/algorithm/extractionIDAT",
+  "image": "localhost:32000/protect-child/extraction-idat:2.3.0",
   "vantage6_version": "5.0",
   "code_url": "https://mygitrepo.org",
   "documentation_url": "",
@@ -8,7 +8,7 @@
   "functions": [
     {
       "name": "data_extraction_function",
-      "description": "Read the IDAT files and sample sheet of a node into a long table of Beta and M values per probe and sample, with the cohort of each sample. Quality control and normalisation (pylluminator, SeSAMe-style, within each sample): pOOBAH detection p-values (probes above the threshold masked), masking of quality, control, non-CpG, SNP and X/Y-chromosome probes, optionally inference of the colour channel of type I probes, non-linear dye-bias correction and NOOB background correction. Probes missing in any sample of the hospital are left out. No between-sample (e.g. BMIQ, quantile) or batch normalisation. The task log of each hospital has a QC summary: probes masked and left out, the share of failed probes per sample, and samples above the flag threshold (flagged, not removed).",
+      "description": "Read the IDAT files and sample sheet of a node into a long table of Beta and M values per probe and sample, with the cohort of each sample. Quality control and normalisation (pylluminator, SeSAMe-style, within each sample): pOOBAH detection p-values (probes above the threshold masked), masking of quality, control, non-CpG, SNP and X/Y-chromosome probes, optionally inference of the colour channel of type I probes, non-linear dye-bias correction and NOOB background correction. Probes missing in any sample of the hospital are left out. No between-sample (e.g. BMIQ, quantile) or batch normalisation. Each sample is marked with the share of its probes failing detection (qc_failed_fraction) and whether it is above the flag threshold (qc_flagged); flagged samples are kept. The task log has a QC summary with counts only (no sample IDs). Use 'Sample QC summary' for the counts per hospital and cohort and 'Exclude QC-flagged samples' to remove them.",
       "step_type": "data_extraction",
       "databases": [
         {
@@ -65,7 +65,7 @@
           "name": "qc_flag_fraction",
           "type": "float",
           "display_name": "QC flag: share of failed probes",
-          "description": "Samples with more than this share of probes failing detection are flagged in the task log (they are kept). 0.1 = 10%, as ChAMP's sample cut-off.",
+          "description": "Samples with more than this share of probes failing detection are flagged (qc_flagged column; kept). 0.1 is ChAMP's sample cut-off.",
           "default_value": 0.1,
           "has_default_value": true,
           "is_frontend_only": false
@@ -74,7 +74,7 @@
           "name": "infer_type1_channel",
           "type": "boolean",
           "display_name": "Infer the colour channel of type I probes",
-          "description": "SeSAMe's recommended step for EPIC: set each type I probe's channel to the one with the higher signal, before the other steps. Off by default (the earlier results were computed without it).",
+          "description": "SeSAMe's recommended step for EPIC: set each type I probe's channel to the one with the higher signal, before the other steps. Off by default.",
           "default_value": false,
           "has_default_value": true,
           "is_frontend_only": false
@@ -82,6 +82,116 @@
       ],
       "standalone": true,
       "display_name": "Extract Beta and M values from IDATs"
+    },
+    {
+      "name": "qc_summary",
+      "display_name": "Sample QC summary",
+      "standalone": true,
+      "step_type": "central_compute",
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "description": "Per hospital and cohort: samples, QC-flagged samples, samples left if the flagged ones are excluded, and whether that falls below a minimum. Counts only; sample IDs never leave the hospitals.",
+      "arguments": [
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "cohort"
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort and hospital",
+          "description": "Cohorts that would fall below this many samples at a hospital after excluding the flagged samples are marked (the later analyses need 2-5)",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "organizations_to_include",
+          "type": "organization_list",
+          "display_name": "Hospitals",
+          "description": "Hospitals (organizations) to use; empty = all of the collaboration",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        }
+      ],
+      "ui_visualizations": [
+        {
+          "name": "Summary",
+          "description": "Plain-text reading of the sample QC",
+          "type": "table",
+          "schema": {
+            "location": [
+              "status"
+            ],
+            "columns": [
+              "summary"
+            ]
+          }
+        },
+        {
+          "name": "Samples per hospital and cohort",
+          "description": "Samples, QC-flagged samples and samples left after excluding the flagged ones",
+          "type": "table",
+          "schema": {
+            "location": [
+              "qc_summary"
+            ],
+            "columns": [
+              "organization_id",
+              "cohort",
+              "n_samples",
+              "n_flagged",
+              "n_after_exclusion",
+              "below_minimum_after_exclusion"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "partial_qc_summary",
+      "display_name": "Sample QC counts",
+      "standalone": false,
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "description": "Per cohort at this hospital: samples and QC-flagged samples (counts only)",
+      "arguments": [
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Column with the cohort of each sample",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "cohort"
+        }
+      ]
+    },
+    {
+      "name": "exclude_flagged_samples",
+      "display_name": "Exclude QC-flagged samples",
+      "standalone": true,
+      "step_type": "preprocessing",
+      "databases": [
+        {
+          "name": "Beta/M values"
+        }
+      ],
+      "description": "Removes the samples flagged by the extraction's QC (more failed probes than its threshold) from the session's dataframe at every hospital, in place; the extraction is not repeated. Run 'Sample QC summary' first to see how many remain.",
+      "arguments": []
     }
   ]
 }

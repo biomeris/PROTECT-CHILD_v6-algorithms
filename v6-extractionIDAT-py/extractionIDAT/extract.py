@@ -25,7 +25,8 @@ from vantage6.algorithm.tools.util import info, warn, error
 
 IDAT_SUFFIX = ".idat"
 SAMPLE_SHEET_NAMES = ("samplesheet.csv", "sample_sheet.csv")
-OUTPUT_COLUMNS = ["probe_id", "sample_label", "cohort", "beta", "m_value"]
+OUTPUT_COLUMNS = ["probe_id", "sample_label", "cohort", "beta", "m_value",
+                  "qc_failed_fraction", "qc_flagged"]
 # pylluminator index levels that describe the probe design, not the probe itself
 PROBE_DESIGN_COLUMNS = {"type", "channel", "probe_type"}
 # Samples with more than this share of probes failing detection are flagged in the
@@ -252,8 +253,15 @@ def quality_summary(beta_all: pd.DataFrame, flag_fraction: float = DEFAULT_QC_FL
     }
 
 
-def report_quality(beta_all: pd.DataFrame, pvalue_threshold: float, flag_fraction: float) -> dict:
-    """Log the QC summary (the node log is where the user of a data extraction sees it)."""
+def report_quality(beta_all: pd.DataFrame, pvalue_threshold: float, flag_fraction: float,
+                   cohorts: dict | None = None) -> dict:
+    """Log the QC summary, with counts only.
+
+    vantage6 sends the node log to HQ, where anyone with access to the task can
+    read it, so sample IDs are never logged. Which samples are flagged is stored
+    at the hospital, in the dataframe's `qc_flagged` column; the QC summary
+    analysis returns the counts per hospital and cohort.
+    """
     qc = quality_summary(beta_all, flag_fraction)
     info(
         f"QC: {qc['n_probes']:,} probes read; {qc['masked_all']:,} masked in all samples "
@@ -265,16 +273,19 @@ def report_quality(beta_all: pd.DataFrame, pvalue_threshold: float, flag_fractio
     if not failed.empty:
         info(
             f"QC: probes failing detection (pOOBAH p > {pvalue_threshold}) per sample: median "
-            f"{failed.median():.2%}, highest {failed.max():.2%} ({failed.idxmax()})"
+            f"{failed.median():.2%}, highest {failed.max():.2%}"
         )
-        for sample, fraction in failed.sort_values(ascending=False).items():
-            info(f"QC:   {sample}: {fraction:.2%} failed")
-    for sample, fraction in qc["flagged"].items():
+    if qc["flagged"]:
+        per_cohort = pd.Series(
+            [(cohorts or {}).get(sample, "unknown") for sample in qc["flagged"]]
+        ).value_counts().sort_index()
         warn(
-            f"QC flag: sample {sample} has {fraction:.2%} of its probes failing detection "
-            f"(above {flag_fraction:.0%}); it is kept, check its quality"
+            f"QC flag: {len(qc['flagged'])} of {len(failed)} samples have more than "
+            f"{flag_fraction:.0%} of their probes failing detection ("
+            + ", ".join(f"{cohort} {n}" for cohort, n in per_cohort.items())
+            + "); they are kept and marked in the qc_flagged column"
         )
-    if not qc["flagged"]:
+    else:
         info(f"QC: no sample above {flag_fraction:.0%} failed probes")
     return qc
 
@@ -286,8 +297,10 @@ def methylation_values(
     min_beads: int = 1,
     qc_flag_fraction: float = DEFAULT_QC_FLAG_FRACTION,
     infer_type1_channel: bool = False,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Read the IDATs with pylluminator and return (beta, m) tables (probes x samples).
+    cohorts: dict | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    """Read the IDATs with pylluminator and return the (beta, m) tables (probes x
+    samples) and the QC summary (see quality_summary).
 
     Steps performed (SeSAMe-style preprocessing, within each sample):
     - optionally (`infer_type1_channel`), the colour channel of type I probes
@@ -339,7 +352,7 @@ def methylation_values(
     if beta_all is None or m_df is None:
         error("Beta or M calculation failed")
         raise RuntimeError("Beta or M calculation returned None")
-    report_quality(beta_all, pvalue_threshold, qc_flag_fraction)
+    qc = report_quality(beta_all, pvalue_threshold, qc_flag_fraction, cohorts)
     beta_df = beta_all.dropna()
     del beta_all
 
@@ -360,10 +373,11 @@ def methylation_values(
             f"pylluminator returned no Beta values for {len(missing)} of "
             f"{len(sample_labels)} sample(s): {missing}. Check these IDAT files."
         )
-    return beta, m_values
+    return beta, m_values, qc
 
 
-def to_long_format(beta: pd.DataFrame, m_values: pd.DataFrame, metadata: pd.DataFrame) -> pd.DataFrame:
+def to_long_format(beta: pd.DataFrame, m_values: pd.DataFrame, metadata: pd.DataFrame,
+                   qc: dict | None = None) -> pd.DataFrame:
     """Combine probes x samples tables and per-sample metadata into the long table.
 
     M values are aligned to the Beta table (probes and samples), so every Beta value
@@ -383,7 +397,13 @@ def to_long_format(beta: pd.DataFrame, m_values: pd.DataFrame, metadata: pd.Data
     per_sample = metadata.set_index("sample_label")
     for column in per_sample.columns:
         long[column] = long["sample_label"].map(per_sample[column])
-    extra = [col for col in per_sample.columns if col != "cohort"]
+    # Per-sample QC, kept at the hospital: share of probes failing detection and
+    # whether it is above the flag threshold (used by the exclusion step)
+    failed = pd.Series((qc or {}).get("failed_fraction", {}), dtype=float)
+    flagged = set((qc or {}).get("flagged", {}))
+    long["qc_failed_fraction"] = long["sample_label"].map(failed).astype(np.float32)
+    long["qc_flagged"] = long["sample_label"].isin(flagged)
+    extra = [col for col in per_sample.columns if col not in OUTPUT_COLUMNS]
     return long[OUTPUT_COLUMNS + extra]
 
 
@@ -409,7 +429,8 @@ def data_extraction_function(
     - pvalue_threshold: pOOBAH detection p-value threshold for masking probes
     - min_beads: minimum number of beads for a probe to be used
     - qc_flag_fraction: samples with more than this share of probes failing
-      detection are flagged in the log (they are kept)
+      detection are flagged (they are kept): qc_flagged column, and counts per
+      cohort in the log
     - infer_type1_channel: infer the colour channel of type I probes from the signal
       before the other steps (SeSAMe's recommended step for EPIC); off by default
     """
@@ -438,16 +459,17 @@ def extraction_impl(
 ) -> pd.DataFrame:
     """Undecorated implementation for local testing (`idat_dir` overrides the URI).
 
-    Returns a DataFrame with `probe_id`, `sample_label`, `cohort`, `beta`, `m_value`
-    and the requested `sample_columns`.
+    Returns a DataFrame with `probe_id`, `sample_label`, `cohort`, `beta`, `m_value`,
+    `qc_failed_fraction` and `qc_flagged` (per sample) and the requested
+    `sample_columns`.
     """
     folder = resolve_idat_folder(connection_details, idat_dir)
     metadata = sample_metadata(folder, cohort_column, sample_sheet_name, sample_columns)
-    beta, m_values = methylation_values(
+    beta, m_values, qc = methylation_values(
         folder, metadata["sample_label"].tolist(), pvalue_threshold, min_beads, qc_flag_fraction,
-        infer_type1_channel,
+        infer_type1_channel, cohorts=dict(zip(metadata["sample_label"], metadata["cohort"])),
     )
-    result = to_long_format(beta, m_values, metadata)
+    result = to_long_format(beta, m_values, metadata, qc)
     info(
         f"Extraction produced {len(result):,} rows: {beta.shape[0]:,} probes x "
         f"{beta.shape[1]} samples ({result.memory_usage(deep=False).sum() / 1e6:,.0f} MB)"

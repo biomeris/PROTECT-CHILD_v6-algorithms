@@ -48,12 +48,25 @@ is no between-sample normalisation (e.g. BMIQ or quantile) and no batch correcti
 between hospitals; the analyses account for hospitals themselves (DMP/DMR
 meta-analyses per hospital, elastic net has one intercept per hospital).
 
-**QC summary.** Each hospital's task log reports the probes read, the probes masked
-in all samples, the probes left out because they failed detection in some samples,
-the probes kept, and per sample the share of probes failing detection. Samples above
-`qc_flag_fraction` are flagged with a warning; they are kept, not removed. A data
-extraction returns a dataframe, not a result, so the log is where this is shown (in
-the web interface: the task, then the run of each hospital).
+**Sample QC.** Every sample is marked in the dataframe with `qc_failed_fraction`
+(share of its probes failing detection) and `qc_flagged` (above `qc_flag_fraction`,
+0.1 by default, ChAMP's sample cut-off). Flagged samples are kept, not removed. Each
+hospital's task log reports, as counts only, the probes read, masked, left out and
+kept, the median and highest share of failed probes, and how many samples per cohort
+are flagged. **Sample IDs are never logged:** vantage6 sends node logs to HQ, where
+anyone with access to the task can read them.
+
+Two more functions use these columns:
+
+- **Sample QC summary** (`qc_summary`, an analysis): per hospital and cohort, the
+  samples, flagged samples, samples left after excluding the flagged ones, and
+  whether that falls below `min_samples` (default 5; the later analyses need 2-5 per
+  cohort and hospital). Counts only.
+- **Exclude QC-flagged samples** (`exclude_flagged_samples`, a preprocessing step):
+  removes the flagged samples from the session's dataframe at every hospital, in
+  place, without extracting again. Run it only after looking at the summary;
+  dataframes from versions before 2.3.0 have no QC columns and must be extracted
+  again.
 
 ### Arguments (`data_extraction_function`)
 
@@ -64,7 +77,7 @@ the web interface: the task, then the run of each hospital).
 | `sample_columns` | none | Other sample sheet columns to add to every row, e.g. `["Site"]` (named in snake_case). Numeric columns become numbers; empty or `NA` values are kept as missing. An `Age` column (any capitalisation) is added automatically as `age` when the sample sheet has one, for the epigenetic clocks |
 | `pvalue_threshold` | `0.05` | pOOBAH detection p-value threshold |
 | `min_beads` | `1` | Minimum number of beads per probe |
-| `qc_flag_fraction` | `0.1` | Samples with more than this share of probes failing detection are flagged in the log (kept) |
+| `qc_flag_fraction` | `0.1` | Samples with more than this share of probes failing detection are flagged (`qc_flagged`; kept) |
 | `infer_type1_channel` | `false` | Infer the colour channel of type I probes from the signal before the other steps (SeSAMe's `inferInfiniumIChannel`, recommended for EPIC) |
 
 ### Output

@@ -20,6 +20,7 @@ column:
 """
 import contextlib
 import io
+import json
 import re
 import shutil
 import sys
@@ -150,10 +151,18 @@ with contextlib.redirect_stdout(io.StringIO()) as log:
 log = log.getvalue()
 n_samples = qc_run["sample_label"].nunique()
 kept = int(re.search(r"([\d,]+) kept", log).group(1).replace(",", ""))
-check(kept * n_samples == len(qc_run) and qc_run.equals(extracted["Hospital A"]),
+values = ["probe_id", "sample_label", "cohort", "beta", "m_value", "qc_failed_fraction"]
+check(kept * n_samples == len(qc_run) and qc_run[values].equals(extracted["Hospital A"][values]),
       "the QC summary matches the extracted table, which is unchanged by the summary")
-check(log.count("QC flag: sample") == n_samples and "failed" in log,
-      "every sample above the threshold is flagged in the log, and all samples are kept")
+check(f"QC flag: {n_samples} of {n_samples} samples" in log and qc_run["qc_flagged"].all(),
+      "every sample above the threshold is flagged (count in the log, qc_flagged column), and all are kept")
+check(not any(label in log for label in qc_run["sample_label"].unique()),
+      "the log never names a sample (vantage6 sends node logs to HQ)")
+per_sample = extracted["Hospital A"].drop_duplicates("sample_label")
+check(per_sample["qc_failed_fraction"].between(0, 1).all()
+      and (per_sample["qc_flagged"] == (per_sample["qc_failed_fraction"] > 0.10)).all()
+      and extracted["Hospital A"].groupby("sample_label")["qc_flagged"].nunique().eq(1).all(),
+      "qc_failed_fraction in [0, 1] and qc_flagged = above 10%, the same on every row of a sample")
 
 # Type I channel inference: optional; logs the switched probes and keeps valid values
 with contextlib.redirect_stdout(io.StringIO()) as log:
@@ -169,6 +178,55 @@ check(not np.allclose(common["beta"], common["beta_default"]) and len(common) > 
 # ---------------------------------------------------------------------------
 # 3. Extra sample sheet columns (e.g. age) are added to every row
 # ---------------------------------------------------------------------------
+print("\n[2c] Sample QC summary and exclusion of flagged samples")
+from extractionIDAT.qc import NEEDS_NEW_EXTRACTION, exclude_flagged  # noqa: E402
+
+
+def qc_run_summary(flag_fraction, min_samples=5):
+    """Extract with a flag threshold through the MockNetwork and run the QC summary."""
+    net = MockNetwork(
+        datasets=[{DATABASE_LABEL: {"database": str(current_path / h), "db_type": "folder"}} for h in HOSPITALS],
+        module_name="extractionIDAT",
+    )
+    c = net.user_client
+    with contextlib.redirect_stdout(io.StringIO()):
+        frame = c.dataframe.create(label=DATABASE_LABEL, method="data_extraction_function",
+                                   arguments={"qc_flag_fraction": flag_fraction}, name=DATABASE_LABEL)
+        task = c.task.create(method="qc_summary", arguments={"min_samples": min_samples},
+                             organizations=[net.organization_ids[0]],
+                             databases=[{"type": "dataframe", "dataframe_id": frame["id"]}])
+        return c.wait_for_results(task["id"])[0]
+
+
+expected_counts = {}
+for h, hospital in enumerate(HOSPITALS):
+    cohorts = extracted[hospital].drop_duplicates("sample_label")["cohort"].astype(str).value_counts()
+    expected_counts[h] = cohorts.to_dict()
+none_flagged = qc_run_summary(0.99)
+check(none_flagged["n_flagged"] == 0 and none_flagged["n_samples"] == sum(sum(c.values()) for c in expected_counts.values())
+      and all(r["n_after_exclusion"] == r["n_samples"] for r in none_flagged["qc_summary"]),
+      "QC summary: counts per hospital and cohort; nothing flagged at a 99% threshold")
+all_flagged = qc_run_summary(0.0, min_samples=1)
+above_zero = sum(int((f.drop_duplicates("sample_label")["qc_failed_fraction"] > 0).sum()) for f in extracted.values())
+check(all_flagged["n_flagged"] == above_zero
+      and all(r["below_minimum_after_exclusion"] == (r["n_after_exclusion"] < 1) for r in all_flagged["qc_summary"])
+      and "would bring" in all_flagged["summary"],
+      f"QC summary at a 0% threshold: {above_zero} samples with any failed probe flagged; cohorts left "
+      "with no sample are marked below the minimum, and the summary says so")
+check(not any(label in json.dumps(all_flagged) for frame in extracted.values() for label in frame["sample_label"].unique()),
+      "the QC summary contains no sample IDs")
+
+frame = extracted["Hospital A"].copy()
+one = frame["sample_label"].unique()[0]
+frame["qc_flagged"] = frame["sample_label"] == one
+with contextlib.redirect_stdout(io.StringIO()):
+    kept = exclude_flagged(frame)
+check(one not in set(kept["sample_label"]) and kept["sample_label"].nunique() == frame["sample_label"].nunique() - 1
+      and kept.equals(frame[frame["sample_label"] != one].reset_index(drop=True)),
+      "exclusion removes exactly the flagged sample's rows and keeps the rest unchanged")
+expect_error(lambda: exclude_flagged(frame.drop(columns=["qc_flagged"])), NEEDS_NEW_EXTRACTION[:40],
+             "exclusion on a dataframe from an older extraction explains that it must be extracted again")
+
 print("\n[3] Extra sample sheet columns")
 with tempfile.TemporaryDirectory() as tmp:
     folder = Path(tmp) / "with_age"
