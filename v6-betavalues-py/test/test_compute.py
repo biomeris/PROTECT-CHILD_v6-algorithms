@@ -132,7 +132,8 @@ task = client.task.create(
     databases=[{"dataframe_id": dataframe["id"]}],
 )
 results = client.wait_for_results(task.get("id"))
-global_summary = pd.DataFrame(results[0])
+output = results[0]
+global_summary = pd.DataFrame(output["results"])
 print(f"\nGlobal summary:\n{global_summary}")
 
 check(list(global_summary.columns) == OUTPUT_COLUMNS, f"output columns are {OUTPUT_COLUMNS}")
@@ -195,6 +196,54 @@ check(
     and (global_summary["coverage"] == 1.0).all(),
     "every sample has every mock probe: n_samples_cohort is the cohort size and coverage is 1",
 )
+
+# SDs: pooled exactly over the hospitals where the cohort has >= 3 samples
+raw_nodes = {f: pd.read_csv(current_path / f / "preprocessed.csv") for f in NODE_FOLDERS}
+for cohort, label in [("cohort_A", "3 samples at hospital A"), ("cohort_C", "3 samples at hospital B")]:
+    rows = global_summary[global_summary["cohort"] == cohort].set_index("probe_id")
+    ref = raw_all[raw_all["cohort"] == cohort].groupby("probe_id").agg(b=("beta", "std"), m=("m_value", "std"))
+    check(np.allclose(rows["beta_sd_global"], ref["b"].loc[rows.index], atol=ROUNDING)
+          and np.allclose(rows["m_sd_global"], ref["m"].loc[rows.index], atol=ROUNDING)
+          and (rows["n_samples_sd"] == 3).all(),
+          f"{cohort} ({label}): SD equals the per-sample SD of the raw data")
+b_rows = global_summary[global_summary["cohort"] == "cohort_B"].set_index("probe_id")
+b_ref = raw_nodes["hospital_A"].query("cohort == 'cohort_B'").groupby("probe_id")["beta"].std()
+check(np.allclose(b_rows["beta_sd_global"], b_ref.loc[b_rows.index], atol=ROUNDING)
+      and (b_rows["n_samples_sd"] == 4).all() and (b_rows["n_samples_with_value"] == 6).all(),
+      "cohort_B: hospital B has only 2 samples, so its SD is not returned; the SD covers hospital A's 4 "
+      "samples (n_samples_sd = 4) while the mean covers all 6")
+pooled_check = pd.DataFrame({"cohort": ["x"] * 2, "probe_id": ["p"] * 2, "beta_mean": [1.0, 3.0],
+                             "m_mean": [1.0, 3.0], "n_samples": [3, 3], "beta_sd": [1.0, 1.0], "m_sd": [1.0, 1.0]})
+from globalIDAT.central import pooled_sd  # noqa: E402
+values = np.array([0.0, 1.0, 2.0, 2.0, 3.0, 4.0])
+check(np.isclose(pooled_sd(pooled_check)["beta_sd_global"].iloc[0], values.std(ddof=1)),
+      "pooled SD of two nodes (n=3, mean 1 and 3, SD 1) equals the SD of their 6 values")
+
+# Participation per hospital and cohort, and the Beta distribution
+part = pd.DataFrame(output["participation"])
+check(set(zip(part["cohort"], part["n_samples"])) == {("cohort_A", 3), ("cohort_B", 4), ("cohort_B", 2), ("cohort_C", 3)}
+      and (part["status"] == "included").all()
+      and part.set_index(["cohort", "n_samples"])["sd_reported"].to_dict()[("cohort_B", 2)] is False,
+      "participation lists every hospital x cohort with its sample count; SD not reported for 2 samples")
+dist = pd.DataFrame(output["beta_distribution"])
+n_values = raw_all.dropna(subset=["beta"]).groupby("cohort").size()
+check(len(dist) == 3 * 50 and dist.groupby("cohort")["count"].sum().to_dict() == n_values.to_dict()
+      and np.allclose(dist.groupby("cohort")["fraction"].sum(), 1.0),
+      "Beta distribution: 50 bins per cohort, counting every Beta value of the cohort")
+
+# Cohorts to compare: ranking and results only for the chosen cohorts
+task = client.task.create(method="central_function", organizations=[org_ids[0]],
+                          arguments={"cohort_column": "cohort", "min_samples": MIN_SAMPLES,
+                                     "cohorts": ["cohort_A", "cohort_C"], "distribution_bins": 0},
+                          databases=[{"dataframe_id": dataframe["id"]}])
+pair_out = client.wait_for_results(task.get("id"))[0]
+pair = pd.DataFrame(pair_out["results"])
+pair_ref = reference[reference["cohort"].isin(["cohort_A", "cohort_C"])].pivot(index="probe_id", columns="cohort", values="beta_ref")
+pair_delta = (pair_ref["cohort_A"] - pair_ref["cohort_C"]).abs()
+got = pair.drop_duplicates("probe_id").set_index("probe_id")["delta_beta"]
+check(set(pair["cohort"]) == {"cohort_A", "cohort_C"} and np.allclose(got, pair_delta.loc[got.index], atol=ROUNDING)
+      and pair_out["beta_distribution"] == [] and pair_out["input"][0]["cohorts"] == "cohort_A, cohort_C",
+      "cohorts=[A, C]: only those cohorts, delta_beta = |mean A - mean C|, no distribution when bins = 0")
 
 # ---------------------------------------------------------------------------
 # 3. Privacy threshold: a cohort with a single sample on a node is dropped
@@ -267,7 +316,7 @@ task = client.task.create(
                "probes": ["cg00000769", "cg99999999"]},
     databases=[{"dataframe_id": dataframe["id"]}],
 )
-targeted = pd.DataFrame(client.wait_for_results(task.get("id"))[0])
+targeted = pd.DataFrame(client.wait_for_results(task.get("id"))[0]["results"])
 print(targeted)
 check(set(targeted["probe_id"]) == {"cg00000769"}, "only the requested probe is returned; unknown probes are skipped")
 check(set(targeted["cohort"]) == {"cohort_A", "cohort_B", "cohort_C"}, "the probe is reported for every cohort")
@@ -298,7 +347,7 @@ task = client.task.create(
     arguments={"cohort_column": "cohort", "min_samples": MIN_SAMPLES, "probes": []},
     databases=[{"dataframe_id": dataframe["id"]}],
 )
-blank = pd.DataFrame(client.wait_for_results(task.get("id"))[0])
+blank = pd.DataFrame(client.wait_for_results(task.get("id"))[0]["results"])
 check(blank.equals(global_summary), "probes=[] (a blank field in the web interface) gives the default top-N result")
 
 print("\n[6] top_n selects the probes with the largest difference between cohorts")
@@ -351,7 +400,7 @@ with tempfile.TemporaryDirectory() as tmp:
         arguments={"min_samples": MIN_SAMPLES, "top_n": 5},
         databases=[{"dataframe_id": big_df["id"]}],
     )
-    top = pd.DataFrame(big_client.wait_for_results(task.get("id"))[0])
+    top = pd.DataFrame(big_client.wait_for_results(task.get("id"))[0]["results"])
 print(top)
 
 pooled = pd.concat(synthetic.values(), ignore_index=True)
@@ -428,7 +477,7 @@ task = client.task.create(
                "organizations_to_include": [org_ids[0]]},
     databases=[{"dataframe_id": dataframe["id"]}],
 )
-two = pd.DataFrame(client.wait_for_results(task.get("id"))[0])
+two = pd.DataFrame(client.wait_for_results(task.get("id"))[0]["results"])
 check(two["n_samples_with_value"].sum() < global_summary["n_samples_with_value"].sum(),
       "organizations_to_include=[first hospital] uses only that hospital's samples")
 

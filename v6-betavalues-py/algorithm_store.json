@@ -47,10 +47,19 @@
           "name": "top_n",
           "type": "integer",
           "display_name": "Number of top probes",
-          "description": "Without a probe list: report this many probes (1-10,000) with the largest difference in mean Beta between cohorts (delta_beta). Default 50. If this result will feed an Elastic Net analysis, we recommend 100: the Elastic Net takes its candidate CpGs from this list (100 by default).",
+          "description": "Probes reported (1-10,000) with the largest difference in mean Beta between the cohorts. Default 50. If this result will feed an Elastic Net, choose the same two cohorts below and select at least 100; without chosen cohorts select at least 1,000 (the ranking then uses all cohorts).",
           "default_value": 50,
           "has_default_value": true,
           "is_frontend_only": false
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "Cohorts to compare",
+          "description": "Optional: the cohorts to compare (at least two for the top probes); the probes are ranked by the difference between these cohorts only. Empty: all cohorts.",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
         },
         {
           "name": "organizations_to_include",
@@ -60,24 +69,82 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": null
+        },
+        {
+          "name": "distribution_bins",
+          "type": "integer",
+          "display_name": "Distribution bins",
+          "description": "Bins over 0-1 for the distribution of all Beta values per cohort (counts only); 0 = not computed",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 50
         }
       ],
       "ui_visualizations": [
         {
           "name": "Beta and M values per cohort",
-          "description": "Global mean Beta and M value per probe and cohort",
+          "description": "Mean and SD of Beta and M values per cohort and probe, pooled over hospitals. The SD only uses hospitals where the cohort has at least 3 samples (n_samples_sd); delta_beta = largest minus smallest cohort mean",
           "type": "table",
           "schema": {
-            "location": [],
+            "location": [
+              "results"
+            ],
             "columns": [
               "probe_id",
               "cohort",
               "beta_mean_global",
+              "beta_sd_global",
               "m_mean_global",
+              "m_sd_global",
               "delta_beta",
               "n_samples_cohort",
               "n_samples_with_value",
+              "n_samples_sd",
               "coverage"
+            ]
+          }
+        },
+        {
+          "name": "Hospitals and cohorts",
+          "description": "Per hospital and cohort: included with its sample count, or left out with the reason; whether its SD was used",
+          "type": "table",
+          "schema": {
+            "location": [
+              "participation"
+            ],
+            "columns": [
+              "organization_id",
+              "cohort",
+              "n_samples",
+              "status",
+              "sd_reported"
+            ]
+          }
+        },
+        {
+          "name": "Beta distribution",
+          "description": "Counts of all Beta values per cohort and bin (every probe and sample)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "beta_distribution"
+            ],
+            "columns": [
+              "cohort",
+              "bin_start",
+              "bin_end",
+              "count",
+              "fraction"
+            ]
+          }
+        },
+        {
+          "name": "Input",
+          "description": "Settings of this run",
+          "type": "table",
+          "schema": {
+            "location": [
+              "input"
             ]
           }
         }
@@ -121,6 +188,24 @@
           "default_value": null,
           "has_default_value": false,
           "is_frontend_only": false
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "cohorts",
+          "description": "Cohorts to include",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        },
+        {
+          "name": "distribution_bins",
+          "type": "integer",
+          "display_name": "distribution_bins",
+          "description": "Bins for the Beta distribution",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 0
         }
       ],
       "standalone": false
@@ -161,9 +246,59 @@
           "default_value": 50,
           "has_default_value": true,
           "is_frontend_only": false
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "cohorts",
+          "description": "Cohorts to include",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
         }
       ],
       "standalone": false
+    },
+    {
+      "name": "federated_probe_means",
+      "display_name": "Beta probe means for ranking",
+      "standalone": false,
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Beta/M dataframe"
+        }
+      ],
+      "description": "Per-cohort mean Beta of every probe, for the exact ranking",
+      "arguments": [
+        {
+          "name": "cohort_column",
+          "type": "column",
+          "display_name": "Cohort column",
+          "description": "Name of the column in each node's data that holds the cohort of each sample. Results are computed per cohort.",
+          "default_value": "cohort",
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort",
+          "description": "Minimum number of samples a cohort needs on a node to be included in that node's result. Cohorts below this threshold are dropped on the node.",
+          "default_value": 2,
+          "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "cohorts",
+          "type": "string_list",
+          "display_name": "cohorts",
+          "description": "Cohorts to include",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": null
+        }
+      ]
     }
   ]
 }

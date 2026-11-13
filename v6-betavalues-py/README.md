@@ -35,8 +35,10 @@ UI can show. The result is therefore limited to at most **10,000 probes**:
   Requested probes that no node has are skipped (the log says how many).
 - **Overview** (no `probes`): the `top_n` probes (default 50) with the largest
   difference in mean Beta between cohorts, Δβ = largest minus smallest cohort mean.
-  For a later Elastic Net analysis we recommend `top_n = 100`: the Elastic Net takes
-  its candidate CpGs from this list (100 by default).
+  With `cohorts` (e.g. `lipid, hepatic`) the probes are ranked by the difference
+  between those cohorts only. For a later Elastic Net analysis choose the same
+  cohorts here and `top_n` of at least 100 (at least 1,000 without chosen cohorts,
+  as the ranking then uses all cohorts).
 
 Requests above 10,000 probes are rejected with a message instead of being tried.
 
@@ -47,14 +49,16 @@ Requests above 10,000 probes are rejected with a message instead of being tried.
 | `cohort_column` | string | `"cohort"` | Name of the column that holds the cohort of each sample. |
 | `min_samples` | integer | `2` | Minimum number of samples a cohort needs on a node to be included. |
 | `probes` | list of strings | none | Probes to report (at most 10,000). When given, `top_n` is not used. |
-| `top_n` | integer | `1000` | Without `probes`: number of top probes by Δβ to report (1-10,000). |
+| `top_n` | integer | `50` | Without `probes`: number of top probes by Δβ to report (1-10,000). |
+| `cohorts` | list of strings | all | Cohorts to compare (at least two for the top probes); the ranking and the results use only these. |
+| `distribution_bins` | integer | `50` | Bins over 0–1 for the distribution of all Beta values per cohort; 0 = not computed. |
 | `organizations_to_include` | list of organization ids | all | Hospitals to use, e.g. to train on some hospitals and test on another; empty = all |
 
 If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not exist at one of the hospitals), the task stops at once with HQ's message instead of waiting.
 
 ### How the top probes are found
 
-Ranking all probes globally would need every node's full table. Instead:
+**Without `cohorts`** (a quick overview):
 
 1. Each node proposes its own `top_n` probes by Δβ between its cohorts
    (`federated_top_probes`; only probe IDs and the node's Δβ leave the node).
@@ -63,9 +67,15 @@ Ranking all probes globally would need every node's full table. Instead:
 3. It computes the global, sample-weighted cohort means and Δβ and returns the
    `top_n` probes with the largest global Δβ.
 
-A probe that is not among the top candidates of any node can be missed, so the
-overview is exact for the probes it reports but may not contain every probe of the
-true global top. Use a targeted query to check specific probes.
+A probe that is not among the top candidates of any node can be missed, and a node
+with fewer than two cohorts proposes nothing.
+
+**With `cohorts`, or when no node can propose candidates** (exact): every node returns
+the per-cohort mean Beta and sample count of every probe (`federated_probe_means`,
+binary-encoded, about 5–10 MB per cohort), the central function pools them and
+takes the `top_n` probes with the largest Δβ between the chosen cohorts. This is
+needed when the chosen cohorts are at different hospitals, where no hospital could
+rank them alone.
 
 On EPIC v2 data (17 samples on a node) a node sends about 70 KB of candidates and
 1 MB of summaries, and needs about 20 s.
@@ -76,13 +86,22 @@ On each node, any cohort with fewer than `min_samples` samples is dropped before
 anything is returned, and an info message names the dropped cohort and the reason.
 Probes that fewer than `min_samples` samples of a cohort have a value for are
 dropped as well. If every cohort on a node is dropped, the node returns an empty
-result. A node never returns the summaries of all its probes: `federated_function`
-requires a probe list of at most 20,000 probes.
+result. `federated_function` (means and SDs) requires a probe list of at most 20,000
+probes. For the exact ranking, `federated_probe_means` returns the per-cohort **mean**
+(and sample count) of every probe, never SDs; each mean is over at least
+`min_samples` samples.
+
+SDs are only returned for a cohort and probe with **at least 3 samples** at the node:
+the mean and SD of 2 samples give both values. The pooled SD therefore uses only the
+hospitals where the cohort has at least 3 samples (`n_samples_sd`), while the mean
+uses all of them.
 
 ### Output
 
-`central_function` returns one record per (cohort, probe), sorted by `delta_beta`
-(largest first), with values rounded to 4 decimals:
+`central_function` returns `{"results": [...], "participation": [...],
+"beta_distribution": [...], "input": [...]}` (until 2.3.0 it returned only the
+`results` list). `results` has one record per (cohort, probe), sorted by
+`delta_beta` (largest first), with values rounded to 4 decimals:
 
 | Column | Description |
 | --- | --- |
@@ -90,10 +109,18 @@ requires a probe list of at most 20,000 probes.
 | `probe_id` | CpG probe identifier |
 | `beta_mean_global` | `sum(beta_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
 | `m_mean_global` | `sum(m_mean_i * n_samples_i) / sum(n_samples_i)` over the nodes |
+| `beta_sd_global`, `m_sd_global` | SD of all samples, pooled exactly from the nodes' n, mean and SD, over the nodes where the cohort has at least 3 samples |
+| `n_samples_sd` | Samples behind the SD (can be fewer than behind the mean) |
 | `n_samples_with_value` | Samples with a value for the probe: `sum(n_samples_i)` over the nodes |
 | `n_samples_cohort` | Samples of the cohort over all nodes (cohorts that pass `min_samples`) |
 | `coverage` | `n_samples_with_value / n_samples_cohort`: share of the cohort's samples behind the means. QC removes a probe in samples where it fails detection, so a probe can have coverage below 1; such probes are kept, and users can filter on coverage |
 | `delta_beta` | Δβ of the probe: largest minus smallest `beta_mean_global` over its cohorts (empty if the probe has only one cohort) |
+
+`participation` has one row per hospital and cohort: `organization_id`, `cohort`,
+`n_samples` (empty when left out), `status` ("included", "left out: fewer than N
+samples" or "not present") and `sd_reported`. `beta_distribution` has, per cohort
+and bin, `bin_start`, `bin_end`, `count` and `fraction` of all its Beta values.
+`input` lists the settings (cohorts, probes or top_n).
 
 `federated_function` returns `summary` (one record per (cohort, probe) with
 `beta_mean`, `m_mean` and `n_samples` of the node) and `cohort_sizes` (samples per

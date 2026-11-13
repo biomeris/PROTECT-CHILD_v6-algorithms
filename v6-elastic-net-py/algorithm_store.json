@@ -45,7 +45,7 @@
           "name": "n_candidates",
           "type": "integer",
           "display_name": "Number of candidates",
-          "description": "How many candidate CpGs to take from that task. The task must return at least this many: DMP/DMR and Beta and M values return 50 by default, so set them to 100 for the default here.",
+          "description": "How many candidate CpGs to take from that task (default 100). The task must provide enough: for a DMP/DMR task, set its number of DMPs to at least 100; for a Beta and M values task, choose the same cohorts there and at least 100 top probes (at least 1,000 without chosen cohorts).",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 100,

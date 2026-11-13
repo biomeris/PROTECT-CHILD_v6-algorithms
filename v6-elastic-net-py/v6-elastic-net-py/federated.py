@@ -365,12 +365,21 @@ def latest_task(client, accepts, image_hints, label: str, limit: int = 50) -> in
                      "or give a task number")
 
 
+def _betavalues_rows(result: Any) -> list | None:
+    """Filas de un resultado de Beta y M por cohorte: una lista (hasta 2.3.0) o
+    {"results": lista, ...} (desde 2.4.0)."""
+    rows = result.get("results") if isinstance(result, dict) and "global_dmps" not in result else result
+    if (isinstance(rows, list) and rows and isinstance(rows[0], dict)
+            and {"probe_id", "cohort", "beta_mean_global"} <= set(rows[0])):
+        return rows
+    return None
+
+
 def is_candidates_result(result: Any) -> bool:
     """Un resultado de DMP/DMR o de Beta y M por cohorte."""
-    if isinstance(result, dict):
-        return "global_dmps" in result
-    return (isinstance(result, list) and bool(result) and isinstance(result[0], dict)
-            and {"probe_id", "cohort", "beta_mean_global"} <= set(result[0]))
+    if isinstance(result, dict) and "global_dmps" in result:
+        return True
+    return _betavalues_rows(result) is not None
 
 
 def task_result(client: AlgorithmClient, task_id: int) -> tuple:
@@ -415,8 +424,8 @@ def candidates_from_task(client: AlgorithmClient, task_id: int, n_candidates: in
             warn(f"The DMP/DMR task compared {contrast}, not {', '.join(map(str, cohorts))}")
         return features, {"source": "task", "task_id": int(task_id), "task_name": name,
                           "algorithm": "DMP/DMR", "description": description}
-    rows = result if isinstance(result, list) else None
-    if rows and isinstance(rows[0], dict) and {"probe_id", "cohort", "beta_mean_global"} <= set(rows[0]):
+    rows = _betavalues_rows(result)
+    if rows:
         means = pd.DataFrame(rows)
         chosen = list(cohorts) if cohorts else sorted(means["cohort"].unique())
         means = means[means["cohort"].isin(chosen)]

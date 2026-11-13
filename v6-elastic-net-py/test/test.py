@@ -267,6 +267,10 @@ check(feats == [FEATURES[0]] + FEATURES[2:6] and prov["task_id"] == 10 and "DMP/
 feats, prov = fed.candidates_from_task(fake, 11, 3, ["cohort_A", "cohort_B"])
 check(feats == [FEATURES[10], FEATURES[9], FEATURES[8]] and "Beta and M values" in prov["description"],
       "Beta and M values task: the largest difference with full coverage")
+fake_new = _FakeClient({14: ("beta run 2.4", {"results": beta_result, "participation": [], "beta_distribution": [], "input": []})})
+feats_new, _ = fed.candidates_from_task(fake_new, 14, 3, ["cohort_A", "cohort_B"])
+check(feats_new == feats and fed.is_candidates_result({"results": beta_result}),
+      "a Beta and M values result from 2.4.0 (rows under 'results') gives the same candidates")
 for bad, text in ((99, "could not be read"), (12, "no result yet")):
     try:
         fed.candidates_from_task(fake, bad, 5, None)
