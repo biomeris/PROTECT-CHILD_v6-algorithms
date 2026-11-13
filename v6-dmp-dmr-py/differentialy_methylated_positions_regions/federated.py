@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import io
+import os
 from typing import Any
 
 import pandas as pd
@@ -18,6 +19,7 @@ import numpy as np
 from vantage6.algorithm.tools.util import info, warn, error
 from vantage6.algorithm.decorator.action import federated
 from vantage6.algorithm.decorator.data import dataframe
+from vantage6.common.globals import ContainerEnvNames
 
 from pylluminator.samples import Samples
 from pylluminator.dm import DM
@@ -262,7 +264,7 @@ def compute_methylation_impl(
             f"'{cohort_b}' on this node"
         )
         info(f"Skipping this node: {reason}")
-        return {"status": "skipped", "reason": reason}
+        return {"status": "skipped", "reason": reason, "organization_id": _organization_id()}
 
     info(f"Comparing {n_b} '{cohort_b}' samples with {n_a} '{cohort_a}' samples")
 
@@ -338,7 +340,14 @@ def compute_methylation_impl(
     dmp = dmp[NODE_RESULT_COLUMNS]
 
     info(f"Node DMPs computed for {len(dmp)} probes")
-    return {"status": "ok", "n_a": n_a, "n_b": n_b, **prior, "dmps": encode_table(dmp)}
+    return {"status": "ok", "n_a": n_a, "n_b": n_b, **prior, "dmps": encode_table(dmp),
+            "organization_id": _organization_id()}
+
+
+def _organization_id():
+    """This node's organization (set by vantage6 in the algorithm's environment), or None."""
+    value = os.environ.get(ContainerEnvNames.ORGANIZATION_ID.value)
+    return int(value) if value not in (None, "") else None
 
 
 @federated

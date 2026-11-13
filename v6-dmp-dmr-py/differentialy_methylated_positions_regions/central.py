@@ -76,6 +76,21 @@ DEFAULT_TOP_N = 50
 # that could have been in a DMR), the background that enrichment analyses of the
 # DMRs (e.g. LOLA) need
 UNIVERSE_COLUMNS = ["probe_id", "chromosome", "position"]
+PARTICIPATION_COLUMNS = ["organization_id", "status", "n_samples_a", "n_samples_b", "reason"]
+HOSPITAL_DMP_COLUMNS = ["organization_id", "probe_id", "genes", "mean_beta_a", "mean_beta_b",
+                        "delta_beta", "n_samples_a", "n_samples_b"]
+DMR_PROBE_COLUMNS = ["dmr_id", "probe_id", "cpg", "chromosome", "position", "estimate",
+                     "delta_beta", "adj_p_value"]
+VOLCANO_COLUMNS = ["delta_beta_start", "delta_beta_end", "neg_log10_p_start", "neg_log10_p_end",
+                   "n_probes", "n_significant"]
+VOLCANO_BINS = 40
+# Δβ axis of the volcano grid; values beyond it are counted in the outer bins
+VOLCANO_DELTA_LIMIT = 0.5
+
+
+def cpg_name(probe_ids: pd.Series) -> pd.Series:
+    """The CpG of a probe: EPIC v2 replicates (cg00000029_TC21, _BC11) share it."""
+    return probe_ids.astype(str).str.split("_").str[0]
 
 
 def _validate_top_n(top_n: int) -> None:
@@ -85,13 +100,13 @@ def _validate_top_n(top_n: int) -> None:
         )
 
 DMP_COLUMNS = [
-    "probe_id", "chromosome", "position", "genes",
+    "probe_id", "cpg", "chromosome", "position", "genes",
     "estimate", "std_err", "estimate_scale", "z", "p_value", "adj_p_value",
     "heterogeneity_p_value", "i2", "tau2", "mean_beta_a", "mean_beta_b", "delta_beta",
     "n_nodes", "n_samples_a", "n_samples_b",
 ]
 DMR_COLUMNS = [
-    "chromosome", "start", "end", "n_probes", "probe_ids", "genes", "direction",
+    "dmr_id", "chromosome", "start", "end", "n_cpgs", "n_probes", "probe_ids", "genes", "direction",
     "mean_estimate", "estimate_scale", "mean_delta_beta", "max_probe_adj_p_value",
     "stouffer_p_value",
 ]
@@ -205,6 +220,10 @@ def find_dmrs(
     chrom = d["chromosome"].to_numpy()
     pos = d["position"].to_numpy()
 
+    def n_cpgs(indices):
+        # EPIC v2 replicate probes of one CpG share its position: count it once
+        return len({pos[j] for j in indices})
+
     runs, current = [], []
     for i in range(len(d)):
         continues = (
@@ -217,21 +236,25 @@ def find_dmrs(
         if continues:
             current.append(i)
             continue
-        if len(current) >= min_probes:
+        if n_cpgs(current) >= min_probes:
             runs.append(current)
         current = [i] if significant[i] else []
-    if len(current) >= min_probes:
+    if current and n_cpgs(current) >= min_probes:
         runs.append(current)
 
     rows = []
     for run in runs:
         r = d.iloc[run]
-        z = r["z"].sum() / np.sqrt(len(r))  # Stouffer, assumes independent probes
+        # Stouffer over CpG positions (replicates averaged first), assumes independent CpGs
+        z_per_cpg = r.groupby("position")["z"].mean()
+        z = z_per_cpg.sum() / np.sqrt(len(z_per_cpg))
         genes = sorted({g for gs in r["genes"].dropna() for g in str(gs).split(";") if g and g != "Intergenic"})
         rows.append({
+            "dmr_id": None,
             "chromosome": r["chromosome"].iloc[0],
             "start": int(r["position"].min()),
             "end": int(r["position"].max()),
+            "n_cpgs": int(r["position"].nunique()),
             "n_probes": len(r),
             "probe_ids": ";".join(r["probe_id"]),
             "genes": ";".join(genes) if genes else "Intergenic",
@@ -248,9 +271,73 @@ def find_dmrs(
         return dmrs
     dmrs["_abs_estimate"] = dmrs["mean_estimate"].abs()
     dmrs = dmrs.sort_values(
-        ["max_probe_adj_p_value", "n_probes", "_abs_estimate"], ascending=[True, False, False]
-    )
-    return dmrs[DMR_COLUMNS].reset_index(drop=True)
+        ["max_probe_adj_p_value", "n_cpgs", "_abs_estimate"], ascending=[True, False, False]
+    ).reset_index(drop=True)
+    dmrs["dmr_id"] = [f"DMR{k}" for k in range(1, len(dmrs) + 1)]
+    return dmrs[DMR_COLUMNS]
+
+
+def hospital_dmps(node_dmps: list, node_orgs: list, top: pd.DataFrame) -> pd.DataFrame:
+    """Per hospital, the mean Beta of each cohort and their difference for the top DMPs
+    (heatmap per hospital and cohort, agreement between hospitals). Means only."""
+    genes = top.set_index("probe_id")["genes"]
+    rows = []
+    for org_id, table in zip(node_orgs, node_dmps):
+        sub = table[table["probe_id"].isin(top["probe_id"])]
+        for rec in sub.itertuples(index=False):
+            rows.append({
+                "organization_id": org_id, "probe_id": rec.probe_id, "genes": genes.get(rec.probe_id),
+                "mean_beta_a": rec.mean_beta_a, "mean_beta_b": rec.mean_beta_b,
+                "delta_beta": rec.mean_beta_b - rec.mean_beta_a,
+                "n_samples_a": int(rec.n_a), "n_samples_b": int(rec.n_b),
+            })
+    order = {probe: k for k, probe in enumerate(top["probe_id"])}
+    frame = pd.DataFrame(rows, columns=HOSPITAL_DMP_COLUMNS)
+    frame["_rank"] = frame["probe_id"].map(order)
+    frame = frame.sort_values(["_rank", "organization_id"], na_position="last", kind="stable")
+    return frame[HOSPITAL_DMP_COLUMNS].reset_index(drop=True)
+
+
+def dmr_probes(dmrs: pd.DataFrame, dmps: pd.DataFrame) -> pd.DataFrame:
+    """Every probe inside each returned DMR, with its position and effect (region view)."""
+    if dmrs.empty:
+        return pd.DataFrame(columns=DMR_PROBE_COLUMNS)
+    stats = dmps.set_index("probe_id")
+    rows = []
+    for dmr in dmrs.itertuples(index=False):
+        for probe in str(dmr.probe_ids).split(";"):
+            if probe in stats.index:
+                p = stats.loc[probe]
+                rows.append({
+                    "dmr_id": dmr.dmr_id, "probe_id": probe, "cpg": probe.split("_")[0],
+                    "chromosome": p["chromosome"], "position": p["position"],
+                    "estimate": p["estimate"], "delta_beta": p.get("delta_beta"),
+                    "adj_p_value": p["adj_p_value"],
+                })
+    return pd.DataFrame(rows, columns=DMR_PROBE_COLUMNS)
+
+
+def volcano_bins(dmps: pd.DataFrame, bins: int = VOLCANO_BINS) -> pd.DataFrame:
+    """Counts of all tested probes on a grid of delta_beta (x) and -log10 p (y), for a
+    volcano plot of the whole array. Only non-empty cells; n_significant counts the
+    probes with adj_p_value < 0.05 in each cell."""
+    d = dmps.dropna(subset=["delta_beta", "p_value"])
+    if d.empty:
+        return pd.DataFrame(columns=VOLCANO_COLUMNS)
+    x = d["delta_beta"].clip(-VOLCANO_DELTA_LIMIT, VOLCANO_DELTA_LIMIT).to_numpy(dtype=float)
+    y = -np.log10(d["p_value"].clip(lower=1e-300).to_numpy(dtype=float))
+    x_edges = np.linspace(-VOLCANO_DELTA_LIMIT, VOLCANO_DELTA_LIMIT, bins + 1)
+    y_edges = np.linspace(0.0, max(float(np.ceil(y.max())), 1.0), bins + 1)
+    counts, _, _ = np.histogram2d(x, y, bins=[x_edges, y_edges])
+    sig, _, _ = np.histogram2d(x[d["adj_p_value"].to_numpy() < 0.05], y[d["adj_p_value"].to_numpy() < 0.05],
+                               bins=[x_edges, y_edges])
+    rows = [
+        {"delta_beta_start": round(float(x_edges[i]), 4), "delta_beta_end": round(float(x_edges[i + 1]), 4),
+         "neg_log10_p_start": round(float(y_edges[j]), 4), "neg_log10_p_end": round(float(y_edges[j + 1]), 4),
+         "n_probes": int(counts[i, j]), "n_significant": int(sig[i, j])}
+        for i in range(bins) for j in range(bins) if counts[i, j]
+    ]
+    return pd.DataFrame(rows, columns=VOLCANO_COLUMNS)
 
 
 def aggregate_results(
@@ -275,16 +362,27 @@ def aggregate_results(
     _validate_top_n(top_n)
     if meta_model not in META_MODELS:
         raise ValueError(f"meta_model must be one of {META_MODELS}, got {meta_model!r}")
-    node_dmps, skipped, priors = [], [], []
+    node_dmps, skipped, priors, node_orgs, participation = [], [], [], [], []
     for res in results_list:
+        org_id = res.get("organization_id") if isinstance(res, dict) else None
         if isinstance(res, dict) and res.get("status") == "ok":
             node_dmps.append(decode_table(res["dmps"], NODE_RESULT_COLUMNS))
+            node_orgs.append(org_id)
             priors.append({k: res.get(k) for k in ("moderated", "prior_df", "prior_var")})
+            participation.append({"organization_id": org_id, "status": "included",
+                                  "n_samples_a": res.get("n_a"), "n_samples_b": res.get("n_b"),
+                                  "reason": None})
         elif isinstance(res, dict) and res.get("status") == "skipped":
             skipped.append(res.get("reason", "skipped"))
+            participation.append({"organization_id": org_id, "status": "left out",
+                                  "n_samples_a": None, "n_samples_b": None,
+                                  "reason": res.get("reason", "skipped")})
         else:
             warn(f"Unexpected node result ignored: {str(res)[:200]}")
             skipped.append("unexpected result")
+            participation.append({"organization_id": org_id, "status": "left out",
+                                  "n_samples_a": None, "n_samples_b": None,
+                                  "reason": "unexpected result"})
 
     scale = "M-value" if use_m_values else "beta"
     output = {
@@ -303,6 +401,10 @@ def aggregate_results(
         "global_dmps": [],
         "global_dmrs": [],
         "heatmap_data": [],
+        "participation": participation,
+        "hospital_dmps": [],
+        "dmr_probes": [],
+        "volcano_bins": [],
         "universe": None,
     }
     if skipped:
@@ -331,10 +433,14 @@ def aggregate_results(
         columns={"mean_beta_a": f"mean_beta_{cohort_a}", "mean_beta_b": f"mean_beta_{cohort_b}"}
     )
 
+    significant = dmps["adj_p_value"] < 0.05
     output["summary"] = {
         "n_probes_tested": int(len(dmps)),
         "n_probes_annotated": int(dmps["chromosome"].notna().sum()),
-        "n_significant_fdr_0.05": int((dmps["adj_p_value"] < 0.05).sum()),
+        "n_significant_fdr_0.05": int(significant.sum()),
+        # direction: estimate = cohort_b - cohort_a; hyper = higher in cohort_b
+        "n_significant_hyper": int((significant & (dmps["estimate"] > 0)).sum()),
+        "n_significant_hypo": int((significant & (dmps["estimate"] < 0)).sum()),
         f"n_significant_dmr_fdr_{dmr_fdr:g}": int((dmps["adj_p_value"] < dmr_fdr).sum()),
         "n_dmrs": int(len(dmrs)),
         "n_dmps_returned": int(min(top_n, len(dmps))),
@@ -345,9 +451,14 @@ def aggregate_results(
         output["warnings"].append(
             f"{len(dmrs):,} DMRs found; only the {MAX_RESULT_ROWS:,} best ranked are returned"
         )
+    dmps["cpg"] = cpg_name(dmps["probe_id"])
     output["global_dmps"] = _json_records(dmps.head(top_n)[DMP_COLUMNS])
     output["global_dmrs"] = _json_records(dmrs.head(MAX_RESULT_ROWS))
     output["heatmap_data"] = _json_records(heatmap)
+    output["hospital_dmps"] = _json_records(
+        hospital_dmps(node_dmps, node_orgs, dmps.head(heatmap_top)))
+    output["dmr_probes"] = _json_records(dmr_probes(dmrs.head(MAX_RESULT_ROWS), dmps))
+    output["volcano_bins"] = _json_records(volcano_bins(dmps))
     # Every mapped probe the meta-analysis tested (the union over hospitals), so that
     # an enrichment analysis of the DMRs uses exactly the probes that could have been one
     universe = dmps.loc[~is_unmapped(dmps), UNIVERSE_COLUMNS].sort_values(["chromosome", "position", "probe_id"])

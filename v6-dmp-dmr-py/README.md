@@ -103,10 +103,13 @@ hospitals require it.
   `n_samples_b`, `chromosome`, `position`, `genes`. Sorted by `p_value`.
 - `global_dmrs` (at most 10,000; built from all significant probes): runs of neighbouring mapped probes (at most `dmr_max_gap` bp
   apart) that all have `adj_p_value < dmr_fdr` and the same direction, with at
-  least `dmr_min_probes` probes. Ranked by `max_probe_adj_p_value` (the least
-  significant probe in the region), then `n_probes` and absolute `mean_estimate`.
-  Also reports `mean_delta_beta`. `stouffer_p_value` combines the probe z-scores
-  as if the probes were independent; neighbouring CpGs are correlated, so it is far
+  least `dmr_min_probes` **distinct CpGs**: EPIC v2 replicate probes of one CpG
+  (e.g. `cg23998405_BC11` and `_BC12`, same position) count once, so they never
+  form a region on their own (`n_cpgs` distinct CpGs, `n_probes` probes). Each DMR
+  has an id (`dmr_id`, DMR1 = best ranked). Ranked by `max_probe_adj_p_value` (the
+  least significant probe in the region), then `n_cpgs` and absolute
+  `mean_estimate`. Also reports `mean_delta_beta`. `stouffer_p_value` combines the
+  z-scores of the CpGs (replicates averaged first) as if they were independent; neighbouring CpGs are correlated, so it is far
   too small (e.g. 1e-190 for 4 probes). It is descriptive only and is not adjusted:
   use `max_probe_adj_p_value`, `n_probes` and the effect size to judge regions.
 - `universe`: every tested probe with a genomic location (the union over
@@ -117,6 +120,22 @@ hospitals require it.
   a location are tested but not included; `summary.n_universe` gives its size.
 - `heatmap_data`: the top 50 DMPs with the mean beta per cohort, pooled over all
   hospitals.
+- `hospital_dmps` (2.4.0): for the same top 50 DMPs, each hospital's mean beta per
+  cohort, their difference (`delta_beta` = b - a) and its samples: a heatmap per
+  hospital and cohort, and the agreement between hospitals. Means only (no SDs).
+- `participation` (2.4.0): each hospital with its samples of both cohorts, or left
+  out with the reason (`organization_id`, `status`, `n_samples_a`, `n_samples_b`,
+  `reason`).
+- `dmr_probes` (2.4.0): every probe inside each returned DMR (`dmr_id`, `probe_id`,
+  `cpg`, `chromosome`, `position`, `estimate`, `delta_beta`, `adj_p_value`).
+- `volcano_bins` (2.4.0): counts of all tested probes on a 40 x 40 grid of
+  `delta_beta` (-0.5 to 0.5, values beyond counted in the outer cells) and
+  -log10 p, with how many are significant: a volcano of the whole array. Only
+  non-empty cells.
+- `summary` also counts the significant DMPs by direction (`n_significant_hyper`:
+  higher in cohort_b; `n_significant_hypo`), over all probes.
+- `global_dmps` has a `cpg` column: the CpG of each probe (the name without the
+  EPIC v2 suffix), so replicates are easy to spot.
 
 ### Scale of the estimates
 

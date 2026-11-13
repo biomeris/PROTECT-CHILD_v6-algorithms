@@ -134,6 +134,7 @@
             ],
             "columns": [
               "probe_id",
+              "cpg",
               "chromosome",
               "position",
               "genes",
@@ -157,14 +158,91 @@
               "global_dmrs"
             ],
             "columns": [
+              "dmr_id",
               "chromosome",
               "start",
               "end",
+              "n_cpgs",
               "n_probes",
               "genes",
               "direction",
               "mean_delta_beta",
               "max_probe_adj_p_value"
+            ]
+          }
+        },
+        {
+          "name": "Hospitals",
+          "description": "Each hospital: included with its samples of both cohorts, or left out with the reason",
+          "type": "table",
+          "schema": {
+            "location": [
+              "participation"
+            ],
+            "columns": [
+              "organization_id",
+              "status",
+              "n_samples_a",
+              "n_samples_b",
+              "reason"
+            ]
+          }
+        },
+        {
+          "name": "Top DMPs per hospital",
+          "description": "Mean Beta of each cohort and their difference per hospital for the top DMPs (heatmap per hospital, agreement between hospitals)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "hospital_dmps"
+            ],
+            "columns": [
+              "organization_id",
+              "probe_id",
+              "genes",
+              "mean_beta_a",
+              "mean_beta_b",
+              "delta_beta",
+              "n_samples_a",
+              "n_samples_b"
+            ]
+          }
+        },
+        {
+          "name": "Probes in each DMR",
+          "description": "Every probe inside each DMR with its position and effect (region view)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "dmr_probes"
+            ],
+            "columns": [
+              "dmr_id",
+              "probe_id",
+              "cpg",
+              "chromosome",
+              "position",
+              "estimate",
+              "delta_beta",
+              "adj_p_value"
+            ]
+          }
+        },
+        {
+          "name": "Volcano (all probes, binned)",
+          "description": "Counts of all tested probes per cell of delta_beta x -log10 p, and how many are significant (adj p < 0.05)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "volcano_bins"
+            ],
+            "columns": [
+              "delta_beta_start",
+              "delta_beta_end",
+              "neg_log10_p_start",
+              "neg_log10_p_end",
+              "n_probes",
+              "n_significant"
             ]
           }
         }

@@ -233,6 +233,46 @@ check(
 # ---------------------------------------------------------------------------
 # 3. Hospitals without enough samples of both cohorts are skipped
 # ---------------------------------------------------------------------------
+# New outputs for the visualisations
+all_dmps = pd.DataFrame(output["global_dmps"])   # top_n = 1000 >= the 108 probes: every probe
+sig = all_dmps["adj_p_value"] < 0.05
+check(output["summary"]["n_significant_hyper"] == int((sig & (all_dmps["estimate"] > 0)).sum())
+      and output["summary"]["n_significant_hypo"] == int((sig & (all_dmps["estimate"] < 0)).sum())
+      and output["summary"]["n_significant_hyper"] + output["summary"]["n_significant_hypo"]
+      == output["summary"]["n_significant_fdr_0.05"],
+      "summary: significant DMPs split by direction (hyper = higher in cohort_b)")
+part = pd.DataFrame(output["participation"])
+node_sizes = sorted((r["n_a"], r["n_b"]) for r in node_results.values())
+check(len(part) == 2 and (part["status"] == "included").all()
+      and sorted(zip(part["n_samples_a"], part["n_samples_b"])) == node_sizes,
+      f"participation: each hospital with its samples of both cohorts {node_sizes}")
+hosp = pd.DataFrame(output["hospital_dmps"])
+top_probes = [r["probe_id"] for r in output["heatmap_data"]]
+expected_rows = []
+for res in node_results.values():
+    t = decode_table(res["dmps"], NODE_RESULT_COLUMNS).set_index("probe_id")
+    for pid in top_probes:
+        if pid in t.index:
+            expected_rows.append((pid, round(float(t.loc[pid, "mean_beta_a"]), 6), round(float(t.loc[pid, "mean_beta_b"]), 6)))
+got_rows = [(r.probe_id, round(float(r.mean_beta_a), 6), round(float(r.mean_beta_b), 6)) for r in hosp.itertuples()]
+check(sorted(got_rows) == sorted(expected_rows) and np.allclose(hosp["delta_beta"], hosp["mean_beta_b"] - hosp["mean_beta_a"])
+      and list(dict.fromkeys(hosp["probe_id"])) == top_probes,
+      f"hospital_dmps: each hospital's cohort means for the {len(top_probes)} heatmap DMPs, in the same order, "
+      "and their difference (agreement plot)")
+volcano = pd.DataFrame(output["volcano_bins"])
+check(volcano["n_probes"].sum() == output["summary"]["n_probes_tested"]
+      and volcano["n_significant"].sum() == output["summary"]["n_significant_fdr_0.05"]
+      and (volcano["n_probes"] > 0).all(),
+      "volcano_bins: every tested probe in one cell, significant ones counted; only non-empty cells")
+dmrs_out = pd.DataFrame(output["global_dmrs"])
+dprobes = pd.DataFrame(output["dmr_probes"])
+check((dmrs_out.empty and dprobes.empty) or (
+      set(dprobes["dmr_id"]) == set(dmrs_out["dmr_id"])
+      and all(sorted(dprobes.loc[dprobes["dmr_id"] == r.dmr_id, "probe_id"]) == sorted(r.probe_ids.split(";"))
+              for r in dmrs_out.itertuples())),
+      "dmr_probes: every probe of every DMR, with its position and effect")
+check(all(all_dmps["cpg"] == all_dmps["probe_id"].str.split("_").str[0]), "global_dmps has the CpG of each probe (cpg)")
+
 print("\n[3] Hospitals without both cohorts are skipped")
 only_b = raw["Hospital B"].assign(cohort=B, sample_label=lambda d: "C" + d["sample_label"])
 skipped = compute_methylation_impl(only_b, A, B, min_samples=MIN_SAMPLES)
@@ -305,6 +345,25 @@ check(
 # ---------------------------------------------------------------------------
 # 6. Input errors
 # ---------------------------------------------------------------------------
+# EPIC v2 replicate probes of one CpG (same position) count once
+reps = pd.DataFrame([
+    ("cg01_BC11", "chr7", 500, 1.5, 5.0, 0.001),
+    ("cg01_BC12", "chr7", 500, 1.5, 5.0, 0.001),   # replicate of cg01: same position
+    ("cg02_TC21", "chr7", 5000, 1.5, 5.0, 0.001),  # far away
+    ("cg03_TC21", "chr7", 9000, 1.5, 5.0, 0.001),
+    ("cg03_TC22", "chr7", 9000, 1.5, 3.0, 0.001),  # replicate of cg03
+    ("cg04_TC21", "chr7", 9400, 1.5, 4.0, 0.001),
+], columns=["probe_id", "chromosome", "position", "estimate", "z", "adj_p_value"])
+reps["genes"] = "G"
+rep_regions = find_dmrs(reps, max_gap=1000, fdr=0.05, min_probes=2)
+check(len(rep_regions) == 1 and rep_regions.iloc[0]["probe_ids"] == "cg03_TC21;cg03_TC22;cg04_TC21"
+      and rep_regions.iloc[0]["n_cpgs"] == 2 and rep_regions.iloc[0]["n_probes"] == 3
+      and rep_regions.iloc[0]["dmr_id"] == "DMR1",
+      "replicates of one CpG are not a region by themselves (cg01); a region needs 2 distinct CpGs "
+      "(cg03 + cg04: n_cpgs 2, n_probes 3)")
+check(np.isclose(rep_regions.iloc[0]["stouffer_p_value"], 2 * stats.norm.sf((4.0 + 4.0) / np.sqrt(2))),
+      "Stouffer combines CpGs, averaging replicates first (cg03: mean z 4)")
+
 print("\n[6] Input errors")
 for kwargs, text in [
     ({"df_metilacion": raw["Hospital A"].drop(columns="cohort")}, "Cohort column 'cohort' not found"),
