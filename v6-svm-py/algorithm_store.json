@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.6.0",
+  "image": "localhost:32000/protect-child/svm:1.6.1",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -192,7 +192,7 @@
       "ui_visualizations": [
         {
           "name": "Input",
-          "description": "Where this run's input came from",
+          "description": "Where this run's input came from; privacy_warning: shown when a hospital has at least as many CpGs as samples (a warning only)",
           "type": "table",
           "schema": {
             "location": [

@@ -320,6 +320,13 @@ def select_organizations(client: AlgorithmClient, organizations_to_include: list
     return [o for o in org_ids if o in wanted]
 
 
+def _with_privacy_warning(provenance: dict, warnings: list | None) -> dict:
+    """The Input table also shows the privacy warning (at least as many CpGs as
+    samples at a hospital), so it is visible in the web interface; it stays a
+    warning, nothing is changed or blocked."""
+    return {**provenance, "privacy_warning": "; ".join(warnings) if warnings else None}
+
+
 def check_subtask(task: Any, name: str) -> int:
     """Id de una subtarea creada. HQ responde con un mensaje en vez de una tarea cuando
     la rechaza (p.ej. el dataframe no existe en un nodo); esperarla no terminaria nunca."""
@@ -528,8 +535,9 @@ def central(
         selected = sorted(union.values(), key=lambda e: -e["max_abs_coefficient"])
         for e in selected:
             e["cohorts"] = ", ".join(e["cohorts"])
+        warnings = sorted({w for r in per_cohort.values() for w in r["privacy_warnings"]})
         return {
-            "input": provenance,
+            "input": _with_privacy_warning(provenance, warnings),
             "one_vs_rest": True,
             "cohorts": cohorts,
             "selected": selected,
@@ -537,12 +545,12 @@ def central(
             "per_cohort": per_cohort,
             "n_features_requested": len(features),
             "skipped": sorted({s for r in per_cohort.values() for s in r["skipped"]}),
-            "privacy_warnings": sorted({w for r in per_cohort.values() for w in r["privacy_warnings"]}),
+            "privacy_warnings": warnings,
             "hyperparams": {"alpha": alpha, "l1_ratio": l1_ratio},
         }
 
     result = _fit(client, org_ids, features, data_args(positive_value), **settings)
-    return {"input": provenance, **result}
+    return {"input": _with_privacy_warning(provenance, result.get("privacy_warnings")), **result}
 
 
 def _fit(client: AlgorithmClient, org_ids: list, features: list, data_args: dict,

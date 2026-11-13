@@ -489,7 +489,32 @@ def _aggregate_summary(results, base_args):
         "partitions": partitions,
         "cohorts": cohorts,
         "n_nodes": len(results),
+        # Samples each node pooled (all folds), for the privacy warning
+        "node_sizes": [
+            int(result["partitions"]["all"]["n"])
+            for result in results
+            if "all" in result.get("partitions", {})
+        ],
     }
+
+
+def _privacy_warning(n_features, node_sizes):
+    """
+    A warning (nothing is changed or blocked) when a hospital has at least as
+    many CpGs as samples: the per-node sums of the Newton steps (a CpG x CpG
+    matrix) then reveal much about each patient. None otherwise.
+    """
+
+    small = [n for n in node_sizes if n_features >= n]
+
+    if not small:
+        return None
+
+    return (
+        f"In {len(small)} of {len(node_sizes)} hospitals there are at least as "
+        f"many CpGs ({n_features}) as samples ({', '.join(map(str, small))}): "
+        "the shared CpG x CpG sums reveal much about each patient"
+    )
 
 
 def _targets(classes):
@@ -2645,11 +2670,18 @@ def central(
 
     all_partition = summary["partitions"]["all"]
 
+    privacy_warning = _privacy_warning(len(features), summary.get("node_sizes", []))
+
+    if privacy_warning:
+        warn(privacy_warning)
+        evidence_summary = list(evidence_summary) + [f"Privacy warning: {privacy_warning}."]
+
     return {
         "algorithm": "federated_linear_svm",
 
-        # Where the CpGs came from.
-        "input": provenance,
+        # Where the CpGs came from, and the privacy warning (shown in the
+        # Input table of the web interface).
+        "input": {**provenance, "privacy_warning": privacy_warning},
         "organizations": org_ids,
 
         "cohort_detection": cohort_detection,

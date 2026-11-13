@@ -196,6 +196,8 @@ check(coefs == sorted(coefs, reverse=True) and [s["feature"] for s in r_hosp["se
       "selected: CpGs con su coeficiente, de mayor a menor |coeficiente|")
 check(r_hosp["privacy_warnings"] == [], "sin aviso de privacidad cuando hay mas muestras que features")
 check(len(r_sub["privacy_warnings"]) == 1, "aviso de privacidad cuando un nodo tiene menos muestras que features")
+check(r_sub["input"]["privacy_warning"] == r_sub["privacy_warnings"][0] and r_hosp["input"]["privacy_warning"] is None,
+      "el aviso de privacidad aparece en la tabla Input (visible en la interfaz web), y no aparece cuando no hay riesgo")
 
 # ---------------------------------------------------------------------------
 print("\n[10] Real vantage6 node")

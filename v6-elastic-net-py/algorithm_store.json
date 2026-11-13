@@ -181,7 +181,7 @@
       "ui_visualizations": [
         {
           "name": "Input",
-          "description": "Where this run's input came from",
+          "description": "Where this run's input came from; privacy_warning: shown when a hospital has at least as many CpGs as samples (a warning only)",
           "type": "table",
           "schema": {
             "location": [
