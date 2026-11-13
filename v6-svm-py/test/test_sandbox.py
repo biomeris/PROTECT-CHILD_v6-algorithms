@@ -251,14 +251,14 @@ check(too_many["per_hospital"][0]["status"] == "not evaluated" and too_many["poo
 # Privacy warning when a hospital has at least as many CpGs as samples (a warning only)
 central_module = sys.modules[f"{MODULE}.central"]
 warn_text = central_module._privacy_warning(23, [6, 10, 30])
-check(warn_text is not None and "2 of 3 hospitals" in warn_text and "(6, 10)" in warn_text,
-      "privacy warning names the hospitals with at least as many CpGs as samples")
+check(warn_text == "Warning: more CpGs than patients in 2 of 3 hospitals",
+      "privacy warning: short message with how many hospitals")
 check(central_module._privacy_warning(5, [6, 10]) is None, "no privacy warning when every hospital has more samples than CpGs")
 # complete samples of the analysed cohorts, as the SVM counts them
 sizes = [int(f[f["cohort"].isin(CLASSES)].dropna(subset=CPGS).shape[0]) for f in WIDE]
 expected_warning = central_module._privacy_warning(len(CPGS), sizes)
 check(full["input"].get("privacy_warning") == expected_warning
-      and (expected_warning is None or any("Privacy warning" in line for line in full["evidence_summary"])),
+      and (expected_warning is None or expected_warning in full["evidence_summary"]),
       f"the SVM result shows the privacy warning in its Input table (hospital sizes {sizes}, {len(CPGS)} CpGs)")
 few = run_in(network, "central", {**common_args, "features": CPGS[:3], "run_loho": False})[1]
 check(few["input"].get("privacy_warning") is None, "3 CpGs: no privacy warning")

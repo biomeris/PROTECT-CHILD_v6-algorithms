@@ -651,10 +651,8 @@ def _central(
                 "hospital and are left out of the cohort comparisons."
             )
     if p_exceeds_n:
-        notes.append(
-            "At some hospital the number of CpGs is at least the number of samples: "
-            "the shared covariance carries much information about each sample."
-        )
+        n_small = sum(bool(reply.get("p_exceeds_n")) for reply in scatters.values())
+        notes.append(f"Warning: more CpGs than patients in {n_small} of {len(scatters)} hospitals.")
     n_outliers = sum(reply["n_outliers"] for reply in scores.values())
     if n_outliers:
         notes.append(

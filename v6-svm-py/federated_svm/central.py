@@ -510,11 +510,7 @@ def _privacy_warning(n_features, node_sizes):
     if not small:
         return None
 
-    return (
-        f"In {len(small)} of {len(node_sizes)} hospitals there are at least as "
-        f"many CpGs ({n_features}) as samples ({', '.join(map(str, small))}): "
-        "the shared CpG x CpG sums reveal much about each patient"
-    )
+    return f"Warning: more CpGs than patients in {len(small)} of {len(node_sizes)} hospitals"
 
 
 def _targets(classes):
@@ -2674,7 +2670,7 @@ def central(
 
     if privacy_warning:
         warn(privacy_warning)
-        evidence_summary = list(evidence_summary) + [f"Privacy warning: {privacy_warning}."]
+        evidence_summary = list(evidence_summary) + [privacy_warning]
 
     return {
         "algorithm": "federated_linear_svm",

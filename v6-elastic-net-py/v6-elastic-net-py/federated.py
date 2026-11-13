@@ -633,8 +633,7 @@ def _fit(client: AlgorithmClient, org_ids: list, features: list, data_args: dict
     n_p_exceeds_n = sum(r["p_exceeds_n"] for r in r2)
     if n_p_exceeds_n:
         privacy_warnings.append(
-            f"In {n_p_exceeds_n} of {len(r2)} nodes there are at least as many features "
-            f"({len(common)}) as samples: the shared Gram matrix reveals much about each patient")
+            f"Warning: more CpGs than patients in {n_p_exceeds_n} of {len(r2)} hospitals")
     return {
         "selected": selected,
         "selected_cpgs": [s["feature"] for s in selected],

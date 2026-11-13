@@ -185,6 +185,8 @@ pc_cohort = variance.loc[variance["main_factor"].str.startswith("cohort")]
 check(len(pc_cohort) >= 1, "a component follows the cohort")
 check(variance["hospital_effect"].any(), "the batch at hospital 3 is flagged")
 check("Hospital effect beyond cohort" in result["summary"], "summary mentions the hospital effect")
+check("Warning: more CpGs than patients in 3 of 3 hospitals." in result["summary"],
+      "short privacy warning in the summary (100 CpGs, 14-16 patients per hospital)")
 
 h2 = groups[(groups["organization_id"] == org_ids[1]) & (groups["component"] == "PC1")]
 check(set(h2["cohort"]) == {"all", "control"}, "small cohort and its complement are not reported")

@@ -1,6 +1,6 @@
 {
   "name": "Methylation PCA",
-  "image": "localhost:32000/protect-child/pca-methylation:1.0.4",
+  "image": "localhost:32000/protect-child/pca-methylation:1.0.5",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
