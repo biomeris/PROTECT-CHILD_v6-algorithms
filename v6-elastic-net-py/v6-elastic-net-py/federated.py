@@ -47,6 +47,7 @@ cohorte; no usarlo si el outcome depende de la cohorte que se quiere estudiar.
 """
 
 import base64
+import os
 from typing import Any
 import numpy as np
 import pandas as pd
@@ -56,12 +57,14 @@ from vantage6.algorithm.decorator.action import federated, central
 from vantage6.algorithm.decorator.data import dataframe
 from vantage6.algorithm.decorator.algorithm_client import algorithm_client
 from vantage6.algorithm.client import AlgorithmClient
+from vantage6.common.globals import ContainerEnvNames
 
 
 # --------------------------------------------------------------------------
 # Helpers (corren donde toque; no son funciones de algoritmo)
 # --------------------------------------------------------------------------
 CENTER_MODES = ("global", "hospital", "hospital_cohort")
+DEFAULT_MIN_COHORT_SAMPLES = 5
 # p×p float64 en base64: 2,000 features ≈ 43 MB por nodo
 MAX_FEATURES = 2000
 
@@ -73,6 +76,28 @@ def _encode_array(a: np.ndarray) -> dict:
 
 def _decode_array(d: dict) -> np.ndarray:
     return np.frombuffer(base64.b64decode(d["data"]), dtype="<f8").reshape(d["shape"])
+
+
+def _organization_id() -> int | None:
+    """Organizacion de este nodo (variable de entorno de vantage6), o None."""
+    value = os.environ.get(ContainerEnvNames.ORGANIZATION_ID.value)
+    return int(value) if value not in (None, "") else None
+
+
+def _cpg_name(probe_id: str) -> str:
+    """CpG de una sonda: EPIC v2 tiene sondas replicadas de la misma CpG
+    (cg23998405_BC11, cg23998405_BC12); el nombre sin sufijo las une."""
+    return str(probe_id).split("_")[0]
+
+
+def _one_probe_per_cpg(probes: list) -> list:
+    """Primera sonda de cada CpG, en el orden dado (el mejor rango primero)."""
+    seen, kept = set(), []
+    for probe in probes:
+        if _cpg_name(probe) not in seen:
+            seen.add(_cpg_name(probe))
+            kept.append(probe)
+    return kept
 
 
 def _to_wide(df: pd.DataFrame, features: list, outcome_column: str,
@@ -98,7 +123,8 @@ def _prepare(df: pd.DataFrame, features: list, outcome_column: str,
              min_samples: int, center_by: str = "global",
              cohort_column: str | None = None, cohorts: list | None = None,
              sample_column: str = "sample_label", value_column: str = "beta",
-             positive_value: str | None = None) -> Any:
+             positive_value: str | None = None, min_cohort_samples: int = 0,
+             dropped: list | None = None) -> Any:
     """(subset ancho con columnas `_group` e `_y`, features disponibles), o dict de error.
 
     `_y` es el outcome numerico (0/1 con `positive_value`). Una feature esta
@@ -106,6 +132,13 @@ def _prepare(df: pd.DataFrame, features: list, outcome_column: str,
 
     Privacy guard K=min_samples: el nodo debe tener >= min_samples muestras y, al
     centrar por grupo, los grupos con < min_samples se descartan.
+
+    Minimo por cohorte y hospital (`min_cohort_samples`, cualquier centrado): una
+    cohorte con menos pacientes en este nodo se descarta aqui (sus pocos pacientes
+    se verian en las sumas por cohorte, p.ej. X^T y). La cohorte es `cohort_column`
+    (con `cohorts` o center_by='hospital_cohort') o el outcome categorico (con
+    `positive_value`); con un outcome numerico sin cohortes no aplica. Las cohortes
+    descartadas se añaden a `dropped` (solo el nombre, sin el numero).
     """
     if center_by not in CENTER_MODES:
         return {"error": f"center_by must be one of {CENTER_MODES}"}
@@ -132,6 +165,17 @@ def _prepare(df: pd.DataFrame, features: list, outcome_column: str,
 
     if cohorts:
         sub = sub[sub[cohort_column].isin(cohorts)]
+
+    group_column = cohort_column or (outcome_column if positive_value is not None else None)
+    if group_column and min_cohort_samples:
+        sizes = sub[group_column].astype(str).value_counts()
+        small = sorted(sizes[sizes < int(min_cohort_samples)].index)
+        if small:
+            warn(f"Cohort(s) {small} have fewer than {min_cohort_samples} patients on this "
+                 "node and are left out")
+            sub = sub[~sub[group_column].astype(str).isin(small)]
+            if dropped is not None:
+                dropped.extend(small)
 
     if center_by == "hospital_cohort":
         sub = sub.assign(_group=sub[cohort_column].astype(str))
@@ -231,6 +275,7 @@ def partial_moments(
     center_by: str = "global", cohort_column: str | None = None,
     cohorts: list | None = None, sample_column: str = "sample_label",
     value_column: str = "beta", positive_value: str | None = None,
+    min_cohort_samples: int = DEFAULT_MIN_COHORT_SAMPLES,
 ) -> dict:
     """Ronda 1: features disponibles y momentos locales para la estandarizacion.
 
@@ -239,10 +284,12 @@ def partial_moments(
     (modos centrados por grupo).
     """
     info("Elastic Net — partial_moments")
+    dropped = []
     prepared = _prepare(df1, features, outcome_column, min_samples, center_by,
-                        cohort_column, cohorts, sample_column, value_column, positive_value)
+                        cohort_column, cohorts, sample_column, value_column, positive_value,
+                        min_cohort_samples, dropped)
     if isinstance(prepared, dict):
-        return prepared
+        return {**prepared, "organization_id": _organization_id(), "cohorts_below_minimum": dropped}
     sub, available = prepared
     info(f"{len(sub)} samples; {len(available)}/{len(features)} features available")
     X = sub[available].to_numpy(dtype=float)
@@ -255,6 +302,9 @@ def partial_moments(
         "sumsq": (X ** 2).sum(axis=0).tolist(),
         "ss_within": (Xc ** 2).sum(axis=0).tolist(),
         "ysum": float(sub["_y"].sum()),
+        "organization_id": _organization_id(),
+        # Cohortes descartadas en este nodo (menos de min_cohort_samples)
+        "cohorts_below_minimum": dropped,
     }
 
 
@@ -266,6 +316,7 @@ def partial_gram(
     center_by: str = "global", cohort_column: str | None = None,
     cohorts: list | None = None, sample_column: str = "sample_label",
     value_column: str = "beta", positive_value: str | None = None,
+    min_cohort_samples: int = DEFAULT_MIN_COHORT_SAMPLES,
 ) -> dict:
     """Ronda 2: estadisticos suficientes G = Xs^T Xs, b = Xs^T yc.
 
@@ -279,10 +330,12 @@ def partial_gram(
     podria filtrar covarianzas -> usar solo sobre un subset pre-filtrado.
     """
     info("Elastic Net — partial_gram")
+    dropped = []
     prepared = _prepare(df1, features, outcome_column, min_samples, center_by,
-                        cohort_column, cohorts, sample_column, value_column, positive_value)
+                        cohort_column, cohorts, sample_column, value_column, positive_value,
+                        min_cohort_samples, dropped)
     if isinstance(prepared, dict):
-        return prepared
+        return {**prepared, "organization_id": _organization_id(), "cohorts_below_minimum": dropped}
     sub, available = prepared
     if len(available) < len(features):
         return {"error": f"{len(features) - len(available)} features are no longer available on this node"}
@@ -320,11 +373,16 @@ def select_organizations(client: AlgorithmClient, organizations_to_include: list
     return [o for o in org_ids if o in wanted]
 
 
-def _with_privacy_warning(provenance: dict, warnings: list | None) -> dict:
+def _with_privacy_warning(provenance: dict, warnings: list | None,
+                          below_minimum: list | None = None) -> dict:
     """The Input table also shows the privacy warning (at least as many CpGs as
     samples at a hospital), so it is visible in the web interface; it stays a
-    warning, nothing is changed or blocked."""
-    return {**provenance, "privacy_warning": "; ".join(warnings) if warnings else None}
+    warning, nothing is changed or blocked. And the cohorts left out at a
+    hospital for having fewer patients than the minimum."""
+    left_out = ", ".join(f"{b['cohort']} at organization {b['organization_id']}"
+                         for b in below_minimum or [])
+    return {**provenance, "privacy_warning": "; ".join(warnings) if warnings else None,
+            "cohorts_left_out": left_out or None}
 
 
 def check_subtask(task: Any, name: str) -> int:
@@ -415,10 +473,11 @@ def candidates_from_task(client: AlgorithmClient, task_id: int, n_candidates: in
         if dmps.empty:
             raise ValueError(f"Task {task_id} ('{name}') has no DMPs")
         everywhere = dmps[dmps["n_nodes"] == dmps["n_nodes"].max()].sort_values("p_value")
-        features = everywhere["probe_id"].head(n_candidates).tolist()
+        # Una sonda por CpG (la de menor p): las replicas de EPIC v2 miden la misma CpG
+        features = _one_probe_per_cpg(everywhere["probe_id"].tolist())[:n_candidates]
         comparison = result.get("comparison", {})
         contrast = f"{comparison.get('cohort_b')} vs {comparison.get('cohort_a')}"
-        description = (f"the {len(features)} top DMPs found in all hospitals of task {task_id} "
+        description = (f"the {len(features)} top DMPs (one probe per CpG) found in all hospitals of task {task_id} "
                        f"'{name}' (DMP/DMR, {contrast})")
         if cohorts and set(cohorts) != {comparison.get("cohort_a"), comparison.get("cohort_b")}:
             warn(f"The DMP/DMR task compared {contrast}, not {', '.join(map(str, cohorts))}")
@@ -432,8 +491,9 @@ def candidates_from_task(client: AlgorithmClient, task_id: int, n_candidates: in
         full = means.groupby("probe_id").filter(
             lambda g: len(g) == len(chosen) and (g["coverage"] >= 1).all())
         spread = full.groupby("probe_id")["beta_mean_global"].agg(lambda b: b.max() - b.min())
-        features = spread.sort_values(ascending=False).head(n_candidates).index.tolist()
-        description = (f"the {len(features)} probes with the largest difference in mean Beta "
+        features = _one_probe_per_cpg(
+            spread.sort_values(ascending=False).index.tolist())[:n_candidates]
+        description = (f"the {len(features)} probes (one per CpG) with the largest difference in mean Beta "
                        f"between {', '.join(map(str, chosen))} (full coverage) of task {task_id} "
                        f"'{name}' (Beta and M values per cohort)")
         return features, {"source": "task", "task_id": int(task_id), "task_name": name,
@@ -465,6 +525,7 @@ def central(
     value_column: str = "beta",
     positive_value: str | None = None,
     organizations_to_include: list | None = None,
+    min_cohort_samples: int = DEFAULT_MIN_COHORT_SAMPLES,
 ) -> dict:
     """Coordinador del Elastic Net federado (estadisticos suficientes, 2 rondas).
 
@@ -482,7 +543,10 @@ def central(
     cohort_column/cohorts: columna de cohorte y, opcionalmente, cohortes a incluir.
     sample_column/value_column: solo para entrada en formato largo.
     organizations_to_include: hospitales a usar; todos si no se indica.
+    min_cohort_samples: minimo de pacientes de una cohorte en un hospital para usarla
+    alli (defecto 5; en blanco o 0 = 5). Ver _prepare.
     """
+    min_cohort_samples = int(min_cohort_samples or DEFAULT_MIN_COHORT_SAMPLES)
     if center_by not in CENTER_MODES:
         return {"error": f"center_by must be one of {CENTER_MODES}"}
     # La interfaz web envia los campos opcionales en blanco como listas vacias
@@ -520,7 +584,7 @@ def central(
                 "min_samples": min_samples, "center_by": center_by,
                 "cohort_column": cohort_column, "cohorts": cohorts,
                 "sample_column": sample_column, "value_column": value_column,
-                "positive_value": positive}
+                "positive_value": positive, "min_cohort_samples": min_cohort_samples}
 
     if positive_value in (None, "") and cohorts and len(cohorts) == 2:
         positive_value = cohorts[1]
@@ -546,7 +610,8 @@ def central(
             e["cohorts"] = ", ".join(e["cohorts"])
         warnings = sorted({w for r in per_cohort.values() for w in r["privacy_warnings"]})
         return {
-            "input": _with_privacy_warning(provenance, warnings),
+            "input": _with_privacy_warning(
+                provenance, warnings, per_cohort[str(cohorts[0])]["cohorts_below_minimum"]),
             "one_vs_rest": True,
             "cohorts": cohorts,
             "selected": selected,
@@ -554,12 +619,15 @@ def central(
             "per_cohort": per_cohort,
             "n_features_requested": len(features),
             "skipped": sorted({s for r in per_cohort.values() for s in r["skipped"]}),
+            "min_cohort_samples": min_cohort_samples,
+            "cohorts_below_minimum": per_cohort[str(cohorts[0])]["cohorts_below_minimum"],
             "privacy_warnings": warnings,
             "hyperparams": {"alpha": alpha, "l1_ratio": l1_ratio},
         }
 
     result = _fit(client, org_ids, features, data_args(positive_value), **settings)
-    return {"input": _with_privacy_warning(provenance, result.get("privacy_warnings")), **result}
+    return {"input": _with_privacy_warning(provenance, result.get("privacy_warnings"),
+                                           result.get("cohorts_below_minimum")), **result}
 
 
 def _fit(client: AlgorithmClient, org_ids: list, features: list, data_args: dict,
@@ -578,9 +646,15 @@ def _fit(client: AlgorithmClient, org_ids: list, features: list, data_args: dict
     )
     results1 = client.wait_for_results(task_id=check_subtask(task1, "ElasticNet round 1 (moments)"))
     skipped = [r["error"] for r in results1 if "error" in r]
+    below_minimum = [{"organization_id": r.get("organization_id"), "cohort": c}
+                     for r in results1 for c in r.get("cohorts_below_minimum", [])]
+    if below_minimum:
+        warn("Left out (fewer than the minimum patients per cohort at the hospital): "
+             + ", ".join(f"{b['cohort']} at organization {b['organization_id']}" for b in below_minimum))
     r1 = [r for r in results1 if "error" not in r]
     if not r1:
-        return {"error": "no valid nodes in round 1", "skipped": skipped}
+        return {"error": "no valid nodes in round 1", "skipped": skipped,
+                "cohorts_below_minimum": below_minimum}
 
     # Solo las features disponibles en todos los nodos validos
     n_available = {f: sum(f in set(r["available"]) for r in r1) for f in features}
@@ -657,6 +731,9 @@ def _fit(client: AlgorithmClient, org_ids: list, features: list, data_args: dict
         "skipped": skipped,
         "privacy_warnings": privacy_warnings,
         "center_by": center_by,
+        "min_cohort_samples": data_args.get("min_cohort_samples"),
+        # Cohortes descartadas en un hospital (menos de min_cohort_samples pacientes)
+        "cohorts_below_minimum": below_minimum,
         "cohorts": list(data_args["cohorts"]) if data_args["cohorts"] else None,
         "outcome": {"column": data_args["outcome_column"],
                     "positive_value": data_args["positive_value"]},

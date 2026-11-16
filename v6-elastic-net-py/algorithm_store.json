@@ -45,7 +45,7 @@
           "name": "n_candidates",
           "type": "integer",
           "display_name": "Number of candidates",
-          "description": "How many candidate CpGs to take from that task (default 100). The task must provide enough: for a DMP/DMR task, set its number of DMPs to at least 100; for a Beta and M values task, choose the same cohorts there and at least 100 top probes (at least 1,000 without chosen cohorts).",
+          "description": "How many candidate CpGs to take from that task (default 100), one probe per CpG (EPIC v2 replicate probes of the same CpG count once). The task must provide enough: for a DMP/DMR task, set its number of DMPs to at least 100; for a Beta and M values task, choose the same cohorts there and at least 100 top probes (at least 1,000 without chosen cohorts).",
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 100,
@@ -112,10 +112,18 @@
           "has_default_value": true
         },
         {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "A cohort with fewer patients than this at a hospital is left out at that hospital (privacy: the shared sums never describe a handful of patients); the Input table names it. Default 5.",
+          "default_value": 5,
+          "has_default_value": true
+        },
+        {
           "name": "warn_gram_gb",
           "type": "float",
           "display_name": "Gram memory warning (GB)",
-          "description": "Warn if the p\u00d7p Gram matrix exceeds this size",
+          "description": "Warn if the p×p Gram matrix exceeds this size",
           "default_value": 1.0,
           "has_default_value": true
         },
@@ -218,7 +226,7 @@
     },
     {
       "name": "partial_moments",
-      "display_name": "Elastic Net \u2014 local moments (round 1)",
+      "display_name": "Elastic Net — local moments (round 1)",
       "description": "Per-node: local sums/sums-of-squares for global standardization. Returns aggregates only.",
       "databases": [
         {
@@ -296,6 +304,14 @@
           "description": "For a text outcome such as the cohort: outcome = 1 when the value equals this, 0 otherwise (combine with cohorts to compare two cohorts)",
           "default_value": null,
           "has_default_value": true
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "Cohorts with fewer patients at this hospital are left out",
+          "default_value": 5,
+          "has_default_value": true
         }
       ],
       "step_type": "federated_compute",
@@ -303,7 +319,7 @@
     },
     {
       "name": "partial_gram",
-      "display_name": "Elastic Net \u2014 local Gram (round 2)",
+      "display_name": "Elastic Net — local Gram (round 2)",
       "description": "Per-node: sufficient statistics G_k = Xs^T Xs and b_k = Xs^T yc on globally-standardized data. Returns aggregates only.",
       "databases": [
         {
@@ -401,6 +417,14 @@
           "display_name": "Positive value (text outcome)",
           "description": "For a text outcome such as the cohort: outcome = 1 when the value equals this, 0 otherwise (combine with cohorts to compare two cohorts)",
           "default_value": null,
+          "has_default_value": true
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "Cohorts with fewer patients at this hospital are left out",
+          "default_value": 5,
           "has_default_value": true
         }
       ],

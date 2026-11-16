@@ -351,4 +351,47 @@ only_beta = _Session({20: ("beta", "ghcr.io/x/betavalues:2.2.0", beta_result)})
 check(fed.latest_task(only_beta, fed.is_candidates_result, ("dmp-dmr", "betavalues"), "x") == 20,
       "a Beta and M values task is found too")
 
+
+# ---------------------------------------------------------------------------
+print("\n[12] One probe per CpG; minimum patients per cohort per hospital")
+replicates = {"comparison": {"cohort_a": "cohort_A", "cohort_b": "cohort_B"},
+              "global_dmps": [{"probe_id": p, "n_nodes": 3, "p_value": q} for p, q in
+                              [("cg001_BC11", 0.001), ("cg002_TC21", 0.002), ("cg001_BC12", 0.003),
+                               ("cg003_BC21", 0.004)]]}
+features_r, _ = fed.candidates_from_task(_FakeClient({40: ("dmp", replicates)}), 40, 3, None)
+check(features_r == ["cg001_BC11", "cg002_TC21", "cg003_BC21"],
+      "DMP/DMR candidates: one probe per CpG (the replicate with the smallest p), still n_candidates")
+beta_rep = ([{"cohort": "cohort_A", "probe_id": p, "beta_mean_global": 0.1, "coverage": 1.0}
+             for p in ("cg001_BC11", "cg001_BC12", "cg002_TC21")]
+            + [{"cohort": "cohort_B", "probe_id": p, "beta_mean_global": b, "coverage": 1.0}
+               for p, b in (("cg001_BC11", 0.5), ("cg001_BC12", 0.6), ("cg002_TC21", 0.2))])
+features_b, _ = fed.candidates_from_task(_FakeClient({41: ("beta", beta_rep)}), 41, 3, None)
+check(features_b == ["cg001_BC12", "cg002_TC21"],
+      "Beta and M values candidates: one probe per CpG (the replicate with the largest difference)")
+
+# Hospital 2 keeps only 3 patients of cohort_B (the others become cohort_D):
+# cohort_B is left out there (any centring mode), and used at hospitals 0 and 1
+df_min = df.copy()
+b_at_2 = df_min.index[(df_min["hospital"] == 2) & (df_min["cohort"] == "cohort_B")]
+df_min.loc[b_at_2[3:], "cohort"] = "cohort_D"
+nodes_min = [d.drop(columns="hospital").reset_index(drop=True) for _, d in df_min.groupby("hospital")]
+r_min = run_central(nodes_min, outcome_column="cohort", cohort_column="cohort",
+                    cohorts=["cohort_A", "cohort_B"], positive_value="cohort_B")
+kept_min = df_min[df_min["cohort"].isin(["cohort_A", "cohort_B"])
+                  & ~((df_min["hospital"] == 2) & (df_min["cohort"] == "cohort_B"))]
+compare(r_min, reference_y(kept_min, FEATURES, (kept_min["cohort"] == "cohort_B").astype(float),
+                           kept_min["hospital"]), "cohort_B left out at hospital 2")
+check(len(r_min["selected_cpgs"]) > 0 and r_min["n_total"] == len(kept_min)
+      and [b["cohort"] for b in r_min["cohorts_below_minimum"]] == ["cohort_B"]
+      and "cohort_B at organization" in r_min["input"]["cohorts_left_out"],
+      "a cohort with 3 patients at a hospital is left out there and shown in the Input table")
+r_min1 = run_central(nodes_min, outcome_column="cohort", cohort_column="cohort",
+                     cohorts=["cohort_A", "cohort_B"], positive_value="cohort_B", min_cohort_samples=1)
+check(r_min1["n_total"] == len(df_min[df_min["cohort"].isin(["cohort_A", "cohort_B"])])
+      and not r_min1["cohorts_below_minimum"] and r_min1["input"]["cohorts_left_out"] is None,
+      "min_cohort_samples=1 keeps it")
+r_num = run_central(nodes)
+check(r_num["n_total"] == len(df) and not r_num["cohorts_below_minimum"],
+      "numeric outcome without cohorts: no cohort minimum applies")
+
 print("\nAll checks passed.")

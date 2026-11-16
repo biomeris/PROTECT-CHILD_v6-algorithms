@@ -60,7 +60,10 @@ cuántos nodos estaban), en vez de descartar el hospital entero.
 
 **Selección previa**: las `features` deben venir pre-seleccionadas (como mucho
 2,000), p.ej. los top DMPs de `v6-dmp-dmr-py` (presentes en todos los
-hospitales: columna `n_nodes`).
+hospitales: columna `n_nodes`). Al tomar las candidatas de otra tarea se toma
+**una sonda por CpG**: EPIC v2 tiene sondas replicadas de la misma CpG
+(`cg23998405_BC11`, `cg23998405_BC12`); se queda la de menor p (DMP/DMR) o mayor
+diferencia de Beta (Beta y M), y `n_candidates` cuenta CpGs distintas.
 
 ## Centrado: hospitales y cohortes
 
@@ -95,6 +98,7 @@ Sin `features` ni `candidates_task_id` se usa la tarea DMP/DMR o Beta y M por co
 | `max_iter` | int | 1000 | iteraciones máx de coordinate descent |
 | `tol` | float | 1e-8 | umbral de convergencia |
 | `min_samples` | int | 5 | privacy guard: nodos con menos muestras se saltan |
+| `min_cohort_samples` | int | 5 | mínimo de pacientes de una cohorte en un hospital para usarla allí (en blanco o 0 = 5) |
 | `warn_gram_gb` | float | 1.0 | avisa si la matriz Gram p×p supera este tamaño |
 | `center_by` | string | `hospital` | `hospital`, `hospital_cohort` o `global` (ver arriba) |
 | `cohort_column` | column | — | columna de cohorte (para `hospital_cohort` o `cohorts`) |
@@ -136,7 +140,14 @@ el motivo de cada nodo que no participó.
 ## Privacidad
 
 Solo salen agregados (sumas, matriz Gram), nunca filas de pacientes. Guard K
-(`min_samples`, default 5), aplicado también por grupo (hospital, cohorte). Si un
+(`min_samples`, default 5), aplicado también por grupo (hospital, cohorte).
+Además, con cualquier centrado, una cohorte con menos de `min_cohort_samples`
+pacientes (default 5) en un hospital se descarta en ese hospital: sus pocos
+pacientes se verían en las sumas por cohorte (p.ej. X^T y con 2 pacientes). La
+cohorte es `cohort_column` o el outcome de texto (`positive_value`); con un
+outcome numérico sin cohortes no aplica. El nodo solo nombra la cohorte (sin el
+número); el resultado la lista en `cohorts_below_minimum` y en la tabla Input
+(`cohorts_left_out`). Si un
 nodo tiene más features que pacientes (p >= n), la matriz Gram contiene mucha
 información de cada paciente: el nodo avisa; usar menos features que pacientes
 por nodo. Ver `docs/privacy.md`.
