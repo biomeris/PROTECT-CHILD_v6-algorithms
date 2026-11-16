@@ -2488,7 +2488,7 @@ def central(
     tolerance=1e-9,
     random_seed=42,
     min_samples=5,
-    run_loho=True,
+    run_loho=False,
     stability_top_k=10,
     sample_column="sample_label",
     value_column="beta",
@@ -2557,7 +2557,12 @@ def central(
         aggregate.
 
     run_loho:
-        Whether to run leave-one-hospital-out validation.
+        Whether to run leave-one-hospital-out validation (default False).
+        Each hospital is left out of the SVM training in turn; if the CpGs
+        were selected on all hospitals (e.g. Elastic Net), the held-out
+        hospital took part in that selection, so the result is optimistic.
+        The honest test is to train the whole pipeline on some hospitals
+        and apply the model (apply_model) to a hospital that took no part.
 
     stability_top_k:
         Size of the top-ranked CpG set used in the stability analysis.

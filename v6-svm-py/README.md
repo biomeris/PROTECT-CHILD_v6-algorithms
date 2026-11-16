@@ -102,7 +102,9 @@ The results are identical to running the experiments one after another.
 On the test data this reduced the number of tasks from 108 to 48 (two cohorts)
 and from 292 to 101 (three cohorts). On a real node every task restarts the
 algorithm and reloads the hospital's data, so the number of tasks drives the run
-time. For a quick run use `run_loho=false` and a shorter `C_grid`.
+time. `run_loho` is off by default (since 1.7.1): with CpGs selected on all hospitals it is
+optimistic, and the honest test is `apply_model` on a hospital left out of the whole
+pipeline. For a quick run also use a shorter `C_grid`.
 
 ## Output
 

@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.7.0",
+  "image": "localhost:32000/protect-child/svm:1.7.1",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -156,10 +156,10 @@
           "name": "run_loho",
           "type": "boolean",
           "display_name": "Leave-one-hospital-out",
-          "description": "Validate on hospitals not used for training",
+          "description": "Off by default. Each hospital is left out of the SVM training in turn; optimistic when the CpGs were selected on all hospitals (e.g. by Elastic Net). The honest test: train on some hospitals, then Apply the model to a hospital that took no part.",
           "is_frontend_only": false,
           "has_default_value": true,
-          "default_value": true
+          "default_value": false
         },
         {
           "name": "stability_top_k",

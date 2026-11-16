@@ -69,8 +69,8 @@ def run(frames, **arguments):
 
 
 print("\n[1] Long input")
-wide = run(WIDE)
-long = run([to_long(f) for f in WIDE])
+wide = run(WIDE, run_loho=True)
+long = run([to_long(f) for f in WIDE], run_loho=True)
 check(json.dumps(long, sort_keys=True) == json.dumps(wide, sort_keys=True),
       "long input (probe_id, sample_label, beta) gives exactly the wide result")
 check(wide["skipped"] == [], "no hospital skipped")
@@ -181,7 +181,7 @@ network = MockNetwork(module_name=MODULE,
                       datasets=[{"db": {"database": f, "db_type": "csv"}} for f in WIDE])
 orgs = network.organization_ids
 common_args = {"outcome_column": "cohort", "classes": CLASSES}
-_, full = run_in(network, "central", {**common_args, "features": CPGS})
+_, full = run_in(network, "central", {**common_args, "features": CPGS, "run_loho": True})
 check(full["input"]["source"] == "list" and full["organizations"] == orgs,
       "the result states its input (a given list) and the hospitals used")
 train_id, trained = run_in(network, "central", {**common_args, "features": CPGS, "run_loho": False,
