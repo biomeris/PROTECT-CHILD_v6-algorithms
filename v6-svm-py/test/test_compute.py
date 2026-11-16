@@ -184,6 +184,10 @@ def run_federated(datasets, cpgs, reference_cohort):
                     "n_folds": N_FOLDS,
                     "random_seed": RANDOM_SEED,
                     "min_samples": MIN_SAMPLES,
+                    # The reference (LinearSVC on pooled data) has no centring
+                    "center_by": "global",
+                    # ... and keeps every cohort at every hospital
+                    "min_cohort_samples": 1,
                 },
                 organizations=[network.organization_ids[0]],
                 name="Federated SVM test",

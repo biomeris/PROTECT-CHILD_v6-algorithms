@@ -32,6 +32,28 @@ The data at each hospital can be:
   for the requested CpGs only. `sample_column` and `value_column` (`beta` or
   `m_value`) name the columns.
 
+**Per-hospital centring** (`center_by`, default `hospital`). Each hospital
+centres its (standardized) samples on its own mean and gets its own intercept
+while the CpG weights are learned, so the weights come from differences between
+patients *within* each hospital. A difference between hospitals (batch effect,
+or a cohort recruited mostly at one hospital) is then not learned as a cohort
+difference: with unequal recruitment, hospital and cohort are confounded (a
+model trained this way without centring reached a cross-validated balanced
+accuracy of 1.00 but 0.29 on a new hospital). One global bias is then fitted
+on the pooled, uncentred training samples with the weights fixed, so the model
+is applied to a new hospital, or to a single patient, without centring.
+Hospitals with samples of only one cohort add nothing to the weights then (only
+to the bias); the summary says so, and if no hospital has two cohorts the
+weights cannot be learned (use `center_by=global`). Tested: the federated fit
+equals a centralised fit of the same objective.
+
+**Minimum patients per cohort per hospital** (`min_cohort_samples`, default 5).
+A cohort with fewer patients at a hospital is left out at that hospital (its
+few patients would otherwise be visible in the per-cohort sums the hospital
+shares). The node only names the cohort, without its count; the result lists
+these in `cohort_detection.below_minimum` and in the summary. The same rule
+applies in `apply_model` (`cohorts_left_out`).
+
 Every hospital needs all the CpGs. A hospital that lacks some (e.g. removed by
 its quality control) is left out and listed in the result's `skipped`, with the
 reason. With CpGs from `v6-elastic-net-py` this does not happen: it only selects
@@ -59,6 +81,10 @@ the log warns. Above the limit the hospital is not evaluated, and its own reason
 is reported (e.g. "12 of the 23 CpGs of the model (52%) are not available at this
 hospital, more than the maximum of 20%"). Training still requires every CpG at
 every training hospital.
+
+The `Predictions` table is the confusion matrix per hospital and pooled: one row
+per true cohort with its number of samples, how many were predicted as each
+cohort, and how many were correct.
 
 If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not
 exist at one of the hospitals), the task stops at once with HQ's message.
@@ -106,7 +132,10 @@ accuracy threshold and gives no episignature verdict.
   (95% CI 0.82-0.98)". If the interval includes 0.5 it says that
   the data do not show a separation better than chance (0.5 is chance level by
   definition, not a chosen threshold). Pooled cross-validation predictions are
-  not fully independent, so the interval is approximate.
+  not fully independent, so the interval is approximate. When every sample is
+  classified correctly the interval is one-sided, [lower bound, 1.00] (a
+  central interval would end below the observed 1.00); likewise [0, upper
+  bound] when every sample is wrong.
 - `features_selected_on_same_samples`: whether the CpGs were selected on these
   same samples (e.g. Elastic Net on the same hospitals). `true` adds that the
   accuracies are optimistic and that generalization needs samples left out of
@@ -126,8 +155,9 @@ To be decided by the project before use on patient data:
   training samples of each fold. Their difference is the sum over a validation
   fold, which in a small hospital (e.g. 6-12 samples, 5 folds) holds 1-3
   patients, below `min_samples`. Fewer folds for small hospitals would avoid it.
-- `partial_cohorts` returns the exact number of samples of every cohort, also
-  of cohorts below `min_samples`.
+- `partial_cohorts` returns the exact number of samples of every cohort with at
+  least `min_cohort_samples` patients at the hospital; smaller cohorts are only
+  named.
 
 ## Tests
 

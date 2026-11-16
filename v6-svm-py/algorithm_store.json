@@ -1,6 +1,6 @@
 {
   "name": "Federated linear SVM",
-  "image": "localhost:32000/protect-child/svm:1.6.1",
+  "image": "localhost:32000/protect-child/svm:1.7.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -133,6 +133,24 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "A cohort with fewer patients than this at a hospital is left out at that hospital (privacy: the shared sums never describe a handful of patients). Default 5.",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
+          "name": "center_by",
+          "type": "string",
+          "display_name": "Centring",
+          "description": "'hospital' (default): the CpG weights are learned from differences between patients within each hospital (one intercept per hospital), so a difference between hospitals is not learned as a cohort difference; one global bias is then fitted and the model is applied without centring. 'global': no centring.",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": "hospital"
         },
         {
           "name": "run_loho",
@@ -316,6 +334,15 @@
           "default_value": 5
         },
         {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "A cohort with fewer patients than this at a hospital is not evaluated there (privacy). Default 5.",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
+        },
+        {
           "name": "max_missing_fraction",
           "type": "float",
           "display_name": "Maximum share of missing CpGs",
@@ -362,6 +389,17 @@
             "location": [
               "tables",
               "performance"
+            ]
+          }
+        },
+        {
+          "name": "Predictions",
+          "description": "Per hospital and pooled: for each true cohort, how many of its samples the model predicted as each cohort (confusion matrix); correct = predicted as its own cohort",
+          "type": "table",
+          "schema": {
+            "location": [
+              "tables",
+              "predictions"
             ]
           }
         },
@@ -422,6 +460,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": "beta"
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "Cohorts with fewer patients at this hospital are left out",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
         }
       ],
       "standalone": false
@@ -505,6 +552,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": "beta"
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "Cohorts with fewer patients at this hospital are left out",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
         }
       ],
       "standalone": false
@@ -596,6 +652,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": "beta"
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "Cohorts with fewer patients at this hospital are left out",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
         }
       ],
       "standalone": false
@@ -714,6 +779,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 0.0
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum patients per cohort per hospital",
+          "description": "Cohorts with fewer patients at this hospital are left out",
+          "is_frontend_only": false,
+          "has_default_value": true,
+          "default_value": 5
         }
       ],
       "standalone": false

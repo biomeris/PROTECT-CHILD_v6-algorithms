@@ -40,6 +40,9 @@ from vantage6.algorithm.tools.util import info, warn
 
 DEFAULT_C_GRID = [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
 
+CENTER_MODES = ("hospital", "global")
+DEFAULT_MIN_COHORT_SAMPLES = 5
+
 # Edges of the decision-score histograms. Scores outside the range are
 # counted in the outermost bins.
 SCORE_BINS = np.linspace(-3.0, 3.0, 25).tolist()
@@ -286,7 +289,8 @@ def _model_from_task(client, task_id):
 # ---------------------------------------------------------------------
 
 def _detect_cohorts(client, org_ids, features, outcome_column, classes,
-                    reference_cohort, min_samples, layout_args, errors):
+                    reference_cohort, min_samples, layout_args, errors,
+                    min_cohort_samples=0):
     """
     Detect the cohort labels present across all hospitals and decide which
     cohorts enter the analysis.
@@ -298,6 +302,10 @@ def _detect_cohorts(client, org_ids, features, outcome_column, classes,
 
     With a ``reference_cohort`` and two cohorts, the reference is placed
     first so that the hyperplane is oriented towards the other cohort.
+
+    A cohort with fewer than ``min_cohort_samples`` samples at a hospital is
+    not counted there (the node only names it); these are listed in
+    ``below_minimum``.
     """
 
     results = _run_task(
@@ -307,6 +315,7 @@ def _detect_cohorts(client, org_ids, features, outcome_column, classes,
         {
             "features": features,
             "outcome_column": outcome_column,
+            "min_cohort_samples": min_cohort_samples,
             **layout_args,
         },
         "SVM cohort detection",
@@ -314,10 +323,15 @@ def _detect_cohorts(client, org_ids, features, outcome_column, classes,
     )
 
     detected = {}
+    below_minimum = []
 
     for result in results:
         for label, count in result["cohorts"]:
             detected[label] = detected.get(label, 0) + count
+        for label in result.get("below_minimum", []):
+            below_minimum.append(
+                {"organization_id": result.get("organization_id"), "cohort": label}
+            )
 
     # Sort for a deterministic order. With two cohorts, the second one is
     # coded as +1 (the hyperplane is reported in both directions anyway).
@@ -389,6 +403,9 @@ def _detect_cohorts(client, org_ids, features, outcome_column, classes,
         "classes": used,
         "reference_cohort": reference_cohort,
         "excluded": excluded,
+        # Cohorts left out at a hospital: fewer than min_cohort_samples there
+        "min_cohort_samples": min_cohort_samples,
+        "below_minimum": below_minimum,
         "pipeline": (
             "binary_single_hyperplane"
             if len(used) == 2
@@ -489,6 +506,14 @@ def _aggregate_summary(results, base_args):
         "partitions": partitions,
         "cohorts": cohorts,
         "n_nodes": len(results),
+        # Hospitals whose analysed samples belong to a single cohort: with
+        # per-hospital centring they add nothing to the weights
+        "single_cohort_nodes": [
+            result.get("organization_id")
+            for result in results
+            if "all" in result.get("partitions", {})
+            and sum(1 for count in result["partitions"]["all"]["class_counts"] if count > 0) < 2
+        ],
         # Samples each node pooled (all folds), for the privacy warning
         "node_sizes": [
             int(result["partitions"]["all"]["n"])
@@ -576,16 +601,18 @@ def _newton_update(state, statistics, n_features, max_rounds, tolerance):
         return
 
     trial = state["trial"]
-    w = trial[:-1]
+    # (w, b), or (w, one intercept per hospital) with per-hospital centring
+    w = trial[:n_features]
 
     objective = 0.5 * float(w @ w) + C * statistics["loss"]
 
     gradient = C * statistics["gradient"]
-    gradient[:-1] += w
+    gradient[:n_features] += w
 
     hessian = C * statistics["hessian"]
     hessian[np.diag_indices(n_features)] += 1.0
-    hessian[-1, -1] += HESSIAN_RIDGE
+    intercepts = np.arange(n_features, len(trial))
+    hessian[intercepts, intercepts] += HESSIAN_RIDGE
 
     if state["theta"] is not None:
 
@@ -648,23 +675,35 @@ def _newton_update(state, statistics, n_features, max_rounds, tolerance):
 
 
 def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
-                label):
+                label, center_by="global"):
     """
     Fit several SVM models simultaneously with federated Newton steps.
 
     Every federated round evaluates all still-active models in one task, so
     the number of tasks depends on the number of Newton iterations, not on
     the number of models (C values x folds x comparisons).
+
+    With ``center_by="hospital"`` every hospital centres its (standardized)
+    training samples on its own mean and gets its own intercept: the weights
+    w are learned from the differences between patients WITHIN each
+    hospital, so a difference between hospitals (batch, or a cohort that is
+    only at one hospital) cannot be learned as a cohort difference. One
+    global bias is then fitted on the pooled, uncentred training samples
+    with w fixed (``_fit_global_bias``), so the model is applied to a new
+    hospital or a single patient without centring.
     """
 
     n_features = len(base_args["features"])
-    dimension = n_features + 1
+    center = center_by == "hospital"
 
     states = {}
 
     for spec in specs:
+        hospitals = list(spec.get("organizations") or org_ids) if center else []
+        dimension = n_features + (len(hospitals) if center else 1)
         states[spec["id"]] = {
             "spec": spec,
+            "hospitals": hospitals,
             "theta": None,
             "trial": np.zeros(dimension),
             "direction": None,
@@ -679,7 +718,7 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
             "status": "running",
         }
 
-    batch_size = max(1, MAX_PAYLOAD_NUMBERS // (dimension * dimension))
+    batch_size = max(1, MAX_PAYLOAD_NUMBERS // ((n_features + 1) ** 2))
 
     max_total_rounds = (
         max_rounds * (1 + MAX_LINE_SEARCH_ROUNDS_PER_ITERATION) + 1
@@ -706,8 +745,10 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
 
             batch = active[start:start + batch_size]
 
-            jobs = [
-                {
+            jobs = []
+
+            for state in batch:
+                job = {
                     "id": state["spec"]["id"],
                     "organizations": state["spec"].get("organizations"),
                     "fold": state["spec"]["fold"],
@@ -716,11 +757,16 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
                     "std": state["spec"]["std"],
                     "positive_weight": state["spec"]["positive_weight"],
                     "negative_weight": state["spec"]["negative_weight"],
-                    "w": state["trial"][:-1].tolist(),
-                    "b": float(state["trial"][-1]),
+                    "w": state["trial"][:n_features].tolist(),
+                    "b": float(state["trial"][-1]) if not center else 0.0,
                 }
-                for state in batch
-            ]
+                if center:
+                    job["center"] = True
+                    job["b_by_organization"] = {
+                        str(org_id): float(state["trial"][n_features + index])
+                        for index, org_id in enumerate(state["hospitals"])
+                    }
+                jobs.append(job)
 
             results = _run_task(
                 client,
@@ -736,6 +782,9 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
                     if "error" in job_result:
                         continue
 
+                    state = states[job_id]
+                    dimension = len(state["trial"])
+
                     aggregate = statistics.setdefault(
                         job_id,
                         {
@@ -746,16 +795,28 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
                         },
                     )
 
+                    gradient = np.asarray(job_result["gradient"], dtype=float)
+                    hessian = np.asarray(job_result["hessian"], dtype=float)
+
+                    # The node's intercept: the last entry, or this
+                    # hospital's own intercept with per-hospital centring
+                    if center:
+                        org_id = result.get("organization_id")
+                        if org_id not in state["hospitals"]:
+                            raise RuntimeError(
+                                "A node did not report its organization id, "
+                                "which per-hospital centring needs."
+                            )
+                        position = n_features + state["hospitals"].index(org_id)
+                    else:
+                        position = n_features
+
+                    index = np.r_[np.arange(n_features), position]
+
                     aggregate["n"] += job_result["n"]
                     aggregate["loss"] += job_result["loss"]
-                    aggregate["gradient"] += np.asarray(
-                        job_result["gradient"],
-                        dtype=float,
-                    )
-                    aggregate["hessian"] += np.asarray(
-                        job_result["hessian"],
-                        dtype=float,
-                    )
+                    aggregate["gradient"][index] += gradient
+                    aggregate["hessian"][np.ix_(index, index)] += hessian
 
         for state in active:
             _newton_update(
@@ -778,7 +839,7 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
             continue
 
         fits[model_id] = {
-            "w": state["theta"][:-1].tolist(),
+            "w": state["theta"][:n_features].tolist(),
             "b": float(state["theta"][-1]),
             "objective": float(state["objective"]),
             "gradient_norm": float(np.linalg.norm(state["gradient"])),
@@ -787,9 +848,147 @@ def _fit_models(client, org_ids, base_args, specs, max_rounds, tolerance,
             "status": state["status"],
         }
 
+        if center:
+            fits[model_id]["hospital_intercepts"] = {
+                str(org_id): float(state["theta"][n_features + index])
+                for index, org_id in enumerate(state["hospitals"])
+            }
+
     info(f"{label}: {len(specs)} model(s) fitted in {n_rounds} round(s)")
 
+    if center:
+        _fit_global_bias(
+            client, org_ids, base_args, specs, fits, max_rounds, tolerance,
+            label,
+        )
+
     return fits
+
+
+def _fit_global_bias(client, org_ids, base_args, specs, fits, max_rounds,
+                     tolerance, label):
+    """
+    One global bias per model, with its weights w fixed: the b minimising
+    the class-weighted squared hinge loss over the pooled, UNcentred
+    (standardized) training samples of its hospitals. One-dimensional
+    federated Newton steps with backtracking; the nodes reuse
+    ``partial_svm`` (only the loss and the intercept's derivatives are
+    used). Replaces ``b`` of every fit in place.
+    """
+
+    states = {}
+
+    for spec in specs:
+        fit = fits.get(spec["id"])
+        if fit is None:
+            continue
+        intercepts = list(fit["hospital_intercepts"].values())
+        states[spec["id"]] = {
+            "spec": spec,
+            "b": float(np.mean(intercepts)) if intercepts else 0.0,
+            "trial": float(np.mean(intercepts)) if intercepts else 0.0,
+            "objective": None,
+            "direction": 0.0,
+            "step": 1.0,
+            "rounds": 0,
+            "done": False,
+        }
+
+    n_features = len(base_args["features"])
+    batch_size = max(1, MAX_PAYLOAD_NUMBERS // ((n_features + 1) ** 2))
+    max_total_rounds = max_rounds * (1 + MAX_LINE_SEARCH_ROUNDS_PER_ITERATION)
+    n_rounds = 0
+
+    while n_rounds < max_total_rounds:
+
+        active = [state for state in states.values() if not state["done"]]
+
+        if not active:
+            break
+
+        n_rounds += 1
+        statistics = {}
+
+        for start in range(0, len(active), batch_size):
+
+            batch = active[start:start + batch_size]
+
+            jobs = [
+                {
+                    "id": state["spec"]["id"],
+                    "organizations": state["spec"].get("organizations"),
+                    "fold": state["spec"]["fold"],
+                    "target": state["spec"]["target"],
+                    "mean": state["spec"]["mean"],
+                    "std": state["spec"]["std"],
+                    "positive_weight": state["spec"]["positive_weight"],
+                    "negative_weight": state["spec"]["negative_weight"],
+                    "w": fits[state["spec"]["id"]]["w"],
+                    "b": state["trial"],
+                    "intercept_only": True,
+                }
+                for state in batch
+            ]
+
+            results = _run_task(
+                client,
+                "partial_svm",
+                org_ids,
+                {**base_args, "jobs": jobs},
+                f"SVM global bias round {n_rounds} ({label})",
+            )
+
+            for result in results:
+                for job_id, job_result in result["jobs"].items():
+                    if "error" in job_result:
+                        continue
+                    aggregate = statistics.setdefault(
+                        job_id, {"loss": 0.0, "gradient": 0.0, "hessian": 0.0}
+                    )
+                    aggregate["loss"] += job_result["loss"]
+                    aggregate["gradient"] += float(job_result["gradient"][-1])
+                    aggregate["hessian"] += float(np.asarray(job_result["hessian"])[-1, -1])
+
+        for state in active:
+
+            stats = statistics.get(state["spec"]["id"])
+
+            if stats is None:
+                state["done"] = True
+                continue
+
+            objective = stats["loss"]
+
+            # Backtracking: halve the step until the loss decreases
+            if state["objective"] is not None and objective > state["objective"] + 1e-12:
+                state["step"] *= 0.5
+                if state["step"] < MIN_STEP:
+                    state["done"] = True
+                    continue
+                state["trial"] = state["b"] + state["step"] * state["direction"]
+                continue
+
+            state["b"] = state["trial"]
+            state["objective"] = objective
+            state["rounds"] += 1
+
+            gradient = stats["gradient"]
+            hessian = stats["hessian"] + HESSIAN_RIDGE
+
+            if abs(gradient) <= max(tolerance, 1e-10) * max(1.0, abs(objective)) or (
+                state["rounds"] >= max_rounds
+            ):
+                state["done"] = True
+                continue
+
+            state["direction"] = -gradient / hessian
+            state["step"] = 1.0
+            state["trial"] = state["b"] + state["direction"]
+
+    for model_id, state in states.items():
+        fits[model_id]["b"] = float(state["b"])
+
+    info(f"{label}: global bias of {len(states)} model(s) in {n_rounds} round(s)")
 
 
 # ---------------------------------------------------------------------
@@ -832,6 +1031,19 @@ def _evaluate(client, org_ids, base_args, jobs, label, score_bins=None,
     aggregates = {}
 
     for result in results:
+
+        if errors is not None:
+            for cohort in result.get("cohorts_below_minimum", []):
+                errors.append({
+                    "organization_id": result.get("organization_id"),
+                    "job": None,
+                    "cohort": cohort,
+                    "reason": (
+                        f"cohort {cohort} left out: fewer than "
+                        f"{base_args.get('min_cohort_samples')} patients at this hospital"
+                    ),
+                })
+
         for job_id, job_result in result["jobs"].items():
 
             if "error" in job_result:
@@ -904,6 +1116,11 @@ def _balanced_accuracy_interval(correct, totals, level=0.95,
     approximation it stays within [0, 1] and is informative at 1.0 or with
     few samples.
 
+    When every sample is classified correctly (balanced accuracy 1.0) the
+    interval is one-sided, [lower bound, 1.0]: a central interval would end
+    below the observed value. Likewise [0.0, upper bound] when every sample
+    is wrong.
+
     The pooled cross-validation predictions are not fully independent
     (folds share training data), so the interval is approximate.
     """
@@ -925,6 +1142,12 @@ def _balanced_accuracy_interval(correct, totals, level=0.95,
         ],
         axis=0,
     )
+
+    if np.all(correct[keep] == totals[keep]):
+        return [float(np.quantile(samples, 1.0 - level)), 1.0]
+
+    if np.all(correct[keep] == 0):
+        return [0.0, float(np.quantile(samples, level))]
 
     tail = (1.0 - level) / 2.0
 
@@ -1385,6 +1608,7 @@ def _run_experiments(client, org_ids, base_args, settings, experiments,
         settings["max_rounds"],
         settings["tolerance"],
         "cross-validation",
+        settings.get("center_by", "global"),
     )
 
     jobs = []
@@ -1446,6 +1670,7 @@ def _run_experiments(client, org_ids, base_args, settings, experiments,
         settings["max_rounds"],
         settings["tolerance"],
         "final models",
+        settings.get("center_by", "global"),
     )
 
     jobs = []
@@ -2269,6 +2494,8 @@ def central(
     value_column="beta",
     features_selected_on_same_samples=None,
     organizations_to_include=None,
+    center_by="hospital",
+    min_cohort_samples=5,
 ):
     """
     Federated Linear SVM for discovery and characterization of
@@ -2351,6 +2578,20 @@ def central(
         Optional. Organizations (hospitals) to use; all of the
         collaboration if not given.
 
+    center_by:
+        "hospital" (default): each hospital centres its samples on its own
+        mean and has its own intercept while the weights are learned, so a
+        difference between hospitals (batch effect, or a cohort recruited
+        mostly at one hospital) is not learned as a cohort difference; one
+        global bias is then fitted with the weights fixed, and the model is
+        applied without centring. "global": no centring (as before 1.7.0).
+
+    min_cohort_samples:
+        Minimum samples of a cohort at a hospital for that hospital to use
+        that cohort (default 5; blank or 0 uses the default). Smaller groups
+        are left out at that hospital, with the reason in the result, so the
+        per-cohort sums never describe a handful of patients.
+
     Returns
     -------
     dict
@@ -2362,6 +2603,12 @@ def central(
     # The web interface sends blank optional fields as empty lists
     if not C_grid:
         C_grid = DEFAULT_C_GRID
+
+    # ... and blank text / integer fields as "" / 0
+    center_by = center_by or "hospital"
+    if center_by not in CENTER_MODES:
+        raise ValueError(f"center_by must be one of {CENTER_MODES}, not {center_by!r}")
+    min_cohort_samples = int(min_cohort_samples or DEFAULT_MIN_COHORT_SAMPLES)
 
     if not classes:
         classes = None
@@ -2458,6 +2705,7 @@ def central(
         min_samples,
         layout_args,
         errors,
+        min_cohort_samples,
     )
 
     if "error" in cohort_detection:
@@ -2476,6 +2724,7 @@ def central(
         "n_folds": n_folds,
         "random_seed": random_seed,
         "min_samples": min_samples,
+        "min_cohort_samples": min_cohort_samples,
         **layout_args,
     }
 
@@ -2483,6 +2732,7 @@ def central(
         "C_grid": C_grid,
         "max_rounds": max_rounds,
         "tolerance": tolerance,
+        "center_by": center_by,
     }
 
     targets = _targets(classes)
@@ -2672,6 +2922,32 @@ def central(
         warn(privacy_warning)
         evidence_summary = list(evidence_summary) + [privacy_warning]
 
+    centring_note = None
+    single = [org for org in summary.get("single_cohort_nodes", []) if org is not None]
+    if center_by == "hospital" and single:
+        centring_note = (
+            f"{len(single)} of {summary['n_nodes']} hospitals have samples of only one "
+            "cohort: with per-hospital centring they add nothing to the CpG weights "
+            "(only to the global bias)."
+        )
+        if len(single) == summary["n_nodes"]:
+            centring_note += (
+                " No hospital has two cohorts, so the weights cannot be learned: "
+                "use center_by='global' (cohort and hospital are then confounded)."
+            )
+        warn(centring_note)
+        evidence_summary = list(evidence_summary) + [centring_note]
+
+    below = cohort_detection.get("below_minimum") or []
+    if below:
+        evidence_summary = list(evidence_summary) + [
+            f"Left out (fewer than {min_cohort_samples} patients of the cohort at the "
+            "hospital): " + ", ".join(
+                f"{entry['cohort']} at organization {entry['organization_id']}"
+                for entry in below
+            ) + "."
+        ]
+
     return {
         "algorithm": "federated_linear_svm",
 
@@ -2711,6 +2987,15 @@ def central(
                 " on globally standardized CpGs, s_i = balanced class weight"
             ),
             "optimizer": "federated Newton with Armijo line search",
+            "center_by": center_by,
+            "centring": (
+                "weights learned on within-hospital centred samples (one "
+                "intercept per hospital); one global bias fitted with the "
+                "weights fixed; applied without centring"
+                if center_by == "hospital"
+                else "none"
+            ),
+            "min_cohort_samples": min_cohort_samples,
             "C": final["C"],
             "standardization": {
                 "mean": final["mean"],
@@ -2831,6 +3116,7 @@ def apply_model(
     sample_column="sample_label",
     value_column="beta",
     max_missing_fraction=0.2,
+    min_cohort_samples=5,
 ):
     """
     Apply a trained SVM model, unchanged, to the samples of chosen hospitals
@@ -2873,11 +3159,18 @@ def apply_model(
         missing (``missing_cpgs``). Above it, the hospital is not evaluated
         and the result says why.
 
+    min_cohort_samples:
+        A cohort with fewer patients than this at a hospital (default 5;
+        blank or 0 uses the default) is not evaluated there, so the counts
+        never show how two or three patients were classified. The result
+        names the cohorts left out.
+
     Returns
     -------
     dict
         ``input`` (which model), per hospital and pooled over them: the
-        confusion matrix and the balanced accuracy with its 95% interval;
+        confusion matrix (also as the ``predictions`` table: true cohort x
+        predicted cohort) and the balanced accuracy with its 95% interval;
         per comparison: sensitivity, specificity and balanced accuracy; and
         the same as flat ``tables``. Only counts leave the hospitals.
     """
@@ -2914,6 +3207,7 @@ def apply_model(
 
     org_ids = _select_organizations(client, organizations_to_include)
     classes = list(model["classes"])
+    min_cohort_samples = int(min_cohort_samples or DEFAULT_MIN_COHORT_SAMPLES)
 
     base_args = {
         "features": list(model["features"]),
@@ -2926,6 +3220,7 @@ def apply_model(
         "value_column": value_column,
         "allow_missing_features": True,
         "max_missing_fraction": float(max_missing_fraction),
+        "min_cohort_samples": min_cohort_samples,
     }
 
     if not 0 <= float(max_missing_fraction) < 1:
@@ -2963,6 +3258,7 @@ def apply_model(
             e["reason"] for e in errors
             if e.get("organization_id") == org_id
             and e.get("job") in (None, f"org_{org_id}")
+            and "cohort" not in e
         ]
         return own[0] if own else "no result from this hospital"
 
@@ -3037,6 +3333,35 @@ def apply_model(
         for entry in per_hospital + ([pooled] if pooled else [])
     ]
 
+    # Confusion matrices as a table: one row per hospital (and pooled) and
+    # true cohort, with the number of its samples predicted as each cohort
+    predictions = []
+    for entry in per_hospital + ([pooled] if pooled else []):
+        if "confusion_matrix" not in entry:
+            continue
+        for true_index, true_cohort in enumerate(classes):
+            row = entry["confusion_matrix"][true_index]
+            if not sum(row):
+                continue
+            predictions.append({
+                "hospitals": (
+                    str(entry["organization_id"]) if "organization_id" in entry
+                    else "pooled"
+                ),
+                "true_cohort": str(true_cohort),
+                "n": int(sum(row)),
+                **{
+                    f"predicted {predicted}": int(count)
+                    for predicted, count in zip(classes, row)
+                },
+                "correct": int(row[true_index]),
+            })
+
+    left_out = [
+        {"organization_id": e.get("organization_id"), "cohort": e["cohort"]}
+        for e in errors if "cohort" in e
+    ]
+
     if pooled:
         info(
             "Applied model: pooled balanced accuracy "
@@ -3052,8 +3377,12 @@ def apply_model(
         "per_hospital": per_hospital,
         "pooled": pooled,
         "max_missing_fraction": float(max_missing_fraction),
+        "min_cohort_samples": min_cohort_samples,
+        # Cohorts not evaluated at a hospital (fewer than min_cohort_samples)
+        "cohorts_left_out": left_out,
         "tables": {
             "performance": performance,
+            "predictions": predictions,
             "comparisons": (
                 [
                     {

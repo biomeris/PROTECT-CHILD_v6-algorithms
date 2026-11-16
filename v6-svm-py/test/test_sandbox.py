@@ -222,7 +222,10 @@ h3 = missing_one["per_hospital"][0]
 test_rows = WIDE[2][WIDE[2]["cohort"].isin(model["classes"])]
 # complete samples over the CpGs still present (as the hospital does)
 test_rows = test_rows.dropna(subset=[c for c in model["features"] if c != lost])
-z = (test_rows[model["features"]].to_numpy(float) - np.asarray(model["mean"])) / np.asarray(model["std"])
+# cohorts with fewer than 5 patients at the hospital are not evaluated
+sizes = test_rows["cohort"].value_counts()
+test_rows = test_rows[test_rows["cohort"].map(sizes) >= 5]
+z =(test_rows[model["features"]].to_numpy(float) - np.asarray(model["mean"])) / np.asarray(model["std"])
 z[:, model["features"].index(lost)] = 0.0  # the missing CpG at its training mean
 score = z @ np.asarray(model["weights"][0]) + model["biases"][0]
 predicted = np.where(score >= 0, model["classes"][1], model["classes"][0])
@@ -355,6 +358,115 @@ check(central_module._latest_task(session, central_module._is_elastic_net_result
       "empty Elastic Net field: the most recent Elastic Net task of the session")
 check(central_module._latest_task(session, central_module._is_svm_model_result, ("svm",), "Federated linear SVM") == 31,
       "empty SVM field in Apply: the most recent SVM training task (not an earlier Apply)")
+
+
+print("\n[7] Per-hospital centring, minimum per cohort, Predictions table, one-sided interval")
+
+# Hospital and cohort confounded: hospital 1 mostly cohort b, hospital 3 mostly
+# cohort a, and a batch shift by hospital on cg_batch. cg_true carries the
+# (within-hospital) cohort difference.
+rng = np.random.default_rng(7)
+mix = [(6, 14), (10, 10), (14, 6)]           # (cohort a, cohort b) per hospital
+toy, toy_frames = ["cg_true", "cg_batch", "cg_noise1", "cg_noise2"], []
+for h, (na, nb) in enumerate(mix):
+    cohort = np.array(["a"] * na + ["b"] * nb)
+    n = na + nb
+    frame = pd.DataFrame({
+        "sample_id": [f"h{h}_{i}" for i in range(n)],
+        "cohort": cohort,
+        "cg_true": 0.5 + 0.06 * (cohort == "b") + rng.normal(0, 0.03, n),
+        "cg_batch": 0.4 - 0.15 * h + rng.normal(0, 0.03, n),
+        "cg_noise1": 0.5 + rng.normal(0, 0.05, n),
+        "cg_noise2": 0.3 + rng.normal(0, 0.05, n),
+    })
+    toy_frames.append(frame)
+toy_net = MockNetwork(module_name=MODULE,
+                      datasets=[{"db": {"database": f, "db_type": "csv"}} for f in toy_frames])
+toy_args = {"features": toy, "outcome_column": "cohort", "classes": ["a", "b"], "C_grid": [1.0],
+            "run_loho": False, "sample_column": "sample_id"}
+_, centred = run_in(toy_net, "central", toy_args)
+_, uncentred = run_in(toy_net, "central", {**toy_args, "center_by": "global"})
+check(centred["model"]["center_by"] == "hospital" and uncentred["model"]["center_by"] == "global",
+      "center_by defaults to 'hospital' and is reported in the model")
+
+# Centralised reference of the same objective: weights on within-hospital
+# centred, globally standardized samples with one intercept per hospital ...
+from scipy.optimize import minimize, minimize_scalar
+pooled = pd.concat(toy_frames, keys=range(3), names=["hospital", None]).reset_index(level=0)
+X = pooled[toy].to_numpy(float)
+mean, std = X.mean(axis=0), X.std(axis=0)
+Z = (X - mean) / std
+hospital = pooled["hospital"].to_numpy()
+Zc = Z - np.vstack([Z[hospital == h].mean(axis=0) for h in hospital])
+y = np.where(pooled["cohort"] == "b", 1.0, -1.0)
+n_pos, n_neg = (y > 0).sum(), (y < 0).sum()
+s = np.where(y > 0, len(y) / (2 * n_pos), len(y) / (2 * n_neg))
+
+
+def objective(theta):
+    w, b = theta[:4], theta[4:][hospital]
+    slack = np.maximum(0.0, 1.0 - y * (Zc @ w + b))
+    return 0.5 * w @ w + np.sum(s * slack ** 2)
+
+
+reference = minimize(objective, np.zeros(7), method="BFGS", options={"gtol": 1e-10}).x
+w_ref = reference[:4]
+# ... and one global bias on the uncentred samples with w fixed
+b_ref = minimize_scalar(lambda b: np.sum(s * np.maximum(0.0, 1.0 - y * (Z @ w_ref + b)) ** 2),
+                        bounds=(-10, 10), method="bounded", options={"xatol": 1e-10}).x
+w_fed = np.asarray(centred["comparisons"][0]["model"]["weights"])
+b_fed = centred["comparisons"][0]["model"]["bias"]
+check(np.allclose(w_fed, w_ref, atol=1e-4) and abs(b_fed - b_ref) < 1e-4,
+      f"per-hospital centring equals a centralised fit (max |dw| {np.max(np.abs(w_fed - w_ref)):.1e}, "
+      f"|db| {abs(b_fed - b_ref):.1e})")
+check(not np.allclose(w_fed, uncentred["comparisons"][0]["model"]["weights"]),
+      "center_by='global' fits a different (uncentred) model")
+
+# A hospital with only 3 patients of a cohort leaves that cohort out
+small = [toy_frames[0], toy_frames[1],
+         toy_frames[2][(toy_frames[2]["cohort"] == "a") | (toy_frames[2].index < 17)]]
+small_net = MockNetwork(module_name=MODULE,
+                        datasets=[{"db": {"database": f, "db_type": "csv"}} for f in small])
+_, few = run_in(small_net, "central", toy_args)
+below = few["cohort_detection"]["below_minimum"]
+check(below == [{"organization_id": small_net.organization_ids[2], "cohort": "b"}]
+      and few["n_total"] == 20 + 20 + 14
+      and any("Left out (fewer than 5" in line for line in few["evidence_summary"]),
+      "a cohort with 3 patients at a hospital is left out there and named in the summary")
+_, few_1 = run_in(small_net, "central", {**toy_args, "min_cohort_samples": 1})
+check(few_1["n_total"] == 20 + 20 + 17 and not few_1["cohort_detection"]["below_minimum"],
+      "min_cohort_samples=1 keeps it")
+
+# Apply: Predictions table (confusion matrix) per hospital and pooled
+# (the model is given as JSON: the mock network reuses task ids across networks)
+toy_model = {"features": centred["features"], "classes": centred["classes"],
+             "weights": [c["model"]["weights"] for c in centred["comparisons"]],
+             "biases": [c["model"]["bias"] for c in centred["comparisons"]],
+             "mean": centred["model"]["standardization"]["mean"],
+             "std": centred["model"]["standardization"]["std"]}
+_, toy_applied = run_in(toy_net, "apply_model", {"outcome_column": "cohort", "model": toy_model,
+                                                 "sample_column": "sample_id"})
+rows = toy_applied["tables"]["predictions"]
+pooled_rows = [r for r in rows if r["hospitals"] == "pooled"]
+check(len(pooled_rows) == 2 and sum(r["n"] for r in pooled_rows) == 60
+      and all(r["n"] == r["predicted a"] + r["predicted b"] for r in rows)
+      and all(r["correct"] == r[f"predicted {r['true_cohort']}"] for r in rows)
+      and [r["true_cohort"] for r in pooled_rows] == ["a", "b"],
+      "apply_model: Predictions table, one row per hospital/pooled and true cohort")
+_, toy_small = run_in(small_net, "apply_model", {"outcome_column": "cohort", "model": toy_model,
+                                                 "sample_column": "sample_id"})
+check(toy_small["cohorts_left_out"] == [{"organization_id": small_net.organization_ids[2], "cohort": "b"}]
+      and not [r for r in toy_small["tables"]["predictions"]
+               if r["hospitals"] == str(small_net.organization_ids[2]) and r["true_cohort"] == "b"],
+      "apply_model: a cohort with 3 patients at a hospital is not evaluated, and named")
+
+# One-sided interval at a perfect (or a completely wrong) classification
+interval = central_module._balanced_accuracy_interval([10, 12], [10, 12])
+check(interval[1] == 1.0 and 0.7 < interval[0] < 1.0, f"all correct: one-sided interval {interval}")
+interval = central_module._balanced_accuracy_interval([0, 0], [10, 12])
+check(interval[0] == 0.0 and 0.0 < interval[1] < 0.3, f"all wrong: one-sided interval {interval}")
+interval = central_module._balanced_accuracy_interval([9, 12], [10, 12])
+check(0.0 < interval[0] < interval[1] < 1.0, f"otherwise a central interval {interval}")
 
 print(f"\n{'All checks passed' if not failures else f'{len(failures)} check(s) failed'}")
 sys.exit(1 if failures else 0)

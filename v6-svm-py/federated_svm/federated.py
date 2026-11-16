@@ -156,10 +156,15 @@ def _local_frame(df, features, outcome_column, sample_column, value_column,
 
 def _prepare(df, features, outcome_column, classes, min_samples,
              sample_column="sample_label", value_column="beta",
-             allow_missing=False):
+             allow_missing=False, min_cohort_samples=0, dropped=None):
     """
     Validate the local dataframe and keep only complete observations that
     belong to one of the analysed cohorts.
+
+    A cohort with fewer than ``min_cohort_samples`` complete samples at this
+    hospital is left out here (its few patients would otherwise be visible in
+    the per-cohort sums this hospital shares); the logs name the cohort only,
+    and ``_cohorts_below_minimum`` reports it to the central function.
 
     Returns ``(X, labels)`` or an error dictionary. With ``allow_missing``
     returns ``(X, labels, missing)``: CpGs this hospital lacks are empty
@@ -194,6 +199,17 @@ def _prepare(df, features, outcome_column, classes, min_samples,
     # negatives.
     sub = sub[sub[outcome_column].isin(list(classes))]
 
+    small = _cohorts_below_minimum(sub[outcome_column], min_cohort_samples)
+
+    if small:
+        warn(
+            f"Cohort(s) {small} have fewer than {min_cohort_samples} samples "
+            "at this hospital and are left out"
+        )
+        sub = sub[~sub[outcome_column].isin(small)]
+        if dropped is not None:
+            dropped.extend(small)
+
     if len(sub) < min_samples:
         warn(
             f"Node has {len(sub)} samples < {min_samples} "
@@ -210,6 +226,21 @@ def _prepare(df, features, outcome_column, classes, min_samples,
         return X, labels, missing
 
     return X, labels
+
+
+def _cohorts_below_minimum(labels, min_cohort_samples):
+    """Cohorts present with fewer than ``min_cohort_samples`` samples."""
+
+    if not min_cohort_samples:
+        return []
+
+    values, counts = np.unique(np.asarray(labels), return_counts=True)
+
+    return [
+        value.item() if hasattr(value, "item") else value
+        for value, count in zip(values, counts)
+        if count < int(min_cohort_samples)
+    ]
 
 
 def _make_stratified_folds(labels, n_folds, seed=42):
@@ -290,10 +321,12 @@ def partial_cohorts(
     outcome_column,
     sample_column="sample_label",
     value_column="beta",
+    min_cohort_samples=5,
 ):
     """
     Return the cohort labels present at this node and the number of
-    complete samples (all CpGs observed) in each.
+    complete samples (all CpGs observed) in each. Cohorts with fewer than
+    ``min_cohort_samples`` are only named (``below_minimum``), not counted.
 
     Used by the central function to detect how many cohorts are present
     and therefore which pipeline (binary or one-vs-rest) to run.
@@ -317,13 +350,20 @@ def partial_cohorts(
         return_counts=True,
     )
 
+    def plain(label):
+        return label.item() if hasattr(label, "item") else label
+
+    keep = counts >= int(min_cohort_samples or 0)
+
     return {
+        "organization_id": _organization_id(),
         # A list of pairs (not a dict) so that non-string labels keep
         # their type after JSON serialization.
         "cohorts": [
-            [label.item() if hasattr(label, "item") else label, int(count)]
-            for label, count in zip(labels, counts)
+            [plain(label), int(count)]
+            for label, count in zip(labels[keep], counts[keep])
         ],
+        "below_minimum": [str(plain(label)) for label in labels[~keep]],
     }
 
 
@@ -341,6 +381,7 @@ def partial_summary(
     n_folds=5,
     random_seed=42,
     min_samples=5,
+    min_cohort_samples=5,
     sample_column="sample_label",
     value_column="beta",
 ):
@@ -356,6 +397,8 @@ def partial_summary(
     samples at this node are suppressed.
     """
 
+    dropped = []
+
     prepared = _prepare(
         df1,
         features,
@@ -364,10 +407,16 @@ def partial_summary(
         min_samples,
         sample_column,
         value_column,
+        min_cohort_samples=min_cohort_samples,
+        dropped=dropped,
     )
 
     if isinstance(prepared, dict):
-        return {**prepared, "organization_id": _organization_id()}
+        return {
+            **prepared,
+            "organization_id": _organization_id(),
+            "cohorts_below_minimum": [str(label) for label in dropped],
+        }
 
     X, labels = prepared
 
@@ -427,6 +476,8 @@ def partial_summary(
         "organization_id": _organization_id(),
         "partitions": partitions,
         "cohorts": cohorts,
+        # Cohorts left out at this hospital (fewer than min_cohort_samples)
+        "cohorts_below_minimum": [str(label) for label in dropped],
     }
 
 
@@ -445,6 +496,7 @@ def partial_svm(
     n_folds=5,
     random_seed=42,
     min_samples=5,
+    min_cohort_samples=5,
     sample_column="sample_label",
     value_column="beta",
 ):
@@ -468,6 +520,12 @@ def partial_svm(
     ``positive_weight``/``negative_weight`` (global class weights) and the
     current parameters ``w``/``b``.
 
+    Optional per job: ``center`` (per-hospital centring: this node centres
+    its standardized training samples on their own mean and uses its own
+    intercept from ``b_by_organization``) and ``intercept_only`` (only the
+    loss and the derivatives with respect to b are returned, to fit the
+    global bias with w fixed).
+
     No patient-level data leaves the node.
     """
 
@@ -479,6 +537,7 @@ def partial_svm(
         min_samples,
         sample_column,
         value_column,
+        min_cohort_samples=min_cohort_samples,
     )
 
     if isinstance(prepared, dict):
@@ -511,6 +570,15 @@ def partial_svm(
 
         Xs = _standardize(X[mask], job["mean"], job["std"])
 
+        b = float(job["b"])
+
+        if job.get("center"):
+            # Per-hospital centring: only within-hospital differences
+            Xs = Xs - Xs.mean(axis=0)
+            b = float(
+                (job.get("b_by_organization") or {}).get(str(organization_id), 0.0)
+            )
+
         y = np.where(
             labels[mask] == job["target"],
             1.0,
@@ -524,7 +592,6 @@ def partial_svm(
         )
 
         w = np.asarray(job["w"], dtype=float)
-        b = float(job["b"])
 
         slack = np.maximum(
             0.0,
@@ -532,6 +599,17 @@ def partial_svm(
         )
 
         active = slack > 0.0
+
+        if job.get("intercept_only"):
+            results[job["id"]] = {
+                "n": int(mask.sum()),
+                "loss": float(np.sum(sample_weights * slack ** 2)),
+                "gradient": [float(-2.0 * np.sum(
+                    sample_weights[active] * slack[active] * y[active]
+                ))],
+                "hessian": [[float(2.0 * np.sum(sample_weights[active]))]],
+            }
+            continue
 
         # Augment with an intercept column so gradient and Hessian are
         # with respect to (w, b).
@@ -562,6 +640,7 @@ def partial_svm(
         }
 
     return {
+        "organization_id": organization_id,
         "jobs": results,
     }
 
@@ -581,6 +660,7 @@ def partial_evaluate(
     n_folds=5,
     random_seed=42,
     min_samples=5,
+    min_cohort_samples=5,
     score_bins=None,
     sample_column="sample_label",
     value_column="beta",
@@ -617,6 +697,8 @@ def partial_evaluate(
     IDs only).
     """
 
+    dropped = []
+
     prepared = _prepare(
         df1,
         features,
@@ -626,10 +708,16 @@ def partial_evaluate(
         sample_column,
         value_column,
         allow_missing=allow_missing_features,
+        min_cohort_samples=min_cohort_samples,
+        dropped=dropped,
     )
 
     if isinstance(prepared, dict):
-        return {**prepared, "organization_id": _organization_id()}
+        return {
+            **prepared,
+            "organization_id": _organization_id(),
+            "cohorts_below_minimum": [str(label) for label in dropped],
+        }
 
     if allow_missing_features:
         X, labels, missing = prepared
@@ -789,5 +877,8 @@ def partial_evaluate(
         results[job["id"]] = result
 
     return {
+        "organization_id": organization_id,
+        # Cohorts left out at this hospital (fewer than min_cohort_samples)
+        "cohorts_below_minimum": [str(label) for label in dropped],
         "jobs": results,
     }
