@@ -203,6 +203,8 @@ def execute_cohort_generation(
             connection=connection,
             cohort_database_schema=config.results_schema,
             cohort_table_names=table_names,
+            # Otherwise the tables are dropped and recreated, losing every other cohort.
+            incremental=True,
         )
 
         existing_rows = _get_existing_cohort_row_count(

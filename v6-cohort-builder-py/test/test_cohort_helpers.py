@@ -425,6 +425,8 @@ def test_execute_cohort_generation_uses_ohdsi_wrappers_and_returns_count(monkeyp
     assert calls[3][1]["connection"].__class__ is FakeConnection
     assert calls[3][1]["cohort_database_schema"] == "results"
     assert calls[3][1]["cohort_table_names"] == {"cohort": "cohort"}
+    # Without incremental, CohortGenerator drops the tables and every other cohort with them.
+    assert calls[3][1]["incremental"] is True
     assert calls[4][0] == "execute"
     assert "results.cohort" in calls[4][1]
     assert "cohort_definition_id = 55" in calls[4][1]
