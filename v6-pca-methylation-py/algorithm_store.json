@@ -1,6 +1,6 @@
 {
   "name": "Methylation PCA",
-  "image": "localhost:32000/protect-child/pca-methylation:1.0.5",
+  "image": "localhost:32000/protect-child/pca-methylation:1.1.0",
   "vantage6_version": "5.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms",
   "documentation_url": "",
@@ -98,6 +98,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort per hospital",
+          "has_default_value": true,
+          "default_value": 5,
+          "is_frontend_only": false,
+          "description": "A cohort with fewer samples than this at a hospital is left out of the PCA there, as in the Elastic Net and the SVM (default 5). Set 1 to keep every sample."
         },
         {
           "name": "outlier_sd",
@@ -337,6 +346,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort per hospital",
+          "has_default_value": true,
+          "default_value": 5,
+          "is_frontend_only": false,
+          "description": "Cohorts with fewer samples at this hospital are left out"
         }
       ]
     },
@@ -421,6 +439,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort per hospital",
+          "has_default_value": true,
+          "default_value": 5,
+          "is_frontend_only": false,
+          "description": "Cohorts with fewer samples at this hospital are left out"
         }
       ]
     },
@@ -530,6 +557,15 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": 5
+        },
+        {
+          "name": "min_cohort_samples",
+          "type": "integer",
+          "display_name": "Minimum samples per cohort per hospital",
+          "has_default_value": true,
+          "default_value": 5,
+          "is_frontend_only": false,
+          "description": "Cohorts with fewer samples at this hospital are left out"
         }
       ]
     }

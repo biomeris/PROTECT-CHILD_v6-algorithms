@@ -41,6 +41,7 @@ DEFAULT_FEATURES = 1000
 SIGNIFICANCE = 0.05
 # A group of one sample would return that sample's own scores
 MIN_SAMPLES_FLOOR = 3
+DEFAULT_MIN_COHORT_SAMPLES = 5
 
 VARIANCE_COLUMNS = [
     "component", "explained_variance_ratio", "cumulative_ratio",
@@ -58,7 +59,7 @@ GROUP_COLUMNS = ["organization_id", "cohort", "component", "n", "mean", "sd"]
 LOADING_COLUMNS = ["component", "rank", "probe_id", "weight", "correlation"]
 HOSPITAL_COLUMNS = [
     "organization_id", "status", "n_samples", "n_cpgs_complete",
-    "n_outliers", "suppressed_cohorts", "p_exceeds_n",
+    "n_outliers", "suppressed_cohorts", "cohorts_left_out", "p_exceeds_n",
 ]
 
 
@@ -370,6 +371,7 @@ def central(
     outlier_sd: float = 3.0,
     top_cpgs: int = 10,
     organizations_to_include: list | None = None,
+    min_cohort_samples: int = 5,
 ) -> dict:
     """
     Federated PCA of methylation values (see ``_central`` for the
@@ -389,6 +391,7 @@ def central(
         cohorts=cohorts, sample_column=sample_column, value_column=value_column,
         min_samples=min_samples, outlier_sd=outlier_sd, top_cpgs=top_cpgs,
         organizations_to_include=organizations_to_include,
+        min_cohort_samples=min_cohort_samples,
     )
 
     if "error" in result:
@@ -416,6 +419,7 @@ def _central(
     outlier_sd: float = 3.0,
     top_cpgs: int = 10,
     organizations_to_include: list | None = None,
+    min_cohort_samples: int = 5,
 ) -> dict:
     """
     Federated PCA of methylation values, for quality control and to check
@@ -446,12 +450,18 @@ def _central(
         reported component is counted as an outlier at its hospital.
     top_cpgs:
         CpGs with the largest loadings listed per component.
+    min_cohort_samples:
+        A cohort with fewer samples than this at a hospital is left out of
+        the PCA there (default 5; blank or 0 uses the default), as in the
+        Elastic Net and the SVM, so the PCA sees the same samples. Set 1 to
+        keep every sample (e.g. for quality control of all samples).
     """
 
     cohort_column = cohort_column or None
     with_cohort = cohort_column is not None
     n_features = int(n_features or DEFAULT_FEATURES)
     n_components = int(n_components or 5)
+    min_cohort_samples = int(min_cohort_samples or DEFAULT_MIN_COHORT_SAMPLES)
 
     if not 2 <= n_features <= MAX_FEATURES:
         return {"error": f"n_features must be between 2 and {MAX_FEATURES}"}
@@ -478,6 +488,7 @@ def _central(
         "sample_column": sample_column,
         "value_column": value_column,
         "min_samples": int(min_samples),
+        "min_cohort_samples": min_cohort_samples,
     }
     status = {}
 
@@ -653,6 +664,16 @@ def _central(
     if p_exceeds_n:
         n_small = sum(bool(reply.get("p_exceeds_n")) for reply in scatters.values())
         notes.append(f"Warning: more CpGs than patients in {n_small} of {len(scatters)} hospitals.")
+    left_out = [
+        f"{cohort} at organization {org_id}"
+        for org_id, reply in moments.items()
+        for cohort in reply.get("cohorts_left_out", [])
+    ]
+    if left_out:
+        notes.append(
+            f"Left out (fewer than {min_cohort_samples} samples of the cohort at the "
+            "hospital): " + ", ".join(left_out) + "."
+        )
     n_outliers = sum(reply["n_outliers"] for reply in scores.values())
     if n_outliers:
         notes.append(
@@ -676,6 +697,7 @@ def _central(
             "value_column": value_column,
             "scaled": bool(scale),
             "min_samples": int(min_samples),
+            "min_cohort_samples": min_cohort_samples,
         }],
         # For reuse (e.g. projecting new samples); aggregates only
         "pca_model": {
@@ -702,6 +724,7 @@ def _hospital_rows(org_ids, status, moments, scatters, scores):
             "n_cpgs_complete": len(moments[org_id]["probes"]) if org_id in moments else None,
             "n_outliers": reply.get("n_outliers"),
             "suppressed_cohorts": ", ".join(reply.get("suppressed", [])),
+            "cohorts_left_out": ", ".join(moments.get(org_id, {}).get("cohorts_left_out", [])),
             "p_exceeds_n": scatters.get(org_id, {}).get("p_exceeds_n"),
         })
 

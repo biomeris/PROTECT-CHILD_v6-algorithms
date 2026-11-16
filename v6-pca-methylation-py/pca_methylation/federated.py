@@ -65,11 +65,14 @@ def decode_array(encoded):
 # ---------------------------------------------------------------------
 
 def _local_long(df, cohort_column, cohorts, sample_column, value_column,
-                min_samples):
+                min_samples, min_cohort_samples=0):
     """
     The long data of the samples in the analysis, with one cohort per
-    sample. Returns ``(long, samples)`` where ``samples`` maps each sample to
-    its cohort, or an error dictionary.
+    sample. Returns ``(long, samples, left_out)`` where ``samples`` maps each
+    sample to its cohort and ``left_out`` names the cohorts with fewer than
+    ``min_cohort_samples`` samples here, which are left out (as in the
+    Elastic Net and the SVM, so the PCA sees the same samples); or an error
+    dictionary.
     """
 
     if df is None or df.empty:
@@ -106,17 +109,26 @@ def _local_long(df, cohort_column, cohorts, sample_column, value_column,
     if cohorts:
         samples = samples[samples.isin([str(cohort) for cohort in cohorts])]
 
+    left_out = []
+    if cohort_column and min_cohort_samples:
+        sizes = samples.value_counts()
+        left_out = sorted(sizes[sizes < int(min_cohort_samples)].index)
+        if left_out:
+            warn(f"Cohort(s) {left_out} have fewer than {min_cohort_samples} samples "
+                 "here and are left out")
+            samples = samples[~samples.isin(left_out)]
+
     if len(samples) < min_samples:
         warn(f"{len(samples)} samples < min_samples={min_samples}: skipped")
         return {"error": f"insufficient samples (< {min_samples})"}
 
     long = df[df[sample_column].isin(samples.index)]
 
-    return long, samples
+    return long, samples, left_out
 
 
 def _local_matrix(df, features, cohort_column, cohorts, sample_column,
-                  value_column, min_samples):
+                  value_column, min_samples, min_cohort_samples=0):
     """
     One row per sample and one column per requested CpG (in the given
     order), and the cohort of each row. Returns ``(X, cohorts)`` or an
@@ -124,13 +136,14 @@ def _local_matrix(df, features, cohort_column, cohorts, sample_column,
     """
 
     prepared = _local_long(
-        df, cohort_column, cohorts, sample_column, value_column, min_samples
+        df, cohort_column, cohorts, sample_column, value_column, min_samples,
+        min_cohort_samples,
     )
 
     if isinstance(prepared, dict):
         return prepared
 
-    long, samples = prepared
+    long, samples, _ = prepared
     long = long[long[PROBE_COLUMN].isin(features)]
 
     wide = long.pivot(
@@ -190,6 +203,7 @@ def probe_moments(
     sample_column: str = "sample_label",
     value_column: str = "beta",
     min_samples: int = 5,
+    min_cohort_samples: int = 5,
 ) -> dict:
     """
     Round 1: count, sum and sum of squares of each CpG over the local
@@ -203,13 +217,14 @@ def probe_moments(
     info("PCA methylation: probe_moments")
 
     prepared = _local_long(
-        df1, cohort_column, cohorts, sample_column, value_column, min_samples
+        df1, cohort_column, cohorts, sample_column, value_column, min_samples,
+        min_cohort_samples,
     )
 
     if isinstance(prepared, dict):
         return prepared
 
-    long, samples = prepared
+    long, samples, left_out = prepared
 
     if features:
         long = long[long[PROBE_COLUMN].isin(features)]
@@ -235,6 +250,8 @@ def probe_moments(
         "probes": complete.index.astype(str).tolist(),
         "sum": encode_array(complete["sum"].to_numpy(dtype=float)),
         "sumsq": encode_array(complete["sumsq"].to_numpy(dtype=float)),
+        # Cohorts left out here (fewer than min_cohort_samples), names only
+        "cohorts_left_out": [str(cohort) for cohort in left_out],
     }
 
 
@@ -250,6 +267,7 @@ def partial_scatter(
     sample_column: str = "sample_label",
     value_column: str = "beta",
     min_samples: int = 5,
+    min_cohort_samples: int = 5,
 ) -> dict:
     """
     Round 2: Z^T Z for the selected CpGs, where Z is the local data centred
@@ -262,7 +280,7 @@ def partial_scatter(
 
     prepared = _local_matrix(
         df1, features, cohort_column, cohorts, sample_column, value_column,
-        min_samples,
+        min_samples, min_cohort_samples,
     )
 
     if isinstance(prepared, dict):
@@ -305,6 +323,7 @@ def partial_scores(
     value_column: str = "beta",
     min_samples: int = 5,
     outlier_sd: float = 3.0,
+    min_cohort_samples: int = 5,
 ) -> dict:
     """
     Round 3: project the local samples on the components and return only
@@ -321,7 +340,7 @@ def partial_scores(
 
     prepared = _local_matrix(
         df1, features, cohort_column, cohorts, sample_column, value_column,
-        min_samples,
+        min_samples, min_cohort_samples,
     )
 
     if isinstance(prepared, dict):

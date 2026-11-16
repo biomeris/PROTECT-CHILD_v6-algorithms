@@ -63,6 +63,7 @@ then also a comparison of hospitals.
 | `cohorts` | all | cohorts to include |
 | `value_column` | `beta` | or `m_value` |
 | `min_samples` | 5 | privacy threshold per hospital and per hospital × cohort; at least 3 (also enforced at the hospitals). If the hidden cohorts at a hospital add up to fewer samples, the next smallest cohort is hidden too |
+| `min_cohort_samples` | 5 | a cohort with fewer samples at a hospital is left out of the PCA there (as in the Elastic Net and SVM, so the PCA sees the same samples); listed in the Hospitals table (`cohorts_left_out`) and the summary. Set 1 to keep every sample, e.g. for quality control of all samples |
 | `outlier_sd` | 3 | outlier threshold in SDs of a component |
 | `top_cpgs` | 10 | CpGs listed per component |
 | `organizations_to_include` | all | hospitals |

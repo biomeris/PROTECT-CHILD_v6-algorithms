@@ -108,7 +108,8 @@ def run(nodes, **arguments):
         with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
             task = client.task.create(
                 method="central",
-                arguments={"min_samples": MIN_SAMPLES, **arguments},
+                # Every cohort kept unless a test sets min_cohort_samples
+                arguments={"min_samples": MIN_SAMPLES, "min_cohort_samples": 1, **arguments},
                 organizations=[org_ids[0]],
                 databases=[{"type": "dataframe", "dataframe_id": client.dataframe.list()[0]["id"]}],
             )
@@ -309,5 +310,19 @@ check(not single_variance["separable"].any(), "separable is false")
 check(single_variance["main_factor"].str.startswith("not separable").all(), "main factor says not separable")
 check(single_variance["r2_hospital_beyond_cohort"].isna().all(), "no hospital-beyond-cohort R2")
 check("cannot be separated" in single["summary"], "summary explains it")
+
+
+print("\n[8] Minimum samples per cohort per hospital (as in the Elastic Net and SVM)")
+left, org_ids = run(nodes, n_features=100, n_components=2, min_cohort_samples=5)
+hospital_rows = pd.DataFrame(left["hospitals"]).set_index("organization_id")
+expected_left = {
+    org_ids[h]: ", ".join(sorted(c for c, n in layout if n < 5))
+    for h, layout in enumerate(LAYOUT)
+}
+check(hospital_rows["cohorts_left_out"].to_dict() == expected_left,
+      f"cohorts with fewer than 5 samples are left out at their hospital {expected_left}")
+check(left["input"][0]["n_samples"] == sum(n for layout in LAYOUT for _, n in layout if n >= 5),
+      "the PCA uses only the remaining samples")
+check("Left out (fewer than 5 samples of the cohort" in left["summary"], "the summary names them")
 
 print("\nPASS: federated methylation PCA")
