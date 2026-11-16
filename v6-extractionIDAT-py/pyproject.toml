@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "extractionIDAT"
-version = "2.3.0"
+version = "2.4.0"
 description = "Extraction of IDAT files into Beta and M values"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -13,6 +13,7 @@ dependencies = [
   "numpy",
   "pandas",
   "pylluminator>=2.2,<3",
+  "psycopg[binary]>=3.1,<4",
 ]
 authors = [
     # TODO add authors

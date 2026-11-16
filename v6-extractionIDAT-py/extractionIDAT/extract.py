@@ -23,6 +23,8 @@ from pylluminator.samples import read_samples
 from vantage6.algorithm.decorator.action import data_extraction
 from vantage6.algorithm.tools.util import info, warn, error
 
+from .omop_link import OmopLinkError, cohort_sample_labels
+
 IDAT_SUFFIX = ".idat"
 SAMPLE_SHEET_NAMES = ("samplesheet.csv", "sample_sheet.csv")
 OUTPUT_COLUMNS = ["probe_id", "sample_label", "cohort", "beta", "m_value",
@@ -417,6 +419,7 @@ def data_extraction_function(
     min_beads: int = 1,
     qc_flag_fraction: float = DEFAULT_QC_FLAG_FRACTION,
     infer_type1_channel: bool = False,
+    omop_cohort_id: int | None = None,
 ) -> Any:
     """Read the node's IDAT folder into a long table of Beta and M values.
 
@@ -433,6 +436,10 @@ def data_extraction_function(
       cohort in the log
     - infer_type1_channel: infer the colour channel of type I probes from the signal
       before the other steps (SeSAMe's recommended step for EPIC); off by default
+    - omop_cohort_id: only the samples of the patients in this OMOP cohort (e.g. made
+      by v6-cohort-builder-py), linked through the OMOP SPECIMEN table; empty or 0 =
+      all samples. Needs the OMOP connection in the IDAT database's node settings
+      (see omop_link.py)
     """
     return extraction_impl(
         connection_details,
@@ -443,7 +450,31 @@ def data_extraction_function(
         min_beads=min_beads,
         qc_flag_fraction=qc_flag_fraction,
         infer_type1_channel=infer_type1_channel,
+        omop_cohort_id=omop_cohort_id,
     )
+
+
+def select_cohort_samples(metadata: pd.DataFrame, connection_details: dict,
+                          omop_cohort_id: int) -> pd.DataFrame:
+    """Keep the samples of the OMOP cohort's patients. Logs counts only."""
+    try:
+        labels = cohort_sample_labels(connection_details, omop_cohort_id)
+    except OmopLinkError as exc:
+        error(str(exc))
+        raise
+    keep = metadata["sample_label"].astype(str).isin(labels)
+    n_without_idat = len(labels - set(metadata["sample_label"].astype(str)))
+    info(f"OMOP cohort {omop_cohort_id}: {int(keep.sum())} of {len(metadata)} samples at this "
+         "hospital belong to it")
+    if n_without_idat:
+        warn(f"OMOP cohort {omop_cohort_id}: {n_without_idat} of its samples have no IDAT files here")
+    if not keep.any():
+        raise ValueError(
+            f"No sample at this hospital belongs to OMOP cohort {omop_cohort_id} (its patients "
+            "have no specimen whose specimen_source_id matches an IDAT sample here). Check the "
+            "cohort id, and that the cohort was generated at this hospital."
+        )
+    return metadata[keep].reset_index(drop=True)
 
 
 def extraction_impl(
@@ -456,6 +487,7 @@ def extraction_impl(
     min_beads: int = 1,
     qc_flag_fraction: float = DEFAULT_QC_FLAG_FRACTION,
     infer_type1_channel: bool = False,
+    omop_cohort_id: int | None = None,
 ) -> pd.DataFrame:
     """Undecorated implementation for local testing (`idat_dir` overrides the URI).
 
@@ -465,6 +497,9 @@ def extraction_impl(
     """
     folder = resolve_idat_folder(connection_details, idat_dir)
     metadata = sample_metadata(folder, cohort_column, sample_sheet_name, sample_columns)
+    # The web interface sends an empty integer field as 0: all samples
+    if omop_cohort_id:
+        metadata = select_cohort_samples(metadata, connection_details, int(omop_cohort_id))
     beta, m_values, qc = methylation_values(
         folder, metadata["sample_label"].tolist(), pvalue_threshold, min_beads, qc_flag_fraction,
         infer_type1_channel, cohorts=dict(zip(metadata["sample_label"], metadata["cohort"])),

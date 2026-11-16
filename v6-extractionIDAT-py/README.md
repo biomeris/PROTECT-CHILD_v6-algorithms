@@ -79,6 +79,44 @@ Two more functions use these columns:
 | `min_beads` | `1` | Minimum number of beads per probe |
 | `qc_flag_fraction` | `0.1` | Samples with more than this share of probes failing detection are flagged (`qc_flagged`; kept) |
 | `infer_type1_channel` | `false` | Infer the colour channel of type I probes from the signal before the other steps (SeSAMe's `inferInfiniumIChannel`, recommended for EPIC) |
+| `omop_cohort_id` | none | Only the samples of the patients in this OMOP cohort (see below); empty or 0 = all samples |
+
+### Samples of an OMOP cohort (`omop_cohort_id`)
+
+A cohort defined on clinical data, e.g. with `v6-cohort-builder-py` from an ATLAS
+definition, is stored in the hospital's OMOP database as patients (`results.cohort`).
+The OMOP **SPECIMEN** table links each sample to its patient, with the sample's label
+(the IDAT name, e.g. `GSM9870086_209147150028_R02C01`) in `specimen_source_id`. With
+`omop_cohort_id`, the extraction reads, inside the hospital,
+
+    SELECT s.specimen_source_id FROM results.cohort c
+    JOIN cdm.specimen s ON s.person_id = c.subject_id
+    WHERE c.cohort_definition_id = <omop_cohort_id>
+
+and extracts only those samples. The log has counts only ("6 of 17 samples at this
+hospital belong to it"); no identifier leaves the hospital. A cohort with no sample at
+a hospital stops that hospital's extraction with the reason.
+
+vantage6 gives an extraction step only the database it runs on, so the node
+administrator adds a read-only OMOP connection to the IDAT database's settings:
+
+```yaml
+- name: idat
+  type: folder
+  ...
+  env:
+    omop_uri: jdbc:postgresql://<host>[:port]
+    omop_database: <database>
+    omop_user: <read-only user: SELECT on cdm.specimen and results.cohort>
+    omop_password: <password>
+    omop_cdm_schema: cdm
+    omop_results_schema: results
+```
+
+Tested in the sandbox: cohort builder (hepatic or lipid profile, 6 / 10 / 11 patients) ->
+`v6-omop-data-extraction` (clinical variables) -> this extraction with
+`omop_cohort_id`, which extracted exactly those 6 / 10 / 11 samples. The link through
+SPECIMEN is a proposal to agree with the OMOP partners (Deusto, Biomeris).
 
 ### Output
 

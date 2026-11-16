@@ -1,6 +1,6 @@
 {
   "name": "extractionIDAT",
-  "image": "localhost:32000/protect-child/extraction-idat:2.3.0",
+  "image": "localhost:32000/protect-child/extraction-idat:2.4.0",
   "vantage6_version": "5.0",
   "code_url": "https://mygitrepo.org",
   "documentation_url": "",
@@ -77,6 +77,15 @@
           "description": "SeSAMe's recommended step for EPIC: set each type I probe's channel to the one with the higher signal, before the other steps. Off by default.",
           "default_value": false,
           "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "omop_cohort_id",
+          "type": "integer",
+          "display_name": "OMOP cohort (optional)",
+          "description": "Only the samples of the patients in this OMOP cohort (e.g. made with the cohort builder), linked through the OMOP SPECIMEN table. Empty = all samples. The node must have the OMOP connection in its IDAT database settings.",
+          "has_default_value": true,
+          "default_value": null,
           "is_frontend_only": false
         }
       ],

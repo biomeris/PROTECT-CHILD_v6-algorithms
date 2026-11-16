@@ -359,4 +359,66 @@ expect_error(
 with tempfile.TemporaryDirectory() as tmp:
     expect_error(lambda: extraction_impl({"uri": tmp}), "No IDAT files", "folder without IDATs raises")
 
+
+print("\n[OMOP] Samples of an OMOP cohort (linked through SPECIMEN)")
+import extractionIDAT.extract as extract_module  # noqa: E402
+from extractionIDAT import omop_link  # noqa: E402
+
+settings = {"OMOP_URI": "jdbc:postgresql://omop-postgres.omop.svc.cluster.local:5433",
+            "OMOP_DATABASE": "epi_node1", "OMOP_USER": "reader", "OMOP_PASSWORD": "secret",
+            "OMOP_CDM_SCHEMA": "cdm", "OMOP_RESULTS_SCHEMA": "results"}
+parsed = omop_link.omop_settings(settings)
+check(parsed["host"] == "omop-postgres.omop.svc.cluster.local" and parsed["port"] == 5433
+      and parsed["dbname"] == "epi_node1", "the JDBC address gives host, port and database")
+expect_error(lambda: omop_link.omop_settings({"uri": "/data/idat"}), "omop_uri",
+             "without the OMOP settings the error says what the node administrator must add")
+
+
+class _FakeCursor:
+    executed = []
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def execute(self, query, params): _FakeCursor.executed.append((query, params))
+    def fetchall(self): return [("6264509100_R01C02",), ("not_here",)]
+
+
+class _FakeConnection:
+    def __init__(self, **kwargs): self.kwargs = kwargs
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def cursor(self): return _FakeCursor()
+
+
+labels = omop_link.cohort_sample_labels(settings, 7, connect=_FakeConnection)
+query, params = _FakeCursor.executed[-1]
+text = query.as_string(None) if hasattr(query, "as_string") else str(query)
+check(labels == {"6264509100_R01C02", "not_here"} and params == (7,)
+      and '"results".cohort' in text and '"cdm".specimen' in text and "specimen_source_id" in text,
+      "the cohort's samples come from results.cohort joined to cdm.specimen (cohort id as a parameter)")
+
+original = extract_module.cohort_sample_labels
+extract_module.cohort_sample_labels = lambda details, cohort_id: {"6264509100_R01C02", "elsewhere_1"}
+try:
+    out, log = None, io.StringIO()
+    with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+        out = extraction_impl({}, idat_dir=str(current_path / "Hospital A"), omop_cohort_id=7)
+    check(sorted(out["sample_label"].unique()) == ["6264509100_R01C02"],
+          "omop_cohort_id: only the cohort's sample is extracted")
+    # QC removes probes failing in any extracted sample, so compare the shared probes
+    both = out.merge(extracted["Hospital A"].query("sample_label == '6264509100_R01C02'"),
+                     on=["probe_id", "sample_label"], suffixes=("", "_all"))
+    check(len(both) > 0.9 * len(out) and np.allclose(both["beta"].astype(float), both["beta_all"].astype(float),
+                                                     equal_nan=True, atol=1e-6),
+          f"its values equal those of the full extraction on the shared probes ({len(both):,})")
+    check("1 of 2 samples" in log.getvalue() and "1 of its samples have no IDAT" in log.getvalue()
+          and "elsewhere_1" not in log.getvalue(), "the log has counts only, no sample labels")
+    extract_module.cohort_sample_labels = lambda details, cohort_id: set()
+    expect_error(lambda: extraction_impl({}, idat_dir=str(current_path / "Hospital A"), omop_cohort_id=8),
+                 "No sample at this hospital", "a cohort without samples here fails with the reason")
+    extract_module.cohort_sample_labels = lambda details, cohort_id: (_ for _ in ()).throw(AssertionError("called"))
+    zero = extraction_impl({}, idat_dir=str(current_path / "Hospital A"), omop_cohort_id=0)
+    check(zero["sample_label"].nunique() == 2, "omop_cohort_id 0 (an empty field) extracts every sample, without OMOP")
+finally:
+    extract_module.cohort_sample_labels = original
+
 print("\nAll checks passed.")
