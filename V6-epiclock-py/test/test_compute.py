@@ -754,4 +754,123 @@ for args, text in (((ONLY_LISTED, [], None), "no clock is listed"),
         check(text in str(exc), f"clear error: {exc}")
 check(len(CLOCK_SETS) == 7 and CLOCK_SETS[0] == DEFAULT_SET, "seven clock sets, the default first")
 
+
+print("\n[11] Cohort comparison, age-adjusted comparison, distribution, calibration (1.6.0)")
+from scipy import stats as _stats  # noqa: E402
+from statsmodels.stats.multitest import multipletests  # noqa: E402
+import statsmodels.api as sm  # noqa: E402
+from epiclock_v5.central import (  # noqa: E402
+    age_adjusted_comparison, benjamini_hochberg, choose_reference, comparison_notes,
+    pooled_calibration, pooled_distribution, welch_comparison,
+)
+from epiclock_v5.federated import binned_counts  # noqa: E402
+
+p_test = [0.01, 0.04, None, 0.03, 0.5]
+check(np.allclose([v for v in benjamini_hochberg(p_test) if v is not None],
+                  multipletests([0.01, 0.04, 0.03, 0.5], method="fdr_bh")[1])
+      and benjamini_hochberg(p_test)[2] is None, "Benjamini-Hochberg equals statsmodels")
+
+ref_cohort = choose_reference(list(pooled["cohort"].unique()), None)
+welch = welch_comparison(pooled, ref_cohort)
+ok = len(welch) == len(CLOCKS) * (pooled["cohort"].nunique() - 1)
+for _, row in welch.iterrows():
+    a = per_sample.query("clock == @row.clock and cohort == @row.cohort")["acceleration"]
+    b = per_sample.query("clock == @row.clock and cohort == @ref_cohort")["acceleration"]
+    test = _stats.ttest_ind(a, b, equal_var=False)
+    ci = test.confidence_interval()
+    ok &= bool(np.isclose(row["difference"], a.mean() - b.mean()) and np.isclose(row["p_value"], test.pvalue)
+               and np.isclose(row["ci_low"], ci.low) and np.isclose(row["ci_high"], ci.high))
+for cohort, group in welch.groupby("cohort"):
+    ok &= bool(np.allclose(group["p_adjusted"], multipletests(group["p_value"], method="fdr_bh")[1]))
+check(ok, f"Welch comparison of the age acceleration (vs {ref_cohort}) equals scipy on the samples; BH per cohort")
+
+adjusted = age_adjusted_comparison(node_results_frame([s.to_dict(orient="records") for s in node_aged]),
+                                   ref_cohort)
+ok = len(adjusted) == len(welch)
+for clk, group in per_sample.groupby("clock"):
+    others = sorted(c for c in group["cohort"].unique() if c != ref_cohort)
+    X = np.column_stack([np.ones(len(group)), group["real"]]
+                        + [(group["cohort"] == c).astype(float) for c in others])
+    fit = sm.OLS(group["predicted"].to_numpy(), X).fit()
+    ci = fit.conf_int()
+    for j, cohort in enumerate(others, start=2):
+        row = adjusted.query("clock == @clk and cohort == @cohort").iloc[0]
+        ok &= bool(np.isclose(row["difference"], fit.params[j]) and np.isclose(row["p_value"], fit.pvalues[j])
+                   and np.isclose(row["ci_low"], ci[j, 0]) and np.isclose(row["ci_high"], ci[j, 1])
+                   and np.isclose(row["age_slope"], fit.params[1]))
+check(ok, "age-adjusted comparison (predicted ~ age + cohort) equals OLS on the samples, from node aggregates only")
+
+bins, hidden = binned_counts(pd.Series([1.0, 1.5, 2.2, 2.4, 2.9, 3.1, 3.5, 3.9, 9.0]), 2.0, 3)
+check(bins == [{"bin_start": 2.0, "n": 6}] and hidden == 3,
+      "binned counts: only bins with at least the minimum, and how many are not shown")
+
+# Node results with bins pooled centrally equal the per-sample counts of the bins each
+# hospital could report
+node_out = [quiet(federated_impl, df, CLOCKS, min_samples=MIN_SAMPLES, bin_width=10.0, min_bin_count=3)[0]
+            for df in aged_nodes]
+node_dicts = [{"distribution": n.attrs["distribution"], "calibration": n.attrs["calibration"]} for n in node_out]
+distribution = pooled_distribution(node_dicts, 10.0)
+calibration = pooled_calibration(node_dicts, 10.0)
+expected_counts, expected_cal = {}, {}
+for df in aged_nodes:
+    predicted = quiet(reference_sample_ages, df, CLOCKS)[0]
+    real = df.groupby("sample_label")["age"].first()
+    for clk in CLOCKS:
+        for cohort, g in predicted.groupby("cohort"):
+            counts = (np.floor(g[clk] / 10) * 10).value_counts()
+            for start, n in counts[counts >= 3].items():
+                key = (cohort, clk, float(start))
+                expected_counts[key] = expected_counts.get(key, 0) + int(n)
+        both = pd.DataFrame({"p": predicted[clk], "a": real.reindex(predicted.index)}).dropna()
+        for start, g in both.groupby(np.floor(both["a"] / 10) * 10):
+            if len(g) >= 3:
+                acc = expected_cal.setdefault((clk, float(start)), [0, 0.0, 0.0])
+                acc[0] += len(g); acc[1] += g["p"].sum(); acc[2] += g["a"].sum()
+got = {(r.cohort, r.clock, r.bin_start): r.n for r in distribution.query("measure == 'predicted_age'").itertuples()}
+check(got == expected_counts and len(got) > 0, f"pooled distribution of the predicted age ({len(got)} bins) equals the per-hospital counts")
+totals = distribution.groupby(["cohort", "clock", "measure"]).agg(n=("n", "sum"), total=("n_total", "first"),
+                                                                 hidden=("n_not_shown", "first"))
+check(((totals["n"] + totals["hidden"]) == totals["total"]).all(),
+      "shown + not shown = all samples, per cohort, clock and measure")
+check(set(distribution["measure"]) == {"predicted_age", "age_acceleration"}, "age acceleration is binned too")
+got_cal = {(r.clock, r.age_bin_start): (r.n, r.mean_predicted_age, r.mean_chronological_age)
+           for r in calibration.itertuples()}
+check(len(got_cal) == len(expected_cal) > 0 and all(
+          got_cal[k][0] == v[0] and np.isclose(got_cal[k][1], v[1] / v[0]) and np.isclose(got_cal[k][2], v[2] / v[0])
+          for k, v in expected_cal.items()),
+      f"calibration ({len(got_cal)} clock x age bins): mean predicted age per age bin equals the samples")
+try:
+    federated_impl(aged_nodes[0], CLOCKS, min_samples=MIN_SAMPLES, bin_width=-1)
+    check(False, "a negative bin_width is rejected (0, a blank field, uses the default)")
+except ValueError:
+    check(True, "a negative bin_width is rejected (0, a blank field, uses the default)")
+
+confounded = pd.DataFrame({"cohort": ["x", "y"], "organization_id": [1, 2]})
+notes = comparison_notes(confounded, "x", pd.DataFrame({"cohort": ["y"]}), pd.DataFrame({"cohort": ["y"]}))
+check(any("single, different hospital" in n for n in notes), "a note when each compared cohort is at one hospital")
+check(not any("single, different hospital" in n
+              for n in comparison_notes(node_results_frame([{"organization_id": i + 1, "results": s.to_dict("records")}
+                                                            for i, s in enumerate(node_aged)]),
+                                        ref_cohort, welch, adjusted)),
+      "no such note when cohorts share hospitals")
+
+# End to end, with ages, through the mock network
+aged_network = MockNetwork(datasets=[{DATABASE_LABEL: {"database": df}} for df in aged_nodes],
+                           module_name="epiclock_v5")
+aged_client = aged_network.user_client
+aged_task = aged_client.task.create(
+    method="central_function",
+    arguments={"lista_relojes": CLOCKS, "min_samples": MIN_SAMPLES, "bin_width": 10, "min_bin_count": 3,
+               "reference_cohort": "cohort_B"},
+    organizations=[aged_network.organization_ids[0]],
+    databases=[{"type": "dataframe", "dataframe_id": aged_client.dataframe.list()[0]["id"]}],
+)
+aged_result = quiet(aged_client.wait_for_results, aged_task["id"])[0][0]
+json.dumps(aged_result)
+check(aged_result["reference_cohort"] == "cohort_B"
+      and {r["cohort"] for r in aged_result["cohort_comparison"]} == {"cohort_A", "cohort_C"}
+      and len(aged_result["age_adjusted_comparison"]) == 2 * len(CLOCKS)
+      and aged_result["distribution"] and aged_result["calibration"] and aged_result["summary"],
+      "central_function returns the comparisons (vs the chosen reference), distribution, calibration and notes")
+
 print("\nAll checks passed.")

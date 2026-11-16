@@ -6,6 +6,8 @@ The results in a return statement are sent to the vantage6 server (after
 encryption if that is enabled). From there, they are sent to the federated task
 or directly to the user (if they requested federated results).
 """
+import os
+
 import pandas as pd
 from typing import Any, List
 import numpy as np
@@ -14,12 +16,19 @@ import pyaging as pya
 from vantage6.algorithm.tools.util import info, warn, error
 from vantage6.algorithm.decorator.action import federated
 from vantage6.algorithm.decorator.data import dataframe
+from vantage6.common.globals import ContainerEnvNames
 
 from .clock_bundle import clock_cpgs
 from .epicv2 import adapt_long, default_legacy_map, to_clock_ids
 
 # Clocks calculated when the user does not choose any (pyaging clock names)
 DEFAULT_CLOCKS = ["horvath2013", "hannum", "pcphenoage", "pedbe"]
+
+# Distribution and calibration bins: width in years, and the minimum number of
+# samples a bin needs at a hospital to be reported (smaller bins are not
+# reported; only how many samples were not shown)
+DEFAULT_BIN_WIDTH = 2.0
+DEFAULT_MIN_BIN_COUNT = 5
 
 NODE_RESULT_COLUMNS = [
     "cohort", "clock", "n_samples", "mean_age", "sd_age", "coverage",
@@ -104,12 +113,77 @@ def predict_sample_ages(df_long: pd.DataFrame, lista_relojes: List[str]) -> pd.D
     return ages
 
 
+def binned_counts(values: pd.Series, width: float, min_count: int) -> tuple[list, int]:
+    """Counts of ``values`` in bins [k*width, (k+1)*width), only for bins with at
+    least ``min_count`` values, and how many values are in the bins not shown.
+
+    Fixed edges (multiples of ``width``), so the hospitals' counts add up. Without
+    the bins below ``min_count`` a reader cannot tell an empty bin from one with a
+    few patients, nor where the values not shown are."""
+    values = pd.to_numeric(values, errors="coerce").dropna()
+    starts = np.floor(values.to_numpy(dtype=float) / width) * width
+    counts = pd.Series(starts).value_counts().sort_index()
+    shown = counts[counts >= min_count]
+    return ([{"bin_start": float(b), "n": int(n)} for b, n in shown.items()],
+            int(len(values) - shown.sum()))
+
+
+def node_distribution(ages: pd.DataFrame, clocks: List[str], chronological: pd.Series | None,
+                      width: float, min_count: int, min_samples: int) -> list[dict]:
+    """Per cohort, clock and measure (predicted age; age acceleration if there are
+    ages): binned counts (see binned_counts) and the number of values not shown."""
+    rows = []
+    for cohort, cohort_ages in ages.groupby("cohort"):
+        for clk in clocks:
+            predicted = cohort_ages[clk].dropna()
+            if len(predicted) < min_samples:
+                continue
+            measures = {"predicted_age": predicted}
+            if chronological is not None:
+                real = chronological.reindex(predicted.index).dropna()
+                if len(real) >= min_samples:
+                    measures["age_acceleration"] = predicted.loc[real.index] - real
+            for measure, values in measures.items():
+                bins, hidden = binned_counts(values, width, min_count)
+                rows.append({"cohort": cohort, "clock": clk, "measure": measure,
+                             "n": int(len(values)), "n_not_shown": hidden, "bins": bins})
+    return rows
+
+
+def node_calibration(ages: pd.DataFrame, clocks: List[str], chronological: pd.Series | None,
+                     width: float, min_count: int) -> list[dict]:
+    """Per clock (all cohorts of this hospital) and chronological-age bin with at least
+    ``min_count`` samples: n, and the sums of the predicted age, its square and the
+    chronological age (the central step pools them into the mean predicted age per
+    age bin)."""
+    if chronological is None:
+        return []
+    rows = []
+    for clk in clocks:
+        predicted = ages[clk].dropna()
+        real = chronological.reindex(predicted.index).dropna()
+        if real.empty:
+            continue
+        predicted = predicted.loc[real.index]
+        starts = np.floor(real.to_numpy(dtype=float) / width) * width
+        for start, index in pd.Series(real.index, index=starts).groupby(level=0):
+            if len(index) < min_count:
+                continue
+            p = predicted.loc[index.to_numpy()].to_numpy(dtype=float)
+            rows.append({"clock": clk, "age_bin_start": float(start), "n": int(len(p)),
+                         "sum_predicted": float(p.sum()), "sumsq_predicted": float((p ** 2).sum()),
+                         "sum_chronological": float(real.loc[index.to_numpy()].sum())})
+    return rows
+
+
 def federated_impl(
     df1: pd.DataFrame,
     lista_relojes: List[str] | None = None,
     cohort_column: str = "cohort",
     min_samples: int = 3,
     age_column: str | None = "age",
+    bin_width: float = DEFAULT_BIN_WIDTH,
+    min_bin_count: int = DEFAULT_MIN_BIN_COUNT,
 ) -> pd.DataFrame:
     """
     Calculate per-cohort epigenetic age statistics on this node.
@@ -149,8 +223,14 @@ def federated_impl(
         The age fields are empty when fewer than ``min_samples`` samples have an
         age; the row is kept. ``.attrs["clock_coverage"]`` holds the coverage of each
         clock on this node (None if the clock failed to compute; failed clocks have
-        no rows).
+        no rows). ``.attrs["distribution"]`` and ``.attrs["calibration"]``: see
+        node_distribution and node_calibration (bins of ``bin_width`` years; bins
+        with fewer than ``min_bin_count`` samples are not reported).
     """
+    bin_width = float(bin_width or DEFAULT_BIN_WIDTH)
+    min_bin_count = int(min_bin_count or DEFAULT_MIN_BIN_COUNT)
+    if bin_width <= 0:
+        raise ValueError(f"bin_width must be positive, got {bin_width!r}")
     if not isinstance(min_samples, int) or isinstance(min_samples, bool) or min_samples < 2:
         raise ValueError(f"min_samples must be an integer of at least 2, got {min_samples!r}")
 
@@ -272,6 +352,10 @@ def federated_impl(
 
     summary = pd.DataFrame(rows, columns=NODE_RESULT_COLUMNS)
     summary.attrs["clock_coverage"] = coverage
+    summary.attrs["distribution"] = node_distribution(
+        ages, clocks_used, chronological, bin_width, min_bin_count, min_samples)
+    summary.attrs["calibration"] = node_calibration(
+        ages, clocks_used, chronological, bin_width, min_bin_count)
     summary.attrs["legacy_loci_mapping"] = ages.attrs["legacy_loci_mapping"]
     info(f"Node summary: {summary['cohort'].nunique()} cohort(s), {len(summary)} (cohort, clock) results")
     return summary
@@ -285,6 +369,8 @@ def federated_function(
     cohort_column: str = "cohort",
     min_samples: int = 3,
     age_column: str | None = "age",
+    bin_width: float = DEFAULT_BIN_WIDTH,
+    min_bin_count: int = DEFAULT_MIN_BIN_COUNT,
 ) -> Any:
     """
     Calculate per-cohort epigenetic age statistics on this node.
@@ -298,10 +384,14 @@ def federated_function(
     """
     summary = federated_impl(
         df1, lista_relojes, cohort_column=cohort_column, min_samples=min_samples,
-        age_column=age_column,
+        age_column=age_column, bin_width=bin_width, min_bin_count=min_bin_count,
     )
+    organization_id = os.environ.get(ContainerEnvNames.ORGANIZATION_ID.value)
     return {
+        "organization_id": int(organization_id) if organization_id not in (None, "") else None,
         "results": summary.to_dict(orient="records"),
+        "distribution": summary.attrs.get("distribution", []),
+        "calibration": summary.attrs.get("calibration", []),
         "clock_coverage": summary.attrs.get("clock_coverage", {}),
         "legacy_loci_mapping": summary.attrs.get("legacy_loci_mapping", False),
     }

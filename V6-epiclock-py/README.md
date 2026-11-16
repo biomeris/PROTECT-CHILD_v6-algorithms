@@ -41,6 +41,9 @@ EPIC v2 tables of ~870k probes.
 | `min_samples` | integer (>= 2) | `3` | Minimum number of samples a cohort needs on a node to be included |
 | `age_column` | string | `"age"` | Column with the chronological age; used to report the age acceleration (predicted minus chronological age). `null` skips it |
 | `organizations_to_include` | list of organization ids | all | `central_function` only: hospitals to use; empty = all |
+| `reference_cohort` | string | first alphabetically | `central_function` only: the cohort the others are compared with |
+| `bin_width` | float (years) | `2` | Width of the bins of the age distributions and of the chronological-age bins of the calibration (blank or 0 = 2) |
+| `min_bin_count` | integer (>= 3) | `5` | A bin with fewer samples at a hospital is not reported |
 
 If HQ refuses to create the per-hospital subtasks (e.g. the dataframe does not exist at one of the hospitals), the task stops at once with HQ's message instead of waiting.
 
@@ -116,6 +119,14 @@ writes the converted data if an output path is given.
 - The chronological age comparison follows the same threshold: if fewer than
   `min_samples` samples of a (cohort, clock) have an age, its age fields are empty
   (the row is kept; `n_with_age` says how many samples had an age).
+- Distributions are binned counts, not quartiles or minimum / maximum (the median
+  of 3 samples is a patient's age). A bin with fewer than `min_bin_count` samples
+  (default 5) at a hospital is not reported; the hospital only says how many of
+  its samples are in bins not shown, so an empty bin cannot be told from one with
+  a few patients, nor where those samples are. The same rule applies to the
+  calibration bins.
+- The cohort comparisons need no further data from the hospitals: they are
+  computed exactly from the N, means and SDs above.
 
 ### Output
 
@@ -163,6 +174,37 @@ nodes behind the comparison). A clock is accurate when its error
 is small and its correlation high; within a single cohort the age range is narrow,
 so the correlation per cohort is less informative than over all cohorts. Results
 from nodes running an earlier version pool as before, with these fields empty.
+
+`clock_coverage` also has the clock's `tissue`, `population`, `predicts` (what it
+estimates, e.g. chronological or biological age), `unit`, `year` and `citation`,
+from the clock bundle.
+
+**Cohort comparisons** (1.6.0), each cohort against `reference_cohort`:
+
+- `cohort_comparison`: difference in mean age acceleration (predicted minus
+  chronological age), 95% CI and Welch p-value, from the pooled N, mean and SD
+  (equal to a Welch test on all samples; tested against scipy).
+- `age_adjusted_comparison`: linear regression predicted age ~ chronological age +
+  cohort over all samples with an age, one common age slope (`age_slope`); the
+  cohort coefficient is the difference in predicted age at the same chronological
+  age. Fitted exactly from per-cohort sums rebuilt from the hospitals' N, means and
+  SDs (the covariance from `var_pred + var_real - var_accel = 2 cov`; tested
+  against OLS on the samples).
+- `p_adjusted`: Benjamini-Hochberg over the clocks, per cohort. The clocks are
+  correlated (shared CpGs, all estimate age), so several significant clocks are
+  not independent confirmations.
+- `summary` notes these caveats, and that a difference between cohorts may be a
+  difference between hospitals when each compared cohort comes from a single,
+  different hospital.
+
+**Distribution and calibration** (1.6.0):
+
+- `distribution`: per cohort, clock and measure (`predicted_age`,
+  `age_acceleration`): samples per bin [`bin_start`, `bin_end`), summed over the
+  hospitals; `n_total` and `n_not_shown` (samples in bins a hospital could not
+  report).
+- `calibration`: per clock and chronological-age bin, over all cohorts: `n`, mean
+  chronological age, mean and SD of the predicted age, and their mean difference.
 
 ### Testing
 

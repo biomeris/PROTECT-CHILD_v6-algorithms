@@ -79,6 +79,33 @@
           "is_frontend_only": false,
           "has_default_value": true,
           "default_value": null
+        },
+        {
+          "name": "reference_cohort",
+          "type": "string",
+          "display_name": "Reference cohort",
+          "description": "Cohort the others are compared with (age acceleration and age-adjusted comparisons). Empty: the first cohort in alphabetical order.",
+          "has_default_value": true,
+          "default_value": null,
+          "is_frontend_only": false
+        },
+        {
+          "name": "bin_width",
+          "type": "float",
+          "display_name": "Bin width (years)",
+          "description": "Width of the bins of the age distributions and of the chronological-age bins of the calibration. Default 2.",
+          "has_default_value": true,
+          "default_value": 2.0,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_bin_count",
+          "type": "integer",
+          "display_name": "Minimum samples per bin (privacy)",
+          "description": "A bin with fewer samples at a hospital is not reported (at least 3). Default 5.",
+          "has_default_value": true,
+          "default_value": 5,
+          "is_frontend_only": false
         }
       ],
       "ui_visualizations": [
@@ -97,6 +124,7 @@
               "sd_age_global",
               "mean_chronological_age_global",
               "mean_age_acceleration_global",
+              "sd_age_acceleration_global",
               "mean_abs_error_global",
               "correlation_global",
               "n_samples_total",
@@ -127,7 +155,7 @@
         },
         {
           "name": "Clock coverage",
-          "description": "Share (%) of each clock's CpGs present in the data: lowest and highest over the hospitals. EPIC v2 lacks some clock CpGs and pyaging fills them in; there is no threshold, judge whether the coverage is enough",
+          "description": "Share (%) of each clock's CpGs present in the data: lowest and highest over the hospitals. EPIC v2 lacks some clock CpGs and pyaging fills them in; there is no threshold, judge whether the coverage is enough. predicts / unit / year / citation: what the clock estimates and its publication",
           "type": "table",
           "schema": {
             "location": [
@@ -139,7 +167,61 @@
               "coverage_pct_max",
               "n_nodes_reported",
               "tissue",
-              "population"
+              "population",
+              "predicts",
+              "unit",
+              "year",
+              "citation"
+            ]
+          }
+        },
+        {
+          "name": "Cohort comparison (age acceleration)",
+          "description": "Each cohort minus the reference cohort in mean age acceleration (predicted minus chronological age), with 95% CI and Welch p-value; p_adjusted: Benjamini-Hochberg over the clocks. The clocks are correlated, so they do not confirm each other independently",
+          "type": "table",
+          "schema": {
+            "location": [
+              "cohort_comparison"
+            ]
+          }
+        },
+        {
+          "name": "Age-adjusted comparison",
+          "description": "Difference in predicted age between each cohort and the reference at the same chronological age (linear regression predicted age ~ chronological age + cohort), with 95% CI, p-value and Benjamini-Hochberg p over the clocks; age_slope: years of predicted age per year of chronological age",
+          "type": "table",
+          "schema": {
+            "location": [
+              "age_adjusted_comparison"
+            ]
+          }
+        },
+        {
+          "name": "Age distribution",
+          "description": "Samples per bin of predicted age and of age acceleration, per cohort and clock. A bin with fewer than the minimum samples at a hospital is not reported; n_not_shown counts those samples",
+          "type": "table",
+          "schema": {
+            "location": [
+              "distribution"
+            ]
+          }
+        },
+        {
+          "name": "Calibration",
+          "description": "Per clock and chronological-age bin: mean chronological and predicted age, SD of the predicted age and their mean difference (bins with at least the minimum samples at a hospital)",
+          "type": "table",
+          "schema": {
+            "location": [
+              "calibration"
+            ]
+          }
+        },
+        {
+          "name": "Notes",
+          "description": "How the cohorts were compared, and caveats",
+          "type": "table",
+          "schema": {
+            "location": [
+              "summary"
             ]
           }
         }
@@ -192,6 +274,24 @@
           "description": "Column with the chronological age of each sample (e.g. 'age' from the IDAT extraction). Used to report the age acceleration, predicted minus chronological age; leave empty to skip.",
           "default_value": "age",
           "has_default_value": true,
+          "is_frontend_only": false
+        },
+        {
+          "name": "bin_width",
+          "type": "float",
+          "display_name": "Bin width (years)",
+          "description": "Width of the bins of the age distributions and of the chronological-age bins of the calibration. Default 2.",
+          "has_default_value": true,
+          "default_value": 2.0,
+          "is_frontend_only": false
+        },
+        {
+          "name": "min_bin_count",
+          "type": "integer",
+          "display_name": "Minimum samples per bin (privacy)",
+          "description": "A bin with fewer samples at a hospital is not reported (at least 3). Default 5.",
+          "has_default_value": true,
+          "default_value": 5,
           "is_frontend_only": false
         }
       ],
