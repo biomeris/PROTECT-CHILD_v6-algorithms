@@ -24,6 +24,15 @@ The cohort is built in a data-extraction step because vantage6 5 gives a task th
 
 Pass the same `cohort_id` to every node: it names the cohort, and each node stores its own patients under it in its `results.cohort` table, where later steps such as `v6-omop-data-extraction` read them. The algorithm store marks it as required. A client that calls the function without it still works, but each node then makes one up from its own clock, so the ids can differ between nodes; `central_function` shows the id each node used. If a node already holds rows for that cohort id, generation fails unless `overwrite` is true.
 
+## Logs and messages
+
+As in the other PROTECT-CHILD algorithms, a run reports to two audiences.
+
+- **The algorithm log is for the technical team.** It uses vantage6's `info`, `warn` and `error`. Each node logs who it is, what it was asked and how long each step took. When a step fails, the node logs the step, the exact error and its traceback. `central_function` logs one line per organization that failed, with that node's error.
+- **The `status` table is for the user.** `central_function` always returns a one-row table with `outcome` (`completed`, `partial` or `failed`) and `message`, one sentence with no technical terms. The store declares it as the `Summary` table for the web interface. For example: "At the 2 hospitals that answered, 38 patients meet the cohort criteria. 1 hospital could not take part: its data connection is not set up correctly. The technical team can see the details in the log."
+
+Each error row carries an `error_kind` (`invalid_request`, `node_configuration`, `cohort_exists`, `missing_cohort` or `technical`), and `central_function` turns it into the sentence the user reads. Neither output ever contains the database password or a withheld count.
+
 ## Privacy
 
 A count from 1 up to the node's minimum (5 by default) never leaves the node, not even in the algorithm log. The row carries `count: null` and `below_minimum: true` instead. Zero is shared.
@@ -73,7 +82,7 @@ The image builds on vantage6's `algorithm-ohdsi-base:5.0`, pinned by digest in t
 The unit tests stub the OHDSI calls, so they need no R, Java or database.
 
 ```bash
-uv run --no-project --python 3.13 --with pytest --with pandas --with "vantage6-algorithm-tools>=5,<6" python -m pytest test/
+uv run --no-project --python 3.13 --with pytest --with pandas --with python-keycloak --with "vantage6-algorithm-tools>=5,<6" python -m pytest test/
 ```
 
 ## Build the Docker image

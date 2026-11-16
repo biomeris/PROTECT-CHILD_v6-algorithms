@@ -127,8 +127,8 @@ def test_central_rejects_organizations_outside_the_collaboration():
     result = central._run_central_function(client, organizations_to_include=[1, 3])
 
     assert client.task.created == []
-    assert result["status"] == "error"
-    assert "3" in result["message"]
+    assert result["status"][0]["outcome"] == "failed"
+    assert "3" in result["error"]
 
 
 def test_central_gives_a_range_when_a_node_withholds_its_count():
@@ -165,7 +165,8 @@ def test_central_returns_partial_results_with_errors():
 
     assert result["nodes"] == [{"organization_id": 1, "status": "success", "count": 7}]
     assert result["errors"] == [
-        {"organization_id": 2, "status": "error", "message": "conflict"}
+        {"organization_id": 2, "status": "error", "message": "conflict",
+         "error_kind": "technical"}
     ]
     assert result["total_count"] is None
     assert result["total_range"] is None
@@ -179,8 +180,8 @@ def test_central_explains_why_hq_refused_the_subtasks():
 
     result = central._run_central_function(client)
 
-    assert result["status"] == "error"
-    assert "not present for the following organizations: 3" in result["message"]
+    assert result["status"][0]["outcome"] == "failed"
+    assert "not present for the following organizations: 3" in result["error"]
 
 
 def test_central_waits_for_the_other_nodes_when_one_count_crashes():
@@ -207,5 +208,6 @@ def test_central_waits_for_the_other_nodes_when_one_count_crashes():
             "organization_id": 2,
             "status": "error",
             "message": "No result returned by organization 2",
+            "error_kind": "technical",
         }
     ]

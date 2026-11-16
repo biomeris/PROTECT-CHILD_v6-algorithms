@@ -15,10 +15,15 @@ import time
 from typing import Any, Callable, TypeVar
 
 from vantage6.algorithm.client import AlgorithmClient
-from vantage6.algorithm.tools.util import info
+from vantage6.algorithm.tools.util import error, info
 from vantage6.common.enum import RunStatus
 
-from .cohort import aggregate_central_results
+from .cohort import (
+    NOT_GENERATED_MESSAGE,
+    UNKNOWN_ORGANIZATIONS_MESSAGE,
+    aggregate_central_results,
+    user_summary,
+)
 
 DecoratedFunction = TypeVar("DecoratedFunction", bound=Callable[..., Any])
 
@@ -61,10 +66,10 @@ def _run_central_function(
         org_ids = list(organizations_to_include)
         unknown = sorted(set(org_ids) - set(available))
         if unknown:
-            return {
-                "status": "error",
-                "message": f"Organizations not in the collaboration: {unknown}",
-            }
+            return _failed(
+                f"Organizations not in the collaboration: {unknown}",
+                UNKNOWN_ORGANIZATIONS_MESSAGE,
+            )
 
     info(f"Collecting cohort counts from organizations {org_ids}")
     task = client.task.create(
@@ -77,14 +82,30 @@ def _run_central_function(
         # e.g. HQ refuses when the dataframe is missing at some organization
         # because its generate_cohort run failed.
         reason = task.get("msg", task) if isinstance(task, dict) else task
-        return {
-            "status": "error",
-            "message": f"HQ did not create the cohort_count subtasks: {reason}",
-        }
+        return _failed(
+            f"HQ did not create the cohort_count subtasks: {reason}",
+            NOT_GENERATED_MESSAGE,
+        )
     _wait_for_every_run(client, task["id"], poll_interval)
     results = client.result.from_task(task_id=task["id"])
 
-    return aggregate_central_results(expected_org_ids=org_ids, raw_results=results)
+    result = aggregate_central_results(expected_org_ids=org_ids, raw_results=results)
+    info(f"{len(result['nodes'])} of {len(org_ids)} organizations returned a count")
+    for node in result["nodes"]:
+        if node.get("below_minimum"):
+            info(f"organization {node['organization_id']}: count withheld "
+                 f"(below its minimum of {node.get('minimum_count')})")
+    for failure in result["errors"]:
+        error(f"organization {failure['organization_id']}: {failure['message']}")
+    # The web interface shows only tables, so the outcome for the user is a
+    # one-row table, as in the other PROTECT-CHILD algorithms.
+    result["status"] = [user_summary(result)]
+    return result
+
+
+def _failed(technical: str, for_user: str) -> dict[str, Any]:
+    error(technical)
+    return {"error": technical, "status": [{"outcome": "failed", "message": for_user}]}
 
 
 @central
