@@ -291,8 +291,10 @@ def test_aggregate_results_keeps_partial_success_and_null_total():
     assert response["total_count"] is None
     assert response["nodes"] == [{"organization_id": 1, "status": "success", "count": 10}]
     assert response["errors"] == [
-        {"organization_id": 2, "status": "error", "message": "conflict"},
-        {"organization_id": 3, "status": "error", "message": "No result returned by organization 3"},
+        {"organization_id": 2, "status": "error", "message": "conflict",
+         "error_kind": "technical"},
+        {"organization_id": 3, "status": "error", "message": "No result returned by organization 3",
+         "error_kind": "technical"},
     ]
 
 
@@ -310,11 +312,13 @@ def test_aggregate_results_handles_error_without_organization_id():
 
     assert response["nodes"] == []
     assert response["errors"] == [
-        {"organization_id": None, "status": "error", "message": "missing password"},
+        {"organization_id": None, "status": "error", "message": "missing password",
+         "error_kind": "technical"},
         {
             "organization_id": 1,
             "status": "error",
             "message": "No result returned by organization 1",
+            "error_kind": "technical",
         },
     ]
     assert response["total_count"] is None
@@ -425,6 +429,8 @@ def test_execute_cohort_generation_uses_ohdsi_wrappers_and_returns_count(monkeyp
     assert calls[3][1]["connection"].__class__ is FakeConnection
     assert calls[3][1]["cohort_database_schema"] == "results"
     assert calls[3][1]["cohort_table_names"] == {"cohort": "cohort"}
+    # Without incremental, CohortGenerator drops the tables and every other cohort with them.
+    assert calls[3][1]["incremental"] is True
     assert calls[4][0] == "execute"
     assert "results.cohort" in calls[4][1]
     assert "cohort_definition_id = 55" in calls[4][1]

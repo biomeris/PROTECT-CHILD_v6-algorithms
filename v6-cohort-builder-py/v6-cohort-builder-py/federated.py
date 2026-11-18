@@ -20,9 +20,12 @@ DecoratedFunction = TypeVar("DecoratedFunction", bound=Callable[..., Any])
 try:
     from vantage6.algorithm.decorator.action import federated
     from vantage6.algorithm.decorator.data import dataframe
+    from vantage6.algorithm.tools.util import error
 except ValueError as exc:  # rpy2 without R at import time, e.g. in unit tests
     if "r_home is None" not in str(exc):
         raise
+
+    error = print
 
     def federated(func: DecoratedFunction) -> DecoratedFunction:
         return func
@@ -41,12 +44,16 @@ def _run_cohort_count(df: pd.DataFrame) -> dict[str, Any]:
     applies the node's minimum count again.
     """
     if df is None or df.empty:
-        return {"status": "error", "message": "No cohort result found in the session"}
+        message = "No cohort result found in the session"
+        error(message)
+        return {"status": "error", "message": message, "error_kind": "missing_cohort"}
     if not {"status", "count"}.issubset(df.columns):
-        return {
-            "status": "error",
-            "message": "The dataframe is not a cohort result from generate_cohort",
-        }
+        message = (
+            "The dataframe is not a cohort result from generate_cohort "
+            f"(columns: {sorted(df.columns)})"
+        )
+        error(message)
+        return {"status": "error", "message": message, "error_kind": "missing_cohort"}
     row = df.iloc[0].to_dict()
     # Parquet round-trips numpy scalars; the client expects plain JSON types.
     clean: dict[str, Any] = {}
@@ -62,7 +69,11 @@ def _run_cohort_count(df: pd.DataFrame) -> dict[str, Any]:
     try:
         return withhold_small_count(clean, minimum_count())
     except NodeConfigError as exc:
-        return {"status": "error", "cohort_id": clean.get("cohort_id"), "message": str(exc)}
+        error(f"Cannot apply the node's minimum count: {exc}")
+        return {
+            "status": "error", "cohort_id": clean.get("cohort_id"), "message": str(exc),
+            "error_kind": "node_configuration",
+        }
 
 
 @federated

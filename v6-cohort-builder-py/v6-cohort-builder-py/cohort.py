@@ -20,6 +20,10 @@ class NodeConfigError(RuntimeError):
     """Raised when a node is missing required OMOP configuration."""
 
 
+class CohortExistsError(RuntimeError):
+    """Raised when the cohort id is already taken and overwrite is false."""
+
+
 # Counts from 1 up to this minimum never leave a node: a cohort of two
 # children at one hospital can identify them. Node administrators set their
 # own minimum with ``algorithm_env: {COHORT_BUILDER_MINIMUM_COUNT: <n>}`` in
@@ -52,6 +56,7 @@ RESULT_FIELDS = (
     "message",
     "below_minimum",
     "minimum_count",
+    "error_kind",
 )
 
 
@@ -203,6 +208,8 @@ def execute_cohort_generation(
             connection=connection,
             cohort_database_schema=config.results_schema,
             cohort_table_names=table_names,
+            # Otherwise the tables are dropped and recreated, losing every other cohort.
+            incremental=True,
         )
 
         existing_rows = _get_existing_cohort_row_count(
@@ -213,7 +220,7 @@ def execute_cohort_generation(
             cohort_id=cohort_id,
         )
         if existing_rows and not overwrite:
-            raise RuntimeError(
+            raise CohortExistsError(
                 f"Cohort {cohort_id} already exists in {config.results_schema}.cohort; "
                 "rerun with overwrite=True to replace it"
             )
@@ -542,6 +549,7 @@ def aggregate_central_results(
                     "organization_id": organization_id,
                     "status": "error",
                     "message": str(result.get("message", "Unknown node error")),
+                    "error_kind": result.get("error_kind") or "technical",
                 }
             )
 
@@ -553,20 +561,11 @@ def aggregate_central_results(
                 "organization_id": organization_id,
                 "status": "error",
                 "message": f"No result returned by organization {organization_id}",
+                "error_kind": "technical",
             }
         )
 
-    total_range = None
-    if not errors:
-        low = high = 0
-        for node in nodes:
-            if node["count"] is not None:
-                low += node["count"]
-                high += node["count"]
-            else:
-                low += 1
-                high += int(node.get("minimum_count") or DEFAULT_MINIMUM_COUNT) - 1
-        total_range = [low, high]
+    total_range = None if errors else count_range(nodes)
 
     return {
         "cohort_id": next(iter(cohort_ids)) if len(cohort_ids) == 1 else None,
@@ -575,6 +574,88 @@ def aggregate_central_results(
         "total_count": total_range[0] if total_range and total_range[0] == total_range[1] else None,
         "total_range": total_range,
     }
+
+
+def count_range(nodes: Iterable[Mapping[str, Any]]) -> list[int]:
+    """Lowest and highest total of the nodes' counts: a withheld count is
+    somewhere from 1 to that node's minimum - 1."""
+    low = high = 0
+    for node in nodes:
+        if node["count"] is not None:
+            low += node["count"]
+            high += node["count"]
+        else:
+            low += 1
+            high += int(node.get("minimum_count") or DEFAULT_MINIMUM_COUNT) - 1
+    return [low, high]
+
+
+# Why a hospital could not take part, in words a clinician understands. The
+# exact error stays in the algorithm log for the technical team.
+_REASONS = {
+    "invalid_request": "the cohort definition could not be read. "
+    "Please rebuild it in the cohort builder and try again.",
+    "node_configuration": "its data connection is not set up correctly. "
+    "The technical team can see the details in the log.",
+    "cohort_exists": "a cohort with this number already exists there. "
+    "Use a new cohort number, or allow replacing the existing one.",
+    "missing_cohort": "the cohort has not been generated there yet. "
+    "Run 'Generate cohort' first.",
+    "technical": "a technical problem stopped the calculation. "
+    "The technical team can see the details in the log.",
+}
+
+UNKNOWN_ORGANIZATIONS_MESSAGE = (
+    "Some of the selected hospitals are not part of this collaboration. "
+    "Check the hospital selection and try again."
+)
+NOT_GENERATED_MESSAGE = (
+    "The cohort has not been generated at every selected hospital yet. "
+    "Run 'Generate cohort' first, then ask for the total again."
+)
+
+
+def _plural(number: int, word: str) -> str:
+    return f"{number} {word}" if number == 1 else f"{number} {word}s"
+
+
+def user_summary(aggregate: Mapping[str, Any]) -> dict[str, str]:
+    """The run's outcome in one plain-language sentence for the clinician:
+    ``completed``, ``partial`` (some hospitals could not take part) or
+    ``failed``."""
+    nodes, errors = aggregate["nodes"], aggregate["errors"]
+    reasons = list(dict.fromkeys(
+        _REASONS.get(error.get("error_kind"), _REASONS["technical"]) for error in errors
+    ))
+    if not nodes:
+        return {
+            "outcome": "failed",
+            "message": f"No hospital could calculate the cohort: {' '.join(reasons)}",
+        }
+
+    low, high = count_range(nodes)
+    total = (
+        f"{_plural(low, 'patient')}" if low == high
+        else f"between {low} and {high} patients"
+    )
+    hospitals = _plural(len(nodes), "hospital")
+    if errors:
+        message = f"At the {hospitals} that answered, {total} meet the cohort criteria."
+    else:
+        message = f"{total} across {hospitals} meet the cohort criteria."
+    message = message[0].upper() + message[1:]
+
+    hidden = [node for node in nodes if node["count"] is None]
+    if hidden:
+        minimum = max(int(node.get("minimum_count") or DEFAULT_MINIMUM_COUNT) for node in hidden)
+        message += (
+            f" At {_plural(len(hidden), 'hospital')} fewer than {minimum} patients "
+            "match, so the exact number is hidden to protect patient privacy."
+        )
+    if errors:
+        verb = "could not take part"
+        message += f" {_plural(len(errors), 'hospital')} {verb}: {' '.join(reasons)}"
+    return {"outcome": "partial" if errors else "completed", "message": message}
 
 
 def _optional_int(environ: Mapping[str, str], key: str) -> int | None:

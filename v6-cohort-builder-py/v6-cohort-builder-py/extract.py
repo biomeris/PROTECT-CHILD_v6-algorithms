@@ -23,12 +23,16 @@ function cannot trigger extractions (see central.py).
 
 from __future__ import annotations
 
+import time
+import traceback
 from typing import Any, Callable, TypeVar
 
 import pandas as pd
 
 from .cohort import (
+    CohortExistsError,
     CohortInputError,
+    NodeConfigError,
     OmopConfig,
     atlas_json_to_sql,
     cohort_result_row,
@@ -46,7 +50,7 @@ DecoratedFunction = TypeVar("DecoratedFunction", bound=Callable[..., Any])
 
 try:
     from vantage6.algorithm.decorator.action import data_extraction
-    from vantage6.algorithm.tools.util import info
+    from vantage6.algorithm.tools.util import error, info, warn
 except ValueError as exc:  # rpy2 without R at import time, e.g. in unit tests
     if "r_home is None" not in str(exc):
         raise
@@ -56,6 +60,19 @@ except ValueError as exc:  # rpy2 without R at import time, e.g. in unit tests
 
     def info(message: str) -> None:
         print(message)
+
+    warn = error = info
+
+
+def _error_kind(exc: Exception) -> str:
+    """What went wrong, in the terms central_function explains to the user."""
+    if isinstance(exc, CohortInputError):
+        return "invalid_request"
+    if isinstance(exc, NodeConfigError):
+        return "node_configuration"
+    if isinstance(exc, CohortExistsError):
+        return "cohort_exists"
+    return "technical"
 
 
 def _run_generate_cohort(
@@ -77,6 +94,7 @@ def _run_generate_cohort(
     """
     config: OmopConfig | None = None
     request = None
+    step = "validate request"
     try:
         request = validate_cohort_request(
             cohort_name=cohort_name,
@@ -90,15 +108,30 @@ def _run_generate_cohort(
                 "This node does not accept SQL cohort definitions: send atlas_json, "
                 "or ask the node administrator to set COHORT_BUILDER_ALLOW_SQL: true"
             )
+        step = "read node settings"
         config = parse_omop_config(connection_details)
         minimum = minimum_count()
+        info(
+            f"organization {config.organization_id} (node {config.node_id}): "
+            f"cohort {request.cohort_id} '{request.cohort_name}' from "
+            f"{request.input_type}, CDM {config.cdm_database}.{config.cdm_schema}, "
+            f"results in {config.results_schema}, minimum count {minimum}"
+        )
+        if request.overwrite:
+            warn(f"overwrite is true: any existing cohort {request.cohort_id} is replaced")
 
         cohort_sql = request.sql
         if request.atlas_json is not None:
-            info("Converting ATLAS JSON to OHDSI CohortGenerator SQL")
+            step = "convert ATLAS JSON to SQL"
+            started = time.monotonic()
             cohort_sql = atlas_json_to_sql(request.atlas_json)
+            info(
+                f"ATLAS JSON converted to {len(cohort_sql)} characters of SQL "
+                f"in {time.monotonic() - started:.1f} s"
+            )
 
-        info(f"Generating cohort {request.cohort_id} '{request.cohort_name}'")
+        step = "generate cohort"
+        started = time.monotonic()
         outcome = execute_cohort_generation(
             config=config,
             sql=cohort_sql,
@@ -117,12 +150,16 @@ def _run_generate_cohort(
             ),
             minimum,
         )
+        elapsed = f"in {time.monotonic() - started:.1f} s"
         if row["below_minimum"]:
-            info(f"Cohort {request.cohort_id} has fewer than {minimum} subjects; count withheld")
+            info(f"Cohort {request.cohort_id} generated {elapsed}; fewer than "
+                 f"{minimum} subjects, count withheld")
         else:
-            info(f"Cohort {request.cohort_id} holds {row['count']} subjects")
+            info(f"Cohort {request.cohort_id} generated {elapsed}; {row['count']} subjects")
         return row
     except Exception as exc:  # pylint: disable=broad-exception-caught
+        error(f"Cohort generation failed at step '{step}': {type(exc).__name__}: {exc}")
+        error(traceback.format_exc())
         row = cohort_result_row(
             config=config,
             cohort_id=request.cohort_id if request else cohort_id,
@@ -131,6 +168,7 @@ def _run_generate_cohort(
             status="error",
             message=str(exc),
         )
+        row["error_kind"] = _error_kind(exc)
         if config is None:
             # Failed before the connection was read: the ids still matter,
             # since central_function matches rows to organizations by them.

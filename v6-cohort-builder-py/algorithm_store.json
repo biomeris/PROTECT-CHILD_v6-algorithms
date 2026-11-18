@@ -72,7 +72,22 @@
       "standalone": true,
       "description": "Add up the cohort counts generate_cohort recorded at each node, with a range when a node withheld a count below its minimum.",
       "step_type": "central_compute",
-      "ui_visualizations": [],
+      "ui_visualizations": [
+        {
+          "name": "Summary",
+          "description": "Outcome of the run in plain language: the number of patients who meet the cohort criteria, or why some hospitals could not take part",
+          "type": "table",
+          "schema": {
+            "location": [
+              "status"
+            ],
+            "columns": [
+              "outcome",
+              "message"
+            ]
+          }
+        }
+      ],
       "arguments": [
         {
           "name": "organizations_to_include",

@@ -21,6 +21,10 @@ ifeq ($(PUSH_REG), true)
 	_condition_push := not_empty_so_true
 endif
 
+# The algorithm store reads the digest only from a Docker v2 manifest; buildx
+# pushes an OCI one by default, which the store reports as HTTP 400.
+_push_output := --provenance=false --output type=image,push=true,oci-mediatypes=false
+
 .PHONY: image
 image:
 	@set -e; \
@@ -37,4 +41,4 @@ image:
 		$$EXTRA_MAJOR \
 		--platform ${PLATFORMS} \
 		-f ./Dockerfile \
-		$(if ${_condition_push},--push .,.)
+		$(if ${_condition_push},$(_push_output) .,.)
