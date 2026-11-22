@@ -1,0 +1,33 @@
+# DO NOT MODIFY THIS FILE MANUALLY.
+# This file contains the answers to the questions asked by the
+# v6-algorithm-template-creator (using the Copier package). The answers will
+# be updated if you re-run the template creator. Also, the answers in this file
+# may be used to submit your algorithm to a vantage6 algorithm store.
+_commit: 5.0.0a3
+_src_path: gh:vantage6/v6-algorithm-template.git
+advanced: false
+algorithm_description: Federated one-way MANOVA (Wilks, Pillai, Hotelling-Lawley,
+    Roy) computed exactly from per-group sums and cross-product matrices
+algorithm_name: v6-manova-py
+author: TODO
+central_args:
+- organizations_to_include
+- group_column
+- outcome_columns
+central_function_name: manova
+copyright: ''
+federated_args:
+- group_column
+- outcome_columns
+federated_function_data: true
+federated_function_name: compute_local_summary
+federated_function_number_databases: 1
+has_central_function: true
+has_data_extraction: false
+has_data_preprocessing: false
+has_docs: true
+has_federated_function: true
+import_infra_extraction: true
+import_infra_preprocessing: true
+open_source_license: mit
+project_name: v6-manova-py

@@ -1,0 +1,80 @@
+{
+  "name": "v6-manova-py",
+  "image": "v6-manova-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-manova-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "description": "Federated one-way MANOVA: tests whether groups differ on several numeric outcomes at once (Wilks, Pillai, Hotelling-Lawley, Roy), exact from per-group sums and cross-products.",
+  "functions": [
+    {
+      "name": "manova",
+      "display_name": "MANOVA",
+      "standalone": true,
+      "description": "Federated one-way MANOVA (Wilks, Pillai, Hotelling-Lawley, Roy) computed exactly from per-group sums and cross-product matrices",
+      "step_type": "central_compute",
+      "databases": [
+        {
+          "name": "Central database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_column",
+          "display_name": "Group column",
+          "description": "Column defining the groups (the MANOVA factor).",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "outcome_columns",
+          "display_name": "Outcome columns",
+          "description": "Numeric dependent variables (at least 2).",
+          "type": "column_list",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "organizations_to_include",
+          "display_name": "Organizations to include",
+          "description": "Organizations to include in the analysis. Defaults to all organizations in the collaboration.",
+          "type": "organization_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        }
+      ]
+    },
+    {
+      "name": "compute_local_summary",
+      "display_name": "Compute local summary",
+      "standalone": false,
+      "description": "Per-group counts, sums and cross-product matrices of the outcome columns at one node.",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_column",
+          "display_name": "Group column",
+          "description": "Column defining the groups (the MANOVA factor).",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "outcome_columns",
+          "display_name": "Outcome columns",
+          "description": "Numeric dependent variables (at least 2).",
+          "type": "column_list",
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ]
+    }
+  ]
+}
