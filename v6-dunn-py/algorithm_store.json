@@ -1,0 +1,182 @@
+{
+  "name": "v6-dunn-py",
+  "image": "v6-dunn-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-dunn-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "description": "Federated Dunn's post-hoc test with Kruskal-Wallis: pairwise mean-rank comparisons on approximate global ranks, without any node sharing individual values.",
+  "functions": [
+    {
+      "name": "dunn",
+      "display_name": "Dunn's post-hoc test",
+      "standalone": true,
+      "description": "Federated Dunn's post-hoc test (pairwise mean-rank comparisons after Kruskal-Wallis) on binned global ranks, without any node sharing individual values",
+      "step_type": "central_compute",
+      "databases": [
+        {
+          "name": "Central database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_column",
+          "display_name": "Group column",
+          "description": "Column defining the groups.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "column",
+          "display_name": "Column",
+          "description": "Numeric column whose ranks are compared.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "p_adjust",
+          "display_name": "P adjust",
+          "description": "Multiple-comparison adjustment: bonferroni (default), holm, fdr_bh or none.",
+          "type": "string",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": "bonferroni"
+        },
+        {
+          "name": "alpha",
+          "display_name": "Alpha",
+          "description": "Significance level for the reject flags (default 0.05).",
+          "type": "float",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": 0.05
+        },
+        {
+          "name": "organizations_to_include",
+          "display_name": "Organizations to include",
+          "description": "Organizations to include in the analysis. Defaults to all organizations in the collaboration.",
+          "type": "organization_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        }
+      ]
+    },
+    {
+      "name": "compute_local_moments",
+      "display_name": "Compute local moments",
+      "standalone": false,
+      "description": "Round 1: count, sum and sum of squares of the eligible values.",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_column",
+          "display_name": "Group column",
+          "description": "Column defining the groups.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "column",
+          "display_name": "Column",
+          "description": "Numeric column whose ranks are compared.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ]
+    },
+    {
+      "name": "compute_local_histogram",
+      "display_name": "Compute local histogram",
+      "standalone": false,
+      "description": "Round 2: group-blind record counts per bin of the shared grid.",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_column",
+          "display_name": "Group column",
+          "description": "Column defining the groups.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "column",
+          "display_name": "Column",
+          "description": "Numeric column whose ranks are compared.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "edges",
+          "display_name": "Edges",
+          "description": "Bin edges laid out by the central function.",
+          "type": "json",
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ]
+    },
+    {
+      "name": "compute_local_rank_scores",
+      "display_name": "Compute local rank scores",
+      "standalone": false,
+      "description": "Round 3: per group, count, sum and sum of squares of the rank scores.",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "group_column",
+          "display_name": "Group column",
+          "description": "Column defining the groups.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "column",
+          "display_name": "Column",
+          "description": "Numeric column whose ranks are compared.",
+          "type": "column",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "edges",
+          "display_name": "Edges",
+          "description": "Rank-bin edges derived by the central function.",
+          "type": "json",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "mid_ranks",
+          "display_name": "Mid ranks",
+          "description": "Global mid-rank of each rank bin.",
+          "type": "json",
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ]
+    }
+  ]
+}
