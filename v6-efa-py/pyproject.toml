@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "v6-efa-py"
+version = "1.0.0"
+description = "Federated exploratory factor analysis (minres, ML or principal extraction; varimax, promax or oblimin rotation) on the pooled correlation matrix, with KMO and Bartlett's test"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+  "vantage6-algorithm-tools>=5.0.0,!=5.1.0",  # 5.1.0 (and 5.0.4rc1) are missing their python-keycloak dependency
+  "pandas",
+  "numpy",
+  "scipy",
+]
+authors = [
+    { name = "Claire Ai" },
+]
+license = { text = "MIT" }
+keywords = ["vantage6", "algorithm", "federated-learning", "factor-analysis", "efa"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-efa-py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["v6-efa-py"]
+
+
+[dependency-groups]
+# factor_analyzer is only a validation reference; it needs scikit-learn < 1.8
+dev = [
+  "pytest",
+  "factor_analyzer",
+  "scikit-learn<1.8",
+]

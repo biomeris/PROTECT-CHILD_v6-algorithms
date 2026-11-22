@@ -1,0 +1,91 @@
+{
+  "name": "v6-efa-py",
+  "image": "v6-efa-py",
+  "vantage6_version": "5.0",
+  "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-efa-py",
+  "documentation_url": "",
+  "partitioning": "horizontal",
+  "description": "Federated exploratory factor analysis on the exact pooled correlation matrix, with KMO, Bartlett's test, minres/ML/principal extraction and varimax/promax/oblimin rotation.",
+  "functions": [
+    {
+      "name": "efa",
+      "display_name": "Exploratory factor analysis",
+      "standalone": true,
+      "description": "Federated exploratory factor analysis (minres, ML or principal extraction; varimax, promax or oblimin rotation) on the pooled correlation matrix, with KMO and Bartlett's test",
+      "step_type": "central_compute",
+      "databases": [
+        {
+          "name": "Central database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "columns",
+          "display_name": "Columns",
+          "description": "Numeric variables to factor-analyse (at least 3).",
+          "type": "column_list",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "n_factors",
+          "display_name": "N factors",
+          "description": "Number of factors. Defaults to the Kaiser criterion (eigenvalues > 1).",
+          "type": "integer",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "method",
+          "display_name": "Method",
+          "description": "Extraction method: minres (default), ml or principal.",
+          "type": "string",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": "minres"
+        },
+        {
+          "name": "rotation",
+          "display_name": "Rotation",
+          "description": "Rotation: promax (default), oblimin, varimax or none.",
+          "type": "string",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": "promax"
+        },
+        {
+          "name": "organizations_to_include",
+          "display_name": "Organizations to include",
+          "description": "Organizations to include in the analysis. Defaults to all organizations in the collaboration.",
+          "type": "organization_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        }
+      ]
+    },
+    {
+      "name": "compute_local_moments",
+      "display_name": "Compute local moments",
+      "standalone": false,
+      "description": "Number of complete records, column sums and cross-product matrix of the selected columns at one node.",
+      "step_type": "federated_compute",
+      "databases": [
+        {
+          "name": "Database 1"
+        }
+      ],
+      "arguments": [
+        {
+          "name": "columns",
+          "display_name": "Columns",
+          "description": "Numeric variables to factor-analyse (at least 3).",
+          "type": "column_list",
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ]
+    }
+  ]
+}
