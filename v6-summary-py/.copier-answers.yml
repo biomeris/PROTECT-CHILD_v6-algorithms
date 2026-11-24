@@ -17,8 +17,8 @@ central_function_client: true
 central_function_data: false
 central_function_name: summary
 copyright: IKNL, 2024
-docker_image: harbor2.vantage6.ai/algorithms/v6-summary-py
-docker_registry: harbor2.vantage6.ai
+docker_image: ghcr.io/vantage6/algorithm/summary
+docker_registry: ghcr.io
 has_central_function: true
 has_docs: true
 has_gh_pipeline: true

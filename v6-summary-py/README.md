@@ -5,9 +5,20 @@ Create a summary of the data (mean, range, variance, length, ...)
 This algorithm is designed to be run with the [vantage6](https://vantage6.ai)
 infrastructure for distributed analysis and learning.
 
-The base code for this algorithm has been created via the
-[v6-algorithm-template](https://github.com/vantage6/v6-algorithm-template)
-template generator.
+## Running the algorithm
+
+Data is no longer loaded automatically inside compute functions. In a session, run a **data extraction** step first (for example `read_csv` from [v6-extract-basics-py](https://github.com/vantage6/v6-extract-basics-py)), then run **`summary`** with the desired `columns` and optional `numeric_columns`.
+
+## Build
+
+```bash
+make image
+```
+
+## Read more
+
+- [vantage6 documentation](https://docs.vantage6.ai/)
+- [Updating algorithms from v4 to v5](https://vantage6.ai/news/updating-your-algorithm-from-v4-to-v5/)
 
 ### Dockerizing your algorithm
 
@@ -39,9 +50,9 @@ docker tag [my_docker_image_name] [another_image_name]
 ```
 
 This way, you can e.g. do
-`docker tag local_average_algorithm harbor2.vantage6.ai/algorithms/average` to
+`docker tag local_average_algorithm ghcr.io/vantage6/algorithm/average` to
 make the algorithm available on a remote Docker registry (in this case
-`harbor2.vantage6.ai`).
+`ghcr.io/vantage6`).
 
 Finally, you need to push the image to the Docker registry. This can be done
 by running

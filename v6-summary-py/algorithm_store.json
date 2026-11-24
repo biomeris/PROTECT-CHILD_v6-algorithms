@@ -1,46 +1,18 @@
 {
-  "image": "biomerisdocker/summary",
-  "vantage6_version": "4.9",
-  "description": "Compute common statistics such as mean, SD, min, and max",
+  "name": "Summary statistics",
+  "image": "biomerisdocker/v6-summary-py",
+  "vantage6_version": "5.0.0",
   "code_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-summary-py.git",
+  "documentation_url": "https://github.com/biomeris/PROTECT-CHILD_v6-algorithms/tree/main/v6-summary-py/docs/index.html",
+  "partitioning": "horizontal",
+  "description": "Compute common statistics such as mean, SD, min, and max",
   "functions": [
     {
-      "type": "central",
-      "arguments": [
-        {
-          "type": "column_list",
-          "is_frontend_only": false,
-          "description": "The columns to include in the summary. If not given, all columns are included.",
-          "conditional_operator": null,
-          "conditional_value": null,
-          "name": "columns",
-          "default_value": null,
-          "display_name": "Columns to include",
-          "has_default_value": true
-        },
-        {
-          "type": "column_list",
-          "is_frontend_only": false,
-          "description": "Indicate which columns are to be treated numerical. If not given, this will be inferred from the data",
-          "conditional_operator": null,
-          "conditional_value": null,
-          "name": "numeric_columns",
-          "default_value": null,
-          "display_name": "Numerical columns",
-          "has_default_value": true
-        },
-        {
-          "type": "organization_list",
-          "is_frontend_only": false,
-          "description": "The organizations to include in the task. If not given, all organizations in the collaboration are included.",
-          "conditional_operator": null,
-          "conditional_value": null,
-          "name": "organizations_to_include",
-          "default_value": null,
-          "display_name": "Organizations to include",
-          "has_default_value": true
-        }
-      ],
+      "name": "summary",
+      "display_name": "Summary",
+      "standalone": true,
+      "description": "Run summary algorithm and obtain statistics combined for all nodes",
+      "step_type": "central_compute",
       "ui_visualizations": [
         {
           "type": "table",
@@ -77,22 +49,136 @@
             "location": ["num_complete_rows_per_node"],
             "columns": []
           }
+        },
+        {
+          "type": "table",
+          "description": "Median, quartiles, IQR and percentiles of the numerical columns, per data station (not aggregated)",
+          "name": "Median and percentiles per data station",
+          "schema": {
+            "location": ["quantiles_per_node"],
+            "columns": []
+          }
         }
       ],
-      "standalone": true,
-      "description": "Run summary algorithm and obtain statistics combined for all nodes",
-      "name": "summary",
-      "display_name": "Summary",
+      "arguments": [
+        {
+          "name": "columns",
+          "display_name": "Columns to include",
+          "description": "The columns to include in the summary. If not given, all columns are included.",
+          "type": "column_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "numeric_columns",
+          "display_name": "Numerical columns",
+          "description": "Indicate which columns are to be treated numerical. If not given, this will be inferred from the data",
+          "type": "column_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "organizations_to_include",
+          "display_name": "Organizations to include",
+          "description": "The organizations to include in the task. If not given, all organizations in the collaboration are included.",
+          "type": "organization_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "percentiles",
+          "display_name": "Extra percentiles (per data station)",
+          "description": "Extra percentiles (values between 0 and 1, e.g. 0.1, 0.9) to compute per data station. Median, Q1, Q3 and IQR are always computed per data station. These statistics are not aggregated over data stations.",
+          "type": "float_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        }
+      ],
       "databases": [
         {
-          "description": "Data to compute the summary statistics for",
-          "name": "Database"
+          "name": "Database",
+          "description": "Data to compute the summary statistics for"
+        }
+      ]
+    },
+    {
+      "name": "summary_per_data_station",
+      "display_name": "Summary per data station",
+      "standalone": true,
+      "description": "Compute local summary statistics for a single organization.",
+      "step_type": "federated_compute",
+      "ui_visualizations": [],
+      "arguments": [
+        {
+          "name": "columns",
+          "display_name": "Columns to include",
+          "description": "The columns to include in the summary. If not given, all columns are included.",
+          "type": "column_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "numeric_columns",
+          "display_name": "Numerical columns",
+          "description": "Indicate which columns are to be treated numerical. If not given, this will be inferred from the data",
+          "type": "column_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        },
+        {
+          "name": "percentiles",
+          "display_name": "Extra percentiles (per data station)",
+          "description": "Extra percentiles (values between 0 and 1, e.g. 0.1, 0.9) to compute per data station. Median, Q1, Q3 and IQR are always computed per data station. These statistics are not aggregated over data stations.",
+          "type": "float_list",
+          "has_default_value": true,
+          "is_frontend_only": false,
+          "default_value": null
+        }
+      ],
+      "databases": [
+        {
+          "name": "Database",
+          "description": "Data to compute the summary statistics for"
+        }
+      ]
+    },
+    {
+      "name": "variance_per_data_station",
+      "display_name": "Variance per data station",
+      "standalone": true,
+      "description": "Compute local variance for numeric columns using pre-aggregated means.",
+      "step_type": "federated_compute",
+      "ui_visualizations": [],
+      "arguments": [
+        {
+          "name": "columns",
+          "display_name": "Columns",
+          "description": "Numeric columns to compute variance for",
+          "type": "column_list",
+          "has_default_value": false,
+          "is_frontend_only": false
+        },
+        {
+          "name": "means",
+          "display_name": "Means",
+          "description": "Global means for each numeric column",
+          "type": "float_list",
+          "has_default_value": false,
+          "is_frontend_only": false
+        }
+      ],
+      "databases": [
+        {
+          "name": "Database",
+          "description": "Data to compute the variance for"
         }
       ]
     }
-  ],
-  "name": "Summary statistics",
-  "developer_id": 1,
-  "partitioning": "horizontal",
-  "documentation_url": "https://algorithms.vantage6.ai/en/latest/v6-summary-py/docs/index.html"
+  ]
 }

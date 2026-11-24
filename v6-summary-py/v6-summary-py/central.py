@@ -6,22 +6,25 @@ The results in a return statement are sent to the vantage6 server (after
 encryption if that is enabled).
 """
 
+import json
 from typing import Any
 import pandas as pd
-import json as js
 
-from vantage6.algorithm.tools.util import info
-from vantage6.algorithm.tools.decorators import algorithm_client
+from vantage6.common import info, warning
+from vantage6.algorithm.decorator.algorithm_client import algorithm_client
+from vantage6.algorithm.decorator.action import central
 from vantage6.algorithm.tools.exceptions import AlgorithmExecutionError, InputError
 from vantage6.algorithm.client import AlgorithmClient
 
 
+@central
 @algorithm_client
 def summary(
     client: AlgorithmClient,
     columns: list[str] | None = None,
     numeric_columns: list[str] | None = None,
     organizations_to_include: list[int] | None = None,
+    percentiles: list[float] | None = None,
 ) -> Any:
     """
     Send task to each node participating in the task to compute a local summary,
@@ -39,7 +42,15 @@ def summary(
     organizations_to_include : list[int] | None
         The organizations to include in the task. If not given, all organizations
         in the collaboration are included.
+    percentiles : list[float] | None
+        Extra percentiles (between 0 and 1) to compute per data station, on top of
+        the median, first and third quartile and IQR which are always computed.
+        These statistics are returned per data station and are NOT aggregated.
     """
+    if percentiles and any(not 0 <= q <= 1 for q in percentiles):
+        raise InputError(
+            f"Percentiles should be between 0 and 1. Received: {percentiles}"
+        )
     if columns and numeric_columns and not set(numeric_columns).issubset(set(columns)):
         numeric_not_in_columns = set(numeric_columns) - set(columns)
         raise InputError(
@@ -55,20 +66,14 @@ def summary(
             organization.get("id") for organization in organizations
         ]
 
-    # Define input parameters for a subtask
-    info("Defining input parameters")
-    input_ = {
-        "method": "summary_per_data_station",
-        "kwargs": {
-            "columns": columns,
-            "numeric_columns": numeric_columns,
-        },
-    }
-
-    # create a subtask for all organizations in the collaboration.
     info("Creating subtask for all organizations in the collaboration")
     task = client.task.create(
-        input_=input_,
+        method="summary_per_data_station",
+        arguments={
+            "columns": columns,
+            "numeric_columns": numeric_columns,
+            "percentiles": percentiles,
+        },
         organizations=organizations_to_include,
         name="Subtask summary",
         description="Compute summary per data station",
@@ -80,19 +85,21 @@ def summary(
     info("Results obtained!")
 
     # aggregate the partial summaries of all nodes
-    results = _aggregate_partial_summaries(results)
+    partial_results = results
+    results = _aggregate_partial_summaries(partial_results)
+
+    # median / percentiles / IQR cannot be aggregated: collect them per node
+    quantiles_per_node = _collect_quantiles_per_node(client, partial_results)
 
     # compute the variance now that we have the mean
     numerical_columns = list(results["numeric"].keys())
     means = [float(results["numeric"][column]["mean"]) for column in numerical_columns]
     if numerical_columns:
         task = client.task.create(
-            input_={
-                "method": "variance_per_data_station",
-                "kwargs": {
-                    "columns": numerical_columns,
-                    "means": means,
-                },
+            method="variance_per_data_station",
+            arguments={
+                "columns": numerical_columns,
+                "means": means,
             },
             organizations=organizations_to_include,
             name="Subtask variance",
@@ -103,13 +110,90 @@ def summary(
         # add the standard deviation to the results
         results = _add_sd_to_results(results, variance_results, numerical_columns)
 
-    # return the final results of the algorithm
+    # return the final results of the algorithm. All fields are native JSON
+    # structures (dicts / lists), not JSON strings, so the whole result can be
+    # saved with json.dump and read back with json.load as a single document.
     return {
-        "numeric": js.dumps(results["numeric"], indent=2),
-        "categorical": results["categorical"].to_json(),
-        "counts_unique_values": results["counts_unique_values"].to_json(),
-        "num_complete_rows_per_node": results["num_complete_rows_per_node"].to_json(),
+        "numeric": _to_native_json(results["numeric"]),
+        "categorical": _to_native_json(results["categorical"]),
+        "counts_unique_values": _to_native_json(results["counts_unique_values"]),
+        "num_complete_rows_per_node": _to_native_json(
+            results["num_complete_rows_per_node"]
+        ),
+        "quantiles_per_node": quantiles_per_node,
     }
+
+
+def _to_native_json(obj: pd.DataFrame | pd.Series) -> dict:
+    """
+    Convert a pandas object to plain Python dicts/lists that are valid JSON.
+
+    Going through pandas' to_json takes care of numpy types and converts NaN to
+    null (plain json.dumps would write NaN, which is not valid JSON).
+    """
+    return json.loads(obj.to_json())
+
+
+def _collect_quantiles_per_node(
+    client: AlgorithmClient, results: list[dict]
+) -> list[dict]:
+    """
+    Collect the (non-aggregatable) median, quartiles, IQR and percentiles of each
+    node in a long-format table: one row per (organization, column).
+
+    Parameters
+    ----------
+    client : AlgorithmClient
+        The client, used to look up the organization names.
+    results : list[dict]
+        The partial summaries of all nodes.
+
+    Returns
+    -------
+    list[dict]
+        e.g. [{"organization_id": 1, "organization_name": "Hospital A",
+               "column": "age", "median": 54.0, "q1": .., "q3": .., "iqr": ..,
+               "p25": .., "p50": .., "p75": ..}, ...]
+    """
+    rows = []
+    for result in results:
+        if not result:
+            continue
+        org_id = result.get("organization_id")
+        org_name = _get_organization_name(client, org_id)
+        quantiles = result.get("quantiles")
+        if quantiles is None:
+            warning(
+                f"Organization {org_id} did not share median/percentiles (node policy)"
+            )
+            continue
+        for column, stats in quantiles.items():
+            rows.append(
+                {
+                    "organization_id": org_id,
+                    "organization_name": org_name,
+                    "column": column,
+                    **stats,
+                }
+            )
+    # sort so that the order is deterministic (results arrive in arbitrary order)
+    rows.sort(
+        key=lambda r: (
+            r["organization_id"] if r["organization_id"] is not None else -1,
+            r["column"],
+        )
+    )
+    return rows
+
+
+def _get_organization_name(client: AlgorithmClient, org_id: int | None) -> str | None:
+    """Look up the name of an organization; return None if that fails."""
+    if org_id is None:
+        return None
+    try:
+        return client.organization.get(org_id).get("name")
+    except Exception:  # noqa: BLE001 - name is only a nice-to-have
+        return None
 
 
 def _aggregate_partial_summaries(results: list[dict]) -> dict:
@@ -124,10 +208,15 @@ def _aggregate_partial_summaries(results: list[dict]) -> dict:
     aggregated_summary = {}
     is_first = True
     for result in results:
+        if result is None:
+            raise AlgorithmExecutionError(
+                "At least one of the nodes returned invalid result. Please check the "
+                "logs."
+            )
         if is_first:
             # copy results. Only convert num complete rows per node to a list so that
             # we can add the other nodes to it later
-            aggregated_summary["numeric"] = result["numeric"]
+            aggregated_summary["numeric"] = pd.DataFrame(result["numeric"])
             aggregated_summary["categorical"] = pd.DataFrame(result["categorical"])
             aggregated_summary["counts_unique_values"] = pd.DataFrame(
                 result["counts_unique_values"]
@@ -135,59 +224,31 @@ def _aggregate_partial_summaries(results: list[dict]) -> dict:
             aggregated_summary["num_complete_rows_per_node"] = [
                 result["num_complete_rows_per_node"]
             ]
-            for column in result["numeric"]:
-                aggregated_summary["numeric"][column]["25%"] = [
-                    result["numeric"][column]["25%"]
-                ]
-                aggregated_summary["numeric"][column]["50%"] = [
-                    result["numeric"][column]["50%"]
-                ]
-                aggregated_summary["numeric"][column]["75%"] = [
-                    result["numeric"][column]["75%"]
-                ]
-                aggregated_summary["numeric"][column]["IQR"] = [
-                    result["numeric"][column]["IQR"]
-                ]
             is_first = False
             continue
 
         # aggregate data for numeric colums
         numeric_result = pd.DataFrame(result["numeric"])
         if not numeric_result.empty:
-            for column in numeric_result.columns:
-                aggregated_summary["numeric"][column]["count"] += float(
-                    numeric_result.at["count", column]
-                )
-                aggregated_summary["numeric"][column]["min"] = float(
-                    min(
-                        aggregated_summary["numeric"][column]["min"],
-                        numeric_result.at["min", column],
-                    )
-                )
-                aggregated_summary["numeric"][column]["max"] = float(
-                    max(
-                        aggregated_summary["numeric"][column]["max"],
-                        numeric_result.at["max", column],
-                    )
-                )
-                aggregated_summary["numeric"][column]["missing"] += float(
-                    numeric_result.at["missing", column]
-                )
-                aggregated_summary["numeric"][column]["sum"] += float(
-                    numeric_result.at["sum", column]
-                )
-                aggregated_summary["numeric"][column]["25%"].append(
-                    result["numeric"][column]["25%"]
-                )
-                aggregated_summary["numeric"][column]["50%"].append(
-                    result["numeric"][column]["50%"]
-                )
-                aggregated_summary["numeric"][column]["75%"].append(
-                    result["numeric"][column]["75%"]
-                )
-                aggregated_summary["numeric"][column]["IQR"].append(
-                    result["numeric"][column]["IQR"]
-                )
+            aggregated_summary["numeric"].loc["count"] += numeric_result.loc["count"]
+            aggregated_summary["numeric"].loc["min"] = pd.concat(
+                [
+                    aggregated_summary["numeric"].loc["min"],
+                    numeric_result.loc["min"],
+                ],
+                axis=1,
+            ).min(axis=1)
+            aggregated_summary["numeric"].loc["max"] = pd.concat(
+                [
+                    aggregated_summary["numeric"].loc["max"],
+                    numeric_result.loc["max"],
+                ],
+                axis=1,
+            ).max(axis=1)
+            aggregated_summary["numeric"].loc["missing"] += numeric_result.loc[
+                "missing"
+            ]
+            aggregated_summary["numeric"].loc["sum"] += numeric_result.loc["sum"]
 
         # aggregate data for categorical columns
         categorical_result = pd.DataFrame(result["categorical"])
@@ -212,13 +273,11 @@ def _aggregate_partial_summaries(results: list[dict]) -> dict:
             ].add(unique_values_result, fill_value=0)
 
     # now that all data is aggregated, we can compute the mean
-    if bool(aggregated_summary["numeric"]):
-        for column in aggregated_summary["numeric"]:
-            if aggregated_summary["numeric"][column]["count"]:
-                aggregated_summary["numeric"][column]["mean"] = (
-                    aggregated_summary["numeric"][column]["sum"]
-                    / aggregated_summary["numeric"][column]["count"]
-                )
+    if not aggregated_summary["numeric"].empty:
+        aggregated_summary["numeric"].loc["mean"] = (
+            aggregated_summary["numeric"].loc["sum"]
+            / aggregated_summary["numeric"].loc["count"]
+        )
 
     # convert the list of complete rows per node to a pandas series
     aggregated_summary["num_complete_rows_per_node"] = pd.Series(
@@ -251,13 +310,7 @@ def _add_sd_to_results(
         return results
     variance_df = pd.DataFrame(variance_results)
     variance_sum_all_nodes = variance_df.sum()
-    for column in numerical_columns:
-        if results["numeric"][column]["count"] > 1:
-            results["numeric"][column]["std"] = (
-                float(
-                    variance_sum_all_nodes[column]
-                    / (results["numeric"][column]["count"] - 1)
-                )
-                ** 0.5
-            )
+    results["numeric"].loc["std"] = (
+        variance_sum_all_nodes / (results["numeric"].loc["count"] - 1)
+    ) ** 0.5
     return results

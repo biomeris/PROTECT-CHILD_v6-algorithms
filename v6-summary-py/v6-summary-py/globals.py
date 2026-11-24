@@ -24,8 +24,13 @@ class EnvVarsAllowed(Enum):
     ALLOW_VARIANCE = "SUMMARY_ALLOW_VARIANCE"
     ALLOW_COUNTS_UNIQUE_VALUES = "SUMMARY_ALLOW_COUNTS_UNIQUE_VALUES"
     ALLOW_NUM_COMPLETE_ROWS = "SUMMARY_ALLOW_NUM_COMPLETE_ROWS"
+    ALLOW_QUANTILES = "SUMMARY_ALLOW_QUANTILES"
 
 
 # default values for environment variables
 DEFAULT_MINIMUM_ROWS = 5
 DEFAULT_PRIVACY_THRESHOLD = 5
+
+# percentiles that are always computed per node (first quartile, median, third
+# quartile), needed to compute the interquartile range
+DEFAULT_PERCENTILES = [0.25, 0.5, 0.75]

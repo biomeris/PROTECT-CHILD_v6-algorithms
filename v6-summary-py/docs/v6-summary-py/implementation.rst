@@ -61,10 +61,10 @@ node.
 ``summary_per_data_station``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This function computes the min, max, quantiles, IQR, count, sum, and the number of 
-missing values for each numerical column. For categorical columns, the function computes
-the count, the number of missing values, and the count of each unique value. Finally, it
-computes the number of rows in the dataset that do not have any missing values.
+This function computes the min, max, count, sum, and the number of missing values for
+each numerical column. For categorical columns, the function computes the count, the
+number of missing values, and the count of each unique value. Finally, it computes the
+number of rows in the dataset that do not have any missing values.
 
 This partial function includes several privacy checks - see the
 :ref:`privacy guards <privacy-guards>` section for more information.

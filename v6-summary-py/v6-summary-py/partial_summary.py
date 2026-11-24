@@ -7,13 +7,18 @@ encryption if that is enabled). From there, they are sent to the partial task
 or directly to the user (if they requested partial results).
 """
 
-import pandas as pd
-import numpy as np
+import os
 
-from vantage6.algorithm.tools.util import info, warn, get_env_var
-from vantage6.algorithm.tools.decorators import data
+import pandas as pd
+
+from vantage6.common import info, warning
+from vantage6.common.globals import ContainerEnvNames
+from vantage6.algorithm.tools.util import get_env_var
+from vantage6.algorithm.decorator.action import federated
+from vantage6.algorithm.decorator.data import dataframe
 from vantage6.algorithm.tools.exceptions import InputError
 from .globals import (
+    DEFAULT_PERCENTILES,
     DEFAULT_PRIVACY_THRESHOLD,
     ENVVAR_PRIVACY_THRESHOLD,
     EnvVarsAllowed,
@@ -21,11 +26,13 @@ from .globals import (
 from .utils import check_privacy, check_match_inferred_numeric
 
 
-@data(1)
+@federated
+@dataframe(1)
 def summary_per_data_station(
     df: pd.DataFrame,
     columns: list[str] | None = None,
     numeric_columns: list[str] | None = None,
+    percentiles: list[float] | None = None,
 ) -> dict:
     """
     Compute the summary statistics for a single data station to share with the
@@ -41,6 +48,10 @@ def summary_per_data_station(
     numeric_columns : list[str] | None
         List of columns that are numeric. If not provided, it will be inferred from the
         data.
+    percentiles : list[float] | None
+        Extra percentiles (between 0 and 1) to compute for the numeric columns, on
+        top of the first quartile, median and third quartile that are always
+        computed. These are local to this data station: they are NOT aggregated.
 
     Returns
     -------
@@ -48,13 +59,14 @@ def summary_per_data_station(
         The summary statistics for the data station. If the summary statistics cannot
         be computed, None is returned
     """
-    return _summary_per_data_station(df, columns, numeric_columns)
+    return _summary_per_data_station(df, columns, numeric_columns, percentiles)
 
 
 def _summary_per_data_station(
     df: pd.DataFrame,
     columns: list[str] | None = None,
     numeric_columns: list[str] | None = None,
+    percentiles: list[float] | None = None,
 ) -> dict:
     if not columns:
         columns = df.columns
@@ -74,8 +86,9 @@ def _summary_per_data_station(
     check_privacy(df, columns)
 
     # Split the data in numeric and non-numeric columns
-    # inferred_numeric_columns = [df[col].name in [int, float] for col in df.columns]
-    inferred_numeric_columns = df.select_dtypes(include=[int, float]).columns.tolist()
+    inferred_numeric_columns = [
+        col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])
+    ]
     if numeric_columns is None:
         numeric_columns = inferred_numeric_columns
     else:
@@ -88,8 +101,10 @@ def _summary_per_data_station(
 
     # compute data summary for numeric columns
     summary_numeric = pd.DataFrame()
+    quantiles = {}
     if not df_numeric.empty:
         summary_numeric = _get_numeric_summary(df_numeric)
+        quantiles = _get_quantiles(df_numeric, percentiles)
 
     # compute data summary for non-numeric columns. Also compute the counts of the
     # unique values in the non-numeric columns (if they meet the privacy threshold)
@@ -109,7 +124,7 @@ def _summary_per_data_station(
     if not get_env_var(
         EnvVarsAllowed.ALLOW_NUM_COMPLETE_ROWS.value, default="true", as_type="bool"
     ):
-        warn(
+        warning(
             "Removing number of complete rows from summary as policies do not "
             "allow sharing it."
         )
@@ -117,13 +132,25 @@ def _summary_per_data_station(
     if not get_env_var(
         EnvVarsAllowed.ALLOW_COUNTS_UNIQUE_VALUES.value, default="true", as_type="bool"
     ):
-        warn(
+        warning(
             "Removing counts of unique values from summary as policies do not "
             "allow sharing it."
         )
         counts_unique_values = None
+    if not get_env_var(
+        EnvVarsAllowed.ALLOW_QUANTILES.value, default="true", as_type="bool"
+    ):
+        warning(
+            "Removing median, percentiles and IQR from summary as policies do not "
+            "allow sharing them."
+        )
+        quantiles = None
 
     return {
+        # organization id of this node, so that the per-node results (which are not
+        # aggregated) can be traced back to the data station they come from
+        "organization_id": _get_organization_id(),
+        "quantiles": quantiles,
         "numeric": summary_numeric.to_dict(),
         "categorical": summary_categorical.to_dict(),
         "num_complete_rows_per_node": num_complete_rows_per_node,
@@ -140,12 +167,78 @@ def _get_numeric_summary(df: pd.DataFrame) -> pd.DataFrame:
     df : pd.DataFrame
         The data to compute the summary statistics for
     """
-    summary_numeric = df.describe(include=[int, float], percentiles=[0.25, 0.5, 0.75])
-    summary_numeric.loc["IQR"] = summary_numeric.loc["75%"] - summary_numeric.loc["25%"]
+    summary_numeric = df.describe(include=[int, float], percentiles=[])
     summary_numeric.loc["missing"] = df.isna().sum()
     summary_numeric.loc["sum"] = df.sum()
-    summary_numeric.drop(["mean", "std"], inplace=True)
+    # Depending on pandas version / describe settings, some statistic rows may
+    # not be present. Make this robust to avoid crashes on nodes.
+    summary_numeric.drop(["50%", "mean", "std"], inplace=True, errors="ignore")
     return summary_numeric
+
+
+def _get_organization_id() -> int | None:
+    """Return the id of the organization this node belongs to (or None)."""
+    org_id = os.environ.get(ContainerEnvNames.ORGANIZATION_ID.value)
+    try:
+        return int(org_id) if org_id is not None else None
+    except ValueError:
+        return None
+
+
+def percentile_label(q: float) -> str:
+    """Label for a percentile, e.g. 0.25 -> 'p25', 0.025 -> 'p2.5'"""
+    return f"p{q * 100:g}"
+
+
+def _get_quantiles(df: pd.DataFrame, percentiles: list[float] | None) -> dict:
+    """
+    Compute median, quartiles, interquartile range and (optionally) extra
+    percentiles for the numeric columns of this data station.
+
+    Note that these statistics can NOT be aggregated over nodes without sharing
+    the individual values, so they are only meaningful per data station.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The numeric data
+    percentiles : list[float] | None
+        Extra percentiles (between 0 and 1) to compute
+
+    Returns
+    -------
+    dict
+        {column: {"median": .., "q1": .., "q3": .., "iqr": .., "p25": .., ...}}
+    """
+    if percentiles:
+        invalid = [q for q in percentiles if not 0 <= q <= 1]
+        if invalid:
+            raise InputError(
+                f"Percentiles should be between 0 and 1. Invalid values: {invalid}"
+            )
+    qs = sorted(set(DEFAULT_PERCENTILES) | set(percentiles or []))
+
+    # NaN values are ignored by pandas when computing quantiles (linear
+    # interpolation, the same default as numpy / R type 7)
+    quantile_df = df.astype(float).quantile(qs)
+
+    result = {}
+    for col in df.columns:
+        col_q = quantile_df[col]
+        q1, median, q3 = col_q.loc[0.25], col_q.loc[0.5], col_q.loc[0.75]
+        result[col] = {
+            "median": _to_float(median),
+            "q1": _to_float(q1),
+            "q3": _to_float(q3),
+            "iqr": _to_float(q3 - q1),
+            **{percentile_label(q): _to_float(col_q.loc[q]) for q in qs},
+        }
+    return result
+
+
+def _to_float(value) -> float | None:
+    """Convert numpy value to a JSON-serializable float (NaN -> None)"""
+    return None if pd.isna(value) else float(value)
 
 
 def _get_categorical_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -161,7 +254,9 @@ def _get_categorical_summary(df: pd.DataFrame) -> pd.DataFrame:
     # that we don't want to share
     summary_categorical = df.describe(exclude=[int, float])
     summary_categorical.loc["missing"] = df.isna().sum()
-    summary_categorical.drop(["top", "freq", "unique"], inplace=True)
+    # These rows may not always be present (e.g. depending on pandas dtype
+    # inference). Don't fail the computation if they are missing.
+    summary_categorical.drop(["top", "freq", "unique"], inplace=True, errors="ignore")
     return summary_categorical
 
 
@@ -216,7 +311,7 @@ def _mask_privacy(counts: pd.Series, privacy_threshold: int, column: str) -> dic
         # Because it is rather difficult to ensure that nothing can be inferred, we
         # choose not to share anything if one of the frequencies is too low.
         # TODO how do we make clear to the user that this happened in the central task?
-        warn(
+        warning(
             f"Value counts for column {column} contain values with low frequency. "
             "All counts for this column will be masked."
         )
@@ -243,22 +338,22 @@ def _filter_results(
         The filtered summary statistics for the numeric and non-numeric columns
     """
     if not get_env_var(EnvVarsAllowed.ALLOW_MIN.value, default="true", as_type="bool"):
-        warn("Removing minimum from summary as policies do not allow sharing it.")
+        warning("Removing minimum from summary as policies do not allow sharing it.")
         summary_numeric.drop("min", inplace=True)
     if not get_env_var(EnvVarsAllowed.ALLOW_MAX.value, default="true", as_type="bool"):
-        warn("Removing maximum from summary as policies do not allow sharing it.")
+        warning("Removing maximum from summary as policies do not allow sharing it.")
         summary_numeric.drop("max", inplace=True)
     if not get_env_var(
         EnvVarsAllowed.ALLOW_COUNT.value, default="true", as_type="bool"
     ):
-        warn("Removing count from summary as policies do not allow sharing it.")
+        warning("Removing count from summary as policies do not allow sharing it.")
         summary_numeric.drop("count", inplace=True)
     if not get_env_var(EnvVarsAllowed.ALLOW_SUM.value, default="true", as_type="bool"):
-        warn("Removing sum from summary as policies do not allow sharing it.")
+        warning("Removing sum from summary as policies do not allow sharing it.")
         summary_numeric.drop("sum", inplace=True)
     if not get_env_var(
         EnvVarsAllowed.ALLOW_MISSING.value, default="true", as_type="bool"
     ):
-        warn("Removing missing from summary as policies do not allow sharing it.")
+        warning("Removing missing from summary as policies do not allow sharing it.")
         summary_numeric.drop("missing", inplace=True)
     return summary_numeric, summary_categorical

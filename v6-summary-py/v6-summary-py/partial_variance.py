@@ -9,14 +9,17 @@ or directly to the user (if they requested partial results).
 
 import pandas as pd
 
-from vantage6.algorithm.tools.util import info, error, get_env_var
-from vantage6.algorithm.tools.decorators import data
+from vantage6.common import info, error
+from vantage6.algorithm.tools.util import get_env_var
+from vantage6.algorithm.decorator.action import federated
+from vantage6.algorithm.decorator.data import dataframe
 from vantage6.algorithm.tools.exceptions import InputError
 from .utils import check_privacy, cast_df_to_numeric
 from .globals import EnvVarsAllowed
 
 
-@data(1)
+@federated
+@dataframe(1)
 def variance_per_data_station(
     df: pd.DataFrame, columns: list[str], means: list[float]
 ) -> dict:

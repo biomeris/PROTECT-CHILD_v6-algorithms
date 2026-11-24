@@ -23,6 +23,14 @@ Input arguments
      - List of integers
      - Which organizations to include in the computation.
 
+Session workflow
+----------------
+
+Ensure that you have loaded the data into a dataframe in a session. To do so, run a
+**data extraction** step first (for example ``read_csv`` from
+`v6-extract-basics-py <https://github.com/vantage6/v6-extract-basics-py>`_). Data
+extraction functions are not included in this algorithm.
+
 Python client example
 ---------------------
 
@@ -47,23 +55,20 @@ first, especially the part about the
   client.setup_encryption(private_key)
   client.authenticate(username, password)
 
-  input_ = {
-    'method': 'summary',
-    'kwargs': {
-        'columns': ["age", "isOverweight"],
-    }
-  }
-
   my_task = client.task.create(
       collaboration=1,
       organizations=[1],
       name='Compute data summary',
       description='Create a data summary',
-      image='',
-      input=input_,
+      image='ghcr.io/vantage6/algorithm/summary:latest',
+      method='summary',
+      arguments={
+          'columns': ["age", "isOverweight"],
+      },
+      session=1,  # replace with your session id
       databases=[
-          {'label': 'default'}
-      ]
+          {'type': 'dataframe', 'dataframe_id': 1},
+      ],
   )
 
   task_id = my_task.get('id')

@@ -1,25 +1,35 @@
-VANTAGE6_VERSION ?= 4.0.0
+VANTAGE6_VERSION ?= 5.0.0
 TAG ?= latest
-REGISTRY ?= harbor2.vantage6.ai
+REGISTRY ?= ghcr.io/vantage6
 PLATFORMS ?= linux/amd64
+IMAGE ?= ${REGISTRY}/algorithm/summary
 
-# Use `make PUSH_REG=true` to push images to registry after building
+VANTAGE6_MAJOR := $(firstword $(subst ., ,$(VANTAGE6_VERSION)))
+
+INCLUDE_V6_MAJOR_TAG ?= true
+
 PUSH_REG ?= false
 
-# We use a conditional (true on any non-empty string) later. To avoid
-# accidents, we don't use user-controlled PUSH_REG directly.
-# See: https://www.gnu.org/software/make/manual/html_node/Conditional-Functions.html
 _condition_push :=
 ifeq ($(PUSH_REG), true)
 	_condition_push := not_empty_so_true
 endif
 
+.PHONY: image
 image:
-	@echo "Building ${REGISTRY}/algorithms/summary:${TAG}-v6-${VANTAGE6_VERSION}"
-	@echo "Building ${REGISTRY}/algorithms/summary:latest"
+	@set -e; \
+	echo "Building ${IMAGE}:${TAG}-v6-${VANTAGE6_VERSION}"; \
+	echo "Building ${IMAGE}:latest"; \
+	EXTRA_MAJOR=""; \
+	if [ "$(INCLUDE_V6_MAJOR_TAG)" = true ]; then \
+	  echo "Building ${IMAGE}:${VANTAGE6_MAJOR}"; \
+	  EXTRA_MAJOR='--tag ${IMAGE}:${VANTAGE6_MAJOR}'; \
+	fi; \
 	docker buildx build \
-		--tag ${REGISTRY}/algorithms/summary:${TAG}-v6-${VANTAGE6_VERSION} \
-		--tag ${REGISTRY}/algorithms/summary:${TAG} \
+		--tag ${IMAGE}:${TAG}-v6-${VANTAGE6_VERSION} \
+		--tag ${IMAGE}:${TAG} \
+		--tag ${IMAGE}:latest \
+		$$EXTRA_MAJOR \
 		--platform ${PLATFORMS} \
 		-f ./Dockerfile \
 		$(if ${_condition_push},--push .,.)
